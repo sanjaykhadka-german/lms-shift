@@ -152,6 +152,59 @@ export async function revokeKioskAction(formData: FormData): Promise<void> {
   revalidatePath("/app/admin/kiosks");
 }
 
+// Hard delete — only permitted on already-revoked rows. Forces the operator
+// through Revoke first so an active kiosk can't be wiped from under live
+// use. Past punches at the device's location stay intact in sc_clock_events
+// (they're keyed on location_id + source='kiosk', not on the kiosk row),
+// so timesheets and the employee-side history keep working — only the
+// device-detail audit page at /app/admin/kiosks/<id> stops resolving.
+export async function deleteKioskAction(formData: FormData): Promise<void> {
+  const deviceId = String(formData.get("deviceId") ?? "");
+  if (!deviceId) return;
+
+  const membership = await currentMembership();
+  if (!membership || !isAtLeastManager(membership.role)) return;
+  const tenantId = membership.tenant.id;
+
+  const [row] = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({
+        revokedAt: scKioskDevices.revokedAt,
+        label: scKioskDevices.label,
+      })
+      .from(scKioskDevices)
+      .where(
+        and(
+          eq(scKioskDevices.id, deviceId),
+          eq(scKioskDevices.traceyTenantId, tenantId),
+        ),
+      )
+      .limit(1),
+  );
+  if (!row || !row.revokedAt) return;
+
+  await forTenant(tenantId).run((tx) =>
+    tx
+      .delete(scKioskDevices)
+      .where(
+        and(
+          eq(scKioskDevices.id, deviceId),
+          eq(scKioskDevices.traceyTenantId, tenantId),
+        ),
+      ),
+  );
+
+  await logAuditEvent({
+    action: "shiftcraft.kiosk.deleted",
+    targetKind: "sc_kiosk_device",
+    targetId: deviceId,
+    details: { label: row.label },
+  });
+
+  revalidatePath("/app/admin/kiosks");
+  redirect("/app/admin/kiosks");
+}
+
 export async function toggleSelfieRequiredAction(
   formData: FormData,
 ): Promise<void> {

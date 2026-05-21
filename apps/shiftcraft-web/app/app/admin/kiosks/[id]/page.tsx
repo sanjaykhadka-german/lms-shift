@@ -18,6 +18,7 @@ import {
   revokeKioskAction,
   toggleSelfieRequiredAction,
 } from "../actions";
+import { DeleteKioskButton } from "../_delete_button";
 
 export const metadata = { title: "Kiosk · ShiftCraft" };
 export const dynamic = "force-dynamic";
@@ -258,7 +259,13 @@ export default async function KioskDetailPage({
                 Revoke
               </Button>
             </form>
-          ) : null}
+          ) : (
+            <DeleteKioskButton
+              deviceId={device.id}
+              label={device.label}
+              variant="detail"
+            />
+          )}
         </div>
       </section>
 

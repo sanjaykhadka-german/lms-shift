@@ -13,6 +13,7 @@ import { currentMembership } from "~/lib/auth/current";
 import { isAtLeastManager } from "~/lib/roles";
 import { Button } from "~/components/ui/button";
 import { PairKioskForm } from "./_pair_form";
+import { DeleteKioskButton } from "./_delete_button";
 import {
   regeneratePairingCodeAction,
   revokeKioskAction,
@@ -304,7 +305,13 @@ export default async function KiosksAdminPage({
                           Revoke
                         </Button>
                       </form>
-                    ) : null}
+                    ) : (
+                      <DeleteKioskButton
+                        deviceId={d.id}
+                        label={d.label}
+                        variant="row"
+                      />
+                    )}
                   </div>
                 </li>
               );
