@@ -38,7 +38,20 @@ const CODE_RE = /^[A-Z2-9]{12}$/;
 // Loose UUID-ish guard. Real validation is the FK + WHERE clause below.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function errorRedirect(origin: URL, reason: string): NextResponse {
+// Render's proxy serves the app on an internal port (request.url comes
+// through as http://localhost:10000/kiosk/pair?...). Resolving the
+// redirect target against that would point the kiosk's browser back at
+// the proxy's internal address. Build the public origin from the
+// forwarded headers so the Location header points at the real hostname.
+function publicOrigin(request: Request): string {
+  const h = request.headers;
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const host =
+    h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:4100";
+  return `${proto}://${host}`;
+}
+
+function errorRedirect(origin: string, reason: string): NextResponse {
   const target = new URL("/kiosk", origin);
   target.searchParams.set("error", reason);
   return NextResponse.redirect(target);
@@ -46,11 +59,12 @@ function errorRedirect(origin: URL, reason: string): NextResponse {
 
 export async function GET(request: Request): Promise<NextResponse> {
   const url = new URL(request.url);
+  const origin = publicOrigin(request);
   const code = (url.searchParams.get("code") ?? "").trim();
   const tenantId = (url.searchParams.get("t") ?? "").trim();
 
   if (!CODE_RE.test(code) || !UUID_RE.test(tenantId)) {
-    return errorRedirect(url, "bad_link");
+    return errorRedirect(origin, "bad_link");
   }
 
   let claimed: { id: string; locationId: string } | null = null;
@@ -81,11 +95,11 @@ export async function GET(request: Request): Promise<NextResponse> {
   } catch (err) {
     // Tenant id that doesn't resolve to a schema throws — treat as bad link.
     console.error("[kiosk/pair] claim failed:", err);
-    return errorRedirect(url, "bad_link");
+    return errorRedirect(origin, "bad_link");
   }
 
   if (!claimed) {
-    return errorRedirect(url, "code_invalid");
+    return errorRedirect(origin, "code_invalid");
   }
 
   const cookieValue = signDeviceCookie({
@@ -94,7 +108,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     locationId: claimed.locationId,
   });
 
-  const response = NextResponse.redirect(new URL("/kiosk", url));
+  const response = NextResponse.redirect(new URL("/kiosk", origin));
   response.cookies.set(KIOSK_DEVICE_COOKIE, cookieValue, KIOSK_COOKIE_OPTS);
   return response;
 }
