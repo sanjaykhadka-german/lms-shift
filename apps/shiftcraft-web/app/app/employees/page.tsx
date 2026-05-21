@@ -173,6 +173,21 @@ export default async function EmployeesPage({
                   >
                     {friendlyRoleLabel(r.role)}
                   </span>
+                  {r.shiftcraft ? (
+                    <Button asChild variant="outline" size="sm">
+                      <Link href={`/app/employees/${r.shiftcraft.id}/edit`}>
+                        Edit
+                      </Link>
+                    </Button>
+                  ) : (
+                    <Button asChild variant="outline" size="sm">
+                      <Link
+                        href={`/app/employees/new?email=${encodeURIComponent(r.email)}&fullName=${encodeURIComponent(r.name ?? "")}`}
+                      >
+                        Add to roster
+                      </Link>
+                    </Button>
+                  )}
                 </div>
               </li>
             ))}

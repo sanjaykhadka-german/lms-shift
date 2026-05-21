@@ -7,9 +7,15 @@ import { EmployeeForm } from "./_form";
 
 export const metadata = { title: "Add employee · ShiftCraft" };
 
-export default async function NewEmployeePage() {
+export default async function NewEmployeePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ email?: string; fullName?: string }>;
+}) {
   const membership = await currentMembership();
   if (!membership) redirect("/app");
+
+  const { email, fullName } = await searchParams;
 
   const departments = await forTenant(membership.tenant.id).run((tx) =>
     tx
@@ -18,6 +24,25 @@ export default async function NewEmployeePage() {
       .where(eq(scDepartments.traceyTenantId, membership.tenant.id))
       .orderBy(asc(scDepartments.name)),
   );
+
+  // When linked from the "Add to roster" affordance on /app/employees, the
+  // query string pre-fills name + email so the manager doesn't retype and
+  // — more importantly — the email matches the existing app.users row so
+  // the dedupe logic on the list page later merges the two records into
+  // one. Other fields stay default.
+  const prefilled =
+    email || fullName
+      ? {
+          fullName: fullName ?? "",
+          email: email ?? null,
+          mobile: null,
+          department: null,
+          employmentType: "permanent",
+          hourlyRate: null,
+          notes: null,
+          availability: null,
+        }
+      : undefined;
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
@@ -41,6 +66,7 @@ export default async function NewEmployeePage() {
 
       <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
         <EmployeeForm
+          defaultValues={prefilled}
           departmentSuggestions={departments.map((d) => d.name)}
         />
       </section>
