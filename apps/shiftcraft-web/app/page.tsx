@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Logo } from "~/components/Logo";
 import { initials } from "~/lib/utils";
+import { Pricing } from "./_pricing";
 
 const features = [
   {
@@ -59,6 +60,12 @@ export default function MarketingHome() {
             <Logo />
           </Link>
           <nav className="flex items-center gap-3">
+            <Link
+              href="#pricing"
+              className="hidden text-sm font-medium text-muted-foreground hover:text-foreground sm:inline"
+            >
+              Pricing
+            </Link>
             <Link
               href="/sign-in"
               className="text-sm font-medium text-muted-foreground hover:text-foreground"
@@ -225,6 +232,8 @@ export default function MarketingHome() {
         </div>
       </section>
 
+      <Pricing />
+
       <section className="mx-auto max-w-4xl px-6 py-20 text-center">
         <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
           01 / Try it
@@ -259,6 +268,9 @@ export default function MarketingHome() {
         <div className="mx-auto flex max-w-6xl flex-col items-start gap-3 px-6 py-8 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
           <span>© {new Date().getFullYear()} ShiftCraft · part of Tracey</span>
           <nav className="flex items-center gap-4">
+            <Link href="#pricing" className="hover:text-foreground">
+              Pricing
+            </Link>
             <Link href="/sign-in" className="hover:text-foreground">
               Sign in
             </Link>
