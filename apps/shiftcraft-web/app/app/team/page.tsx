@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
 import { db, members, users as appUsers, type Role } from "@tracey/db";
@@ -74,8 +75,14 @@ export default async function TeamPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Team</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Who's in {membership.tenant.name} and what each tier can do.
-          Members and roles are managed from the Tracey LMS members page —
-          changes flow through to ShiftCraft automatically.
+          Managers can invite, revoke, or change roles from{" "}
+          <Link
+            href="/app/admin/members"
+            className="font-medium text-foreground underline-offset-4 hover:underline"
+          >
+            Members
+          </Link>
+          .
         </p>
       </div>
 
