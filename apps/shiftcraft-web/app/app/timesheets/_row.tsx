@@ -2,27 +2,55 @@
 
 import { useState, type ReactNode } from "react";
 
-// Per-day expansion row. The parent server component pre-formats every
-// display string (clock labels, hours, currency) so this client component
-// stays dumb — no server-only imports, no date math. ApprovalCell renders
-// server-side and is passed in as a ReactNode prop.
+// Per-day expansion row + anomaly chips + scheduled-vs-actual subscripts +
+// per-segment audit detail (source / location / selfie thumbnail).
+//
+// Server pre-formats every display string so this client component stays
+// dumb — no server-only imports, no date math, no currency math. Display
+// data is opaque strings; structural data (selfieEventId, anomalies array)
+// drives the conditional render.
 
-export interface RowSegmentLabel {
+export interface RowSegmentDisplay {
   kind: "work" | "break";
+  /** Pre-formatted "07:30–12:00 (4h 30m)". */
   label: string;
+  /** "Kiosk" / "Manual" / "Admin edit" / "Geofence". */
+  sourceLabel: string;
+  /** sc_locations.name when the opening event carried a location. */
+  locationName: string | null;
+  /** When non-null, /api/kiosk-selfie/<id> serves a 32×24 thumbnail of
+   *  the selfie captured at this opening event. */
+  selfieEventId: string | null;
 }
 
 export interface RowDayDetail {
+  /** "Mon 19 May". */
   dayLabel: string;
-  segments: RowSegmentLabel[];
+  /** "Planned 8h" or null when nothing scheduled. */
+  plannedLabel: string | null;
+  /** "Actual 7h 30m". */
+  actualLabel: string;
+  /** "Δ -30m" / "Δ +1h" / null when no planned shift. */
+  deltaLabel: string | null;
+  deltaTone: "neutral" | "amber" | "emerald" | null;
+  segments: RowSegmentDisplay[];
 }
+
+export type AnomalyKind =
+  | "overtime_week"
+  | "long_shift"
+  | "no_clockout"
+  | "no_show";
 
 export interface RowProps {
   userId: string;
   name: string;
   email: string;
   deptLabel: string | null;
-  perDayDisplay: string[];
+  /** Per-day actual hours, formatted ("8:00" or "—"). Mon..Sun, length 7. */
+  perDayActualDisplay: string[];
+  /** Per-day planned hours, formatted ("8h" or "" when none). Length 7. */
+  perDayPlannedDisplay: string[];
   totalWorkDisplay: string;
   totalBreakDisplay: string;
   costDisplay: string;
@@ -31,13 +59,36 @@ export interface RowProps {
   approvalCell: ReactNode;
   isAdmin: boolean;
   showCost: boolean;
+  showCheckbox: boolean;
+  anomalies: AnomalyKind[];
 }
 
+const ANOMALY_LABEL: Record<AnomalyKind, { label: string; classes: string }> = {
+  overtime_week: {
+    label: "Overtime",
+    classes: "bg-amber-500 text-white",
+  },
+  long_shift: {
+    label: "Long shift",
+    classes: "bg-amber-500 text-white",
+  },
+  no_clockout: {
+    label: "No clock-out",
+    classes: "bg-rose-600 text-white",
+  },
+  no_show: {
+    label: "No-show",
+    classes: "bg-red-600 text-white",
+  },
+};
+
 export function TimesheetRow({
+  userId,
   name,
   email,
   deptLabel,
-  perDayDisplay,
+  perDayActualDisplay,
+  perDayPlannedDisplay,
   totalWorkDisplay,
   totalBreakDisplay,
   costDisplay,
@@ -46,6 +97,8 @@ export function TimesheetRow({
   approvalCell,
   isAdmin,
   showCost,
+  showCheckbox,
+  anomalies,
 }: RowProps) {
   const [expanded, setExpanded] = useState(false);
   const canExpand = perDayDetail.length > 0;
@@ -53,6 +106,17 @@ export function TimesheetRow({
   return (
     <>
       <tr>
+        {showCheckbox ? (
+          <td className="px-2 py-2 align-middle">
+            <input
+              type="checkbox"
+              name="userId"
+              value={userId}
+              aria-label={`Select ${name} for bulk action`}
+              className="h-4 w-4 rounded border-border"
+            />
+          </td>
+        ) : null}
         <td className="px-2 py-2 align-middle">
           {canExpand ? (
             <button
@@ -69,7 +133,20 @@ export function TimesheetRow({
           )}
         </td>
         <td className="px-4 py-2">
-          <div className="text-sm font-medium">{name}</div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-sm font-medium">{name}</span>
+            {isAdmin && anomalies.length > 0
+              ? anomalies.map((a) => (
+                  <span
+                    key={a}
+                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${ANOMALY_LABEL[a].classes}`}
+                    title={anomalyHint(a)}
+                  >
+                    {ANOMALY_LABEL[a].label}
+                  </span>
+                ))
+              : null}
+          </div>
           <div className="text-xs text-muted-foreground">
             {email}
             {isAdmin && deptLabel ? (
@@ -79,14 +156,22 @@ export function TimesheetRow({
             ) : null}
           </div>
         </td>
-        {perDayDisplay.map((s, i) => (
-          <td
-            key={i}
-            className="px-3 py-2 font-mono text-xs tabular-nums text-muted-foreground"
-          >
-            {s}
-          </td>
-        ))}
+        {perDayActualDisplay.map((actual, i) => {
+          const planned = perDayPlannedDisplay[i] ?? "";
+          return (
+            <td
+              key={i}
+              className="px-3 py-2 font-mono text-xs tabular-nums text-muted-foreground"
+            >
+              <div>{actual}</div>
+              {planned ? (
+                <div className="text-[10px] text-muted-foreground/60">
+                  /{planned}
+                </div>
+              ) : null}
+            </td>
+          );
+        })}
         <td className="px-3 py-2 font-mono text-sm tabular-nums font-semibold">
           {totalWorkDisplay}
         </td>
@@ -103,29 +188,72 @@ export function TimesheetRow({
       {expanded && canExpand ? (
         <tr className="bg-muted/30">
           <td colSpan={totalColumnCount} className="px-6 py-3">
-            <ul className="space-y-1.5 text-xs">
+            <ul className="space-y-2 text-xs">
               {perDayDetail.map((d) => (
-                <li key={d.dayLabel} className="flex flex-wrap gap-x-3 gap-y-1">
-                  <span className="min-w-[5.5rem] font-medium text-foreground">
-                    {d.dayLabel}
-                  </span>
-                  <span className="flex flex-wrap gap-2 text-muted-foreground">
-                    {d.segments.map((s, i) => (
+                <li key={d.dayLabel} className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="min-w-[5.5rem] font-medium text-foreground">
+                      {d.dayLabel}
+                    </span>
+                    {d.plannedLabel ? (
+                      <span className="text-muted-foreground">
+                        {d.plannedLabel}
+                      </span>
+                    ) : null}
+                    <span className="text-muted-foreground">
+                      · {d.actualLabel}
+                    </span>
+                    {d.deltaLabel ? (
                       <span
-                        key={i}
                         className={
-                          s.kind === "work"
-                            ? "inline-flex items-center gap-1 rounded-md bg-emerald-600/10 px-2 py-0.5 font-mono tabular-nums text-emerald-700 dark:text-emerald-400"
-                            : "inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-0.5 font-mono tabular-nums text-amber-700 dark:text-amber-400"
+                          d.deltaTone === "amber"
+                            ? "font-medium text-amber-600"
+                            : d.deltaTone === "emerald"
+                              ? "font-medium text-emerald-600"
+                              : "text-muted-foreground"
                         }
                       >
-                        <span className="text-[9px] uppercase tracking-wider opacity-70">
-                          {s.kind === "work" ? "work" : "break"}
-                        </span>
-                        {s.label}
+                        · {d.deltaLabel}
                       </span>
-                    ))}
-                  </span>
+                    ) : null}
+                  </div>
+                  {d.segments.length > 0 ? (
+                    <ul className="ml-2 flex flex-wrap gap-2 pl-4 text-[11px]">
+                      {d.segments.map((s, i) => (
+                        <li
+                          key={i}
+                          className={
+                            s.kind === "work"
+                              ? "inline-flex items-center gap-1.5 rounded-md bg-emerald-600/10 px-2 py-1 font-mono tabular-nums text-emerald-700 dark:text-emerald-400"
+                              : "inline-flex items-center gap-1.5 rounded-md bg-amber-500/10 px-2 py-1 font-mono tabular-nums text-amber-700 dark:text-amber-400"
+                          }
+                        >
+                          {s.selfieEventId ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={`/api/kiosk-selfie/${s.selfieEventId}`}
+                              alt=""
+                              width={32}
+                              height={24}
+                              className="h-6 w-8 rounded-sm border border-border object-cover"
+                            />
+                          ) : null}
+                          <span className="text-[9px] uppercase tracking-wider opacity-70">
+                            {s.kind === "work" ? "work" : "break"}
+                          </span>
+                          <span>{s.label}</span>
+                          <span className="inline-flex items-center rounded-full bg-card px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-muted-foreground ring-1 ring-border">
+                            {s.sourceLabel}
+                          </span>
+                          {s.locationName ? (
+                            <span className="text-[9px] text-muted-foreground/80">
+                              · {s.locationName}
+                            </span>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -134,4 +262,17 @@ export function TimesheetRow({
       ) : null}
     </>
   );
+}
+
+function anomalyHint(a: AnomalyKind): string {
+  switch (a) {
+    case "overtime_week":
+      return "More than 40 hours worked this week.";
+    case "long_shift":
+      return "At least one day with more than 10 hours.";
+    case "no_clockout":
+      return "An open punch was auto-closed at week end — please review.";
+    case "no_show":
+      return "Scheduled this week but never clocked in.";
+  }
 }

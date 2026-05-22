@@ -58,6 +58,43 @@ async function gateAndParse(
   };
 }
 
+// Shared upsert primitive — same shape for single and bulk actions.
+// Caller is responsible for being inside a forTenant().run() tx.
+async function upsertApproval(
+  tx: Parameters<Parameters<ReturnType<typeof forTenant>["run"]>[0]>[0],
+  tenantId: string,
+  employeeUserId: string,
+  weekStartIso: string,
+  status: "approved" | "disputed",
+  approvedByUserId: string,
+  notes: string | null,
+): Promise<void> {
+  await tx
+    .insert(scTimesheetApprovals)
+    .values({
+      traceyTenantId: tenantId,
+      employeeUserId,
+      weekStart: weekStartIso,
+      status,
+      approvedByUserId,
+      notes,
+    })
+    .onConflictDoUpdate({
+      target: [
+        scTimesheetApprovals.traceyTenantId,
+        scTimesheetApprovals.employeeUserId,
+        scTimesheetApprovals.weekStart,
+      ],
+      set: {
+        status,
+        approvedByUserId,
+        approvedAt: new Date(),
+        notes,
+        updatedAt: new Date(),
+      },
+    });
+}
+
 export async function approveTimesheetAction(
   formData: FormData,
 ): Promise<void> {
@@ -69,30 +106,15 @@ export async function approveTimesheetAction(
   const weekStartIso = fmtIsoDate(g.payload.weekStart);
 
   await forTenant(g.tenantId).run((tx) =>
-    tx
-      .insert(scTimesheetApprovals)
-      .values({
-        traceyTenantId: g.tenantId,
-        employeeUserId: g.payload.employeeUserId,
-        weekStart: weekStartIso,
-        status: "approved",
-        approvedByUserId: g.me,
-        notes: null,
-      })
-      .onConflictDoUpdate({
-        target: [
-          scTimesheetApprovals.traceyTenantId,
-          scTimesheetApprovals.employeeUserId,
-          scTimesheetApprovals.weekStart,
-        ],
-        set: {
-          status: "approved",
-          approvedByUserId: g.me,
-          approvedAt: new Date(),
-          notes: null,
-          updatedAt: new Date(),
-        },
-      }),
+    upsertApproval(
+      tx,
+      g.tenantId,
+      g.payload.employeeUserId,
+      weekStartIso,
+      "approved",
+      g.me,
+      null,
+    ),
   );
 
   await logAuditEvent({
@@ -118,30 +140,15 @@ export async function disputeTimesheetAction(
     String(formData.get("notes") ?? "").trim().slice(0, 1000) || null;
 
   await forTenant(g.tenantId).run((tx) =>
-    tx
-      .insert(scTimesheetApprovals)
-      .values({
-        traceyTenantId: g.tenantId,
-        employeeUserId: g.payload.employeeUserId,
-        weekStart: weekStartIso,
-        status: "disputed",
-        approvedByUserId: g.me,
-        notes,
-      })
-      .onConflictDoUpdate({
-        target: [
-          scTimesheetApprovals.traceyTenantId,
-          scTimesheetApprovals.employeeUserId,
-          scTimesheetApprovals.weekStart,
-        ],
-        set: {
-          status: "disputed",
-          approvedByUserId: g.me,
-          approvedAt: new Date(),
-          notes,
-          updatedAt: new Date(),
-        },
-      }),
+    upsertApproval(
+      tx,
+      g.tenantId,
+      g.payload.employeeUserId,
+      weekStartIso,
+      "disputed",
+      g.me,
+      notes,
+    ),
   );
 
   await logAuditEvent({
@@ -154,6 +161,134 @@ export async function disputeTimesheetAction(
       notes,
     },
   });
+
+  revalidatePath("/app/timesheets");
+}
+
+// ─── Bulk approve / dispute ───
+//
+// Manager+ flips status for many (employee, week) rows at once. FormData
+// shape:
+//   - weekStart: single ISO date string
+//   - userId:    repeated (one per checkbox in the bulk form)
+//
+// All upserts happen inside a single forTenant().run() tx so a failure
+// rolls back the whole batch rather than leaving the table half-updated.
+// One audit row per user — easier to grep than a single multi-target event.
+
+async function gateAndParseBulk(
+  formData: FormData,
+): Promise<
+  | {
+      ok: true;
+      tenantId: string;
+      me: string;
+      weekStart: Date;
+      employeeUserIds: string[];
+    }
+  | { ok: false; message: string }
+> {
+  const m = await currentMembership();
+  if (!m) return { ok: false, message: "Not signed in." };
+  if (!isAtLeastManager(m.role)) {
+    return { ok: false, message: "Only managers can change approval state." };
+  }
+  const me = await currentUser();
+  if (!me) return { ok: false, message: "Not signed in." };
+
+  const weekRaw = String(formData.get("weekStart") ?? "");
+  const weekParsed = parseWeekStartOrError(weekRaw);
+  if (typeof weekParsed === "string") {
+    return { ok: false, message: weekParsed };
+  }
+  const employeeUserIds = formData
+    .getAll("userId")
+    .map((v) => String(v).trim())
+    .filter((v) => v.length > 0);
+  if (employeeUserIds.length === 0) {
+    return { ok: false, message: "No employees selected." };
+  }
+  return {
+    ok: true,
+    tenantId: m.tenant.id,
+    me: me.id,
+    weekStart: weekParsed,
+    employeeUserIds,
+  };
+}
+
+export async function bulkApproveAction(formData: FormData): Promise<void> {
+  const g = await gateAndParseBulk(formData);
+  if (!g.ok) {
+    console.warn("[bulkApproveAction] refused:", g.message);
+    return;
+  }
+  const weekStartIso = fmtIsoDate(g.weekStart);
+
+  await forTenant(g.tenantId).run(async (tx) => {
+    for (const userId of g.employeeUserIds) {
+      await upsertApproval(
+        tx,
+        g.tenantId,
+        userId,
+        weekStartIso,
+        "approved",
+        g.me,
+        null,
+      );
+    }
+  });
+
+  for (const userId of g.employeeUserIds) {
+    await logAuditEvent({
+      action: "shiftcraft.timesheet.approved",
+      targetKind: "sc_timesheet_approval",
+      targetId: `${userId}:${weekStartIso}`,
+      details: { weekStart: weekStartIso, employeeUserId: userId, bulk: true },
+    });
+  }
+
+  revalidatePath("/app/timesheets");
+}
+
+export async function bulkDisputeAction(formData: FormData): Promise<void> {
+  const g = await gateAndParseBulk(formData);
+  if (!g.ok) {
+    console.warn("[bulkDisputeAction] refused:", g.message);
+    return;
+  }
+  const weekStartIso = fmtIsoDate(g.weekStart);
+  const notes =
+    String(formData.get("notes") ?? "").trim().slice(0, 1000) ||
+    "Flagged in bulk — please review punches.";
+
+  await forTenant(g.tenantId).run(async (tx) => {
+    for (const userId of g.employeeUserIds) {
+      await upsertApproval(
+        tx,
+        g.tenantId,
+        userId,
+        weekStartIso,
+        "disputed",
+        g.me,
+        notes,
+      );
+    }
+  });
+
+  for (const userId of g.employeeUserIds) {
+    await logAuditEvent({
+      action: "shiftcraft.timesheet.disputed",
+      targetKind: "sc_timesheet_approval",
+      targetId: `${userId}:${weekStartIso}`,
+      details: {
+        weekStart: weekStartIso,
+        employeeUserId: userId,
+        notes,
+        bulk: true,
+      },
+    });
+  }
 
   revalidatePath("/app/timesheets");
 }
