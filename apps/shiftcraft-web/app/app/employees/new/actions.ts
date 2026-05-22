@@ -5,10 +5,13 @@ import { redirect } from "next/navigation";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
+  db,
   forTenant,
+  members,
   scDepartments,
   scEmployeePins,
   scEmployees,
+  type Role,
 } from "@tracey/db";
 import { currentMembership, currentUser } from "~/lib/auth/current";
 import { hashPassword, verifyPassword } from "~/lib/auth/passwords";
@@ -500,6 +503,131 @@ export async function removePinAction(formData: FormData): Promise<void> {
   });
 
   revalidatePath(`/app/employees/${employeeId}/edit`);
+}
+
+// ─── Workspace role management ───
+//
+// Changes the role on `app.members` for the auth user attached to this
+// employee row. Three safety guards:
+//
+//   1. Only owners (UI label: Admin) can promote anyone TO or demote
+//      anyone FROM the owner role. Managers can only flip between
+//      member ↔ admin (Employee ↔ Manager in UI parlance).
+//   2. Last-owner protection: refuse to demote the final remaining
+//      owner so a tenant can't accidentally lock itself out of
+//      billing / membership management.
+//   3. The client component issues a confirm() prompt when the target
+//      is the viewer themselves AND the new role is lower-ranked —
+//      see _role_card.tsx.
+
+export type RoleFormState =
+  | { status: "idle" }
+  | { status: "ok"; message: string }
+  | { status: "error"; message: string };
+
+const roleSchema = z.object({
+  role: z.enum(["owner", "admin", "member"]),
+});
+
+export async function setMemberRoleAction(
+  targetAppUserId: string,
+  _prev: RoleFormState,
+  formData: FormData,
+): Promise<RoleFormState> {
+  const membership = await currentMembership();
+  if (!membership || !isAtLeastManager(membership.role)) {
+    return {
+      status: "error",
+      message: "You don't have permission to change roles.",
+    };
+  }
+  const tenantId = membership.tenant.id;
+
+  const parsed = roleSchema.safeParse({ role: formData.get("role") });
+  if (!parsed.success) {
+    return { status: "error", message: "Pick a valid role." };
+  }
+  const newRole = parsed.data.role as Role;
+
+  // Look up the target's current membership in this tenant.
+  const [target] = await db
+    .select({ id: members.id, role: members.role })
+    .from(members)
+    .where(
+      and(
+        eq(members.userId, targetAppUserId),
+        eq(members.tenantId, tenantId),
+      ),
+    )
+    .limit(1);
+  if (!target) {
+    return {
+      status: "error",
+      message: "That person isn't a member of this workspace.",
+    };
+  }
+
+  // No-op: same role selected. Silently succeed.
+  if (target.role === newRole) {
+    return { status: "ok", message: "Role unchanged." };
+  }
+
+  // Guard 1: owner-gated changes.
+  const viewerIsOwner = membership.role === "owner";
+  if (!viewerIsOwner && (newRole === "owner" || target.role === "owner")) {
+    return {
+      status: "error",
+      message: "Only an Admin can change Admin-level roles.",
+    };
+  }
+
+  // Guard 2: last-owner protection. If we're demoting the only remaining
+  // owner, refuse — they must promote someone else first.
+  if (target.role === "owner" && newRole !== "owner") {
+    const countRows = (await db
+      .select({ c: sql<number>`count(*)::int` })
+      .from(members)
+      .where(
+        and(eq(members.tenantId, tenantId), eq(members.role, "owner")),
+      )) as Array<{ c: number }>;
+    const ownerCount = countRows[0]?.c ?? 0;
+    if (ownerCount <= 1) {
+      return {
+        status: "error",
+        message:
+          "Can't demote the last Admin — promote someone else to Admin first.",
+      };
+    }
+  }
+
+  await db
+    .update(members)
+    .set({ role: newRole })
+    .where(
+      and(
+        eq(members.userId, targetAppUserId),
+        eq(members.tenantId, tenantId),
+      ),
+    );
+
+  await logAuditEvent({
+    action: "tenant.member.role_changed",
+    targetKind: "tenant_member",
+    targetId: target.id,
+    details: {
+      before: target.role,
+      after: newRole,
+      targetUserId: targetAppUserId,
+    },
+  });
+
+  // Revalidate both the edit page (so the radios reflect the new state)
+  // and the list page (so badges update).
+  const employeeId = await findEmployeeIdByAppUser(tenantId, targetAppUserId);
+  if (employeeId) revalidatePath(`/app/employees/${employeeId}/edit`);
+  revalidatePath("/app/employees");
+  revalidatePath("/app/team");
+  return { status: "ok", message: "Role updated." };
 }
 
 export async function deleteEmployeeAction(formData: FormData): Promise<void> {

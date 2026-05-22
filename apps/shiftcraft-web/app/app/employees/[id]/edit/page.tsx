@@ -2,17 +2,21 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { and, asc, eq } from "drizzle-orm";
 import {
+  db,
   forTenant,
+  members,
   scDepartments,
   scEmployeePins,
   scEmployees,
+  type Role,
 } from "@tracey/db";
-import { currentMembership } from "~/lib/auth/current";
+import { currentMembership, currentUser } from "~/lib/auth/current";
 import { isAtLeastManager } from "~/lib/roles";
 import { Button } from "~/components/ui/button";
 import { EmployeeForm } from "../../new/_form";
 import { deleteEmployeeAction } from "../../new/actions";
 import { SetPinCard } from "./_set_pin_card";
+import { RoleCard } from "./_role_card";
 
 export const metadata = { title: "Edit employee · ShiftCraft" };
 
@@ -76,6 +80,27 @@ export default async function EditEmployeePage({
         )[0] ?? null
       : null;
 
+  // Membership role for the linked auth user, if any. Lives in app.members
+  // (shared schema across all Tracey apps) so plain `db`, not forTenant.
+  const memberRow =
+    row.appUserId !== null
+      ? (
+          await db
+            .select({ role: members.role })
+            .from(members)
+            .where(
+              and(
+                eq(members.userId, row.appUserId),
+                eq(members.tenantId, tenantId),
+              ),
+            )
+            .limit(1)
+        )[0] ?? null
+      : null;
+
+  // Needed for the self-demotion confirm on the role card.
+  const viewer = await currentUser();
+
   const departments = await forTenant(tenantId).run((tx) =>
     tx
       .select({ name: scDepartments.name })
@@ -132,6 +157,15 @@ export default async function EditEmployeePage({
           appUserId={row.appUserId}
           hasPin={pinRow !== null}
           lastUsedAt={pinRow?.lastUsedAt ?? null}
+        />
+      ) : null}
+
+      {row.appUserId && memberRow && isAtLeastManager(membership.role) ? (
+        <RoleCard
+          appUserId={row.appUserId}
+          currentRole={memberRow.role as Role}
+          viewerRole={membership.role as Role}
+          isSelf={viewer?.id === row.appUserId}
         />
       ) : null}
 
