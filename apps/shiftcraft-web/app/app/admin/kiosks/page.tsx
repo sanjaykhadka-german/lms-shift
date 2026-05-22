@@ -16,6 +16,7 @@ import { PairKioskForm } from "./_pair_form";
 import { DeleteKioskButton } from "./_delete_button";
 import {
   regeneratePairingCodeAction,
+  restoreKioskAction,
   revokeKioskAction,
 } from "./actions";
 
@@ -277,6 +278,23 @@ export default async function KiosksAdminPage({
                     <Button asChild variant="outline" size="sm">
                       <Link href={`/app/admin/kiosks/${d.id}`}>Manage</Link>
                     </Button>
+                    {d.revokedAt ? (
+                      <form action={restoreKioskAction}>
+                        <input
+                          type="hidden"
+                          name="deviceId"
+                          value={d.id}
+                        />
+                        <Button
+                          type="submit"
+                          variant="outline"
+                          size="sm"
+                          className="border-emerald-600/40 text-emerald-700 hover:bg-emerald-50"
+                        >
+                          Restore
+                        </Button>
+                      </form>
+                    ) : null}
                     {(codeExpired || d.revokedAt) ? (
                       <form action={regeneratePairingCodeAction}>
                         <input

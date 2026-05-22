@@ -15,6 +15,7 @@ import { isAtLeastManager } from "~/lib/roles";
 import { Button } from "~/components/ui/button";
 import {
   regeneratePairingCodeAction,
+  restoreKioskAction,
   revokeKioskAction,
   toggleSelfieRequiredAction,
 } from "../actions";
@@ -239,6 +240,19 @@ export default async function KioskDetailPage({
                 : "Enable selfie capture"}
             </Button>
           </form>
+          {device.revokedAt ? (
+            <form action={restoreKioskAction}>
+              <input type="hidden" name="deviceId" value={device.id} />
+              <Button
+                type="submit"
+                variant="outline"
+                size="sm"
+                className="border-emerald-600/40 text-emerald-700 hover:bg-emerald-50"
+              >
+                Restore
+              </Button>
+            </form>
+          ) : null}
           {(codeExpired || device.revokedAt) ? (
             <form action={regeneratePairingCodeAction}>
               <input type="hidden" name="deviceId" value={device.id} />

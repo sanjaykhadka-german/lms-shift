@@ -152,6 +152,43 @@ export async function revokeKioskAction(formData: FormData): Promise<void> {
   revalidatePath("/app/admin/kiosks");
 }
 
+// Un-revoke a kiosk without minting a new pairing code. Useful when revoke
+// was a mistake — if the kiosk device still has its long-lived device cookie
+// it'll start working again immediately (the cookie itself is unchanged;
+// resolvePairing() in /kiosk/page.tsx gates on revoked_at IS NULL, so
+// clearing it is enough). For the case where the device has been wiped /
+// can't reconnect, use 'New pairing code' instead which both restores AND
+// mints a fresh code (regeneratePairingCodeAction).
+export async function restoreKioskAction(formData: FormData): Promise<void> {
+  const deviceId = String(formData.get("deviceId") ?? "");
+  if (!deviceId) return;
+
+  const membership = await currentMembership();
+  if (!membership || !isAtLeastManager(membership.role)) return;
+  const tenantId = membership.tenant.id;
+
+  await forTenant(tenantId).run((tx) =>
+    tx
+      .update(scKioskDevices)
+      .set({ revokedAt: null })
+      .where(
+        and(
+          eq(scKioskDevices.id, deviceId),
+          eq(scKioskDevices.traceyTenantId, tenantId),
+        ),
+      ),
+  );
+
+  await logAuditEvent({
+    action: "shiftcraft.kiosk.restored",
+    targetKind: "sc_kiosk_device",
+    targetId: deviceId,
+  });
+
+  revalidatePath("/app/admin/kiosks");
+  revalidatePath(`/app/admin/kiosks/${deviceId}`);
+}
+
 // Hard delete — only permitted on already-revoked rows. Forces the operator
 // through Revoke first so an active kiosk can't be wiped from under live
 // use. Past punches at the device's location stay intact in sc_clock_events
