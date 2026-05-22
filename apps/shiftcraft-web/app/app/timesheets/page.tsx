@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import {
   db,
   forTenant,
   members,
+  scDepartments,
+  scEmployees,
   scTimesheetApprovals,
   users,
   type ScTimesheetApprovalStatus,
@@ -48,7 +50,7 @@ interface RowTotals {
 export default async function TimesheetsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ week?: string }>;
+  searchParams: Promise<{ week?: string; dept?: string }>;
 }) {
   const user = await currentUser();
   if (!user) redirect("/sign-in");
@@ -59,15 +61,28 @@ export default async function TimesheetsPage({
     membership.role === "owner" || membership.role === "admin";
   const tenantId = membership.tenant.id;
 
-  const { week } = await searchParams;
+  const { week, dept } = await searchParams;
+  const deptFilter = dept ?? "";
   const weekStart = startOfWeek(parseIsoDate(week) ?? new Date());
   const weekEnd = addDays(weekStart, 7);
   const prevWeek = addDays(weekStart, -7);
   const nextWeek = addDays(weekStart, 7);
 
+  // Build query-string preserving the active filters so week navigation
+  // and the Clear button don't drop the dept selection.
+  const qsFor = (overrides: { week?: string; dept?: string | null }) => {
+    const params = new URLSearchParams();
+    const w = overrides.week ?? (week ?? "");
+    if (w) params.set("week", w);
+    const d = overrides.dept === null ? "" : (overrides.dept ?? deptFilter);
+    if (d) params.set("dept", d);
+    const s = params.toString();
+    return s ? `?${s}` : "";
+  };
+
   // Resolve which users to show. Admins: everyone in the tenant. Non-admins:
   // just themselves.
-  const memberRows = isAdmin
+  const allMemberRows = isAdmin
     ? await db
         .select({
           userId: users.id,
@@ -84,6 +99,56 @@ export default async function TimesheetsPage({
           email: user.email,
         },
       ];
+
+  // Pull the auth-user → department mapping from the per-tenant sc_employees
+  // table. Used both for the filter and for rendering the department name
+  // alongside each row when a filter is active. Only admins ever need it.
+  // Departments list is loaded for the dropdown options.
+  const [scLinks, departments] = isAdmin
+    ? await forTenant(tenantId).run((tx) =>
+        Promise.all([
+          tx
+            .select({
+              appUserId: scEmployees.appUserId,
+              departmentId: scEmployees.departmentId,
+              departmentName: scDepartments.name,
+            })
+            .from(scEmployees)
+            .leftJoin(
+              scDepartments,
+              eq(scDepartments.id, scEmployees.departmentId),
+            )
+            .where(eq(scEmployees.traceyTenantId, tenantId)),
+          tx
+            .select({ id: scDepartments.id, name: scDepartments.name })
+            .from(scDepartments)
+            .where(eq(scDepartments.traceyTenantId, tenantId))
+            .orderBy(asc(scDepartments.name)),
+        ]),
+      )
+    : [[], []];
+
+  const deptByUserId = new Map<
+    string,
+    { departmentId: string | null; departmentName: string | null }
+  >();
+  for (const link of scLinks) {
+    if (link.appUserId) {
+      deptByUserId.set(link.appUserId, {
+        departmentId: link.departmentId,
+        departmentName: link.departmentName,
+      });
+    }
+  }
+
+  // Apply the department filter (admin-only path; non-admins skip).
+  const memberRows = isAdmin && deptFilter
+    ? allMemberRows.filter((m) => {
+        const link = deptByUserId.get(m.userId);
+        if (deptFilter === "none") return !link?.departmentId;
+        return link?.departmentId === deptFilter;
+      })
+    : allMemberRows;
 
   // Fetch events: one query for admin (whole tenant), one for self.
   const userIdSet = new Set(memberRows.map((m) => m.userId));
@@ -168,7 +233,10 @@ export default async function TimesheetsPage({
   );
 
   const weekLabel = formatWeekLabel(weekStart, weekEnd);
-  const exportHref = `/api/timesheets/export?week=${fmtIsoDate(weekStart)}`;
+  // CSV export preserves the dept filter so what you see is what you get.
+  const exportParams = new URLSearchParams({ week: fmtIsoDate(weekStart) });
+  if (deptFilter) exportParams.set("dept", deptFilter);
+  const exportHref = `/api/timesheets/export?${exportParams.toString()}`;
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-6 py-10">
@@ -183,7 +251,7 @@ export default async function TimesheetsPage({
         </div>
         <div className="flex items-center gap-2">
           <Button asChild variant="outline" size="sm">
-            <Link href={`/app/timesheets?week=${fmtIsoDate(prevWeek)}`}>
+            <Link href={`/app/timesheets${qsFor({ week: fmtIsoDate(prevWeek) })}`}>
               ← Previous
             </Link>
           </Button>
@@ -191,7 +259,7 @@ export default async function TimesheetsPage({
             {weekLabel}
           </span>
           <Button asChild variant="outline" size="sm">
-            <Link href={`/app/timesheets?week=${fmtIsoDate(nextWeek)}`}>
+            <Link href={`/app/timesheets${qsFor({ week: fmtIsoDate(nextWeek) })}`}>
               Next →
             </Link>
           </Button>
@@ -200,6 +268,50 @@ export default async function TimesheetsPage({
           </Button>
         </div>
       </div>
+
+      {isAdmin ? (
+        <form
+          action="/app/timesheets"
+          method="get"
+          className="flex flex-wrap items-center gap-2 text-sm"
+        >
+          {/* Preserve the active week so picking a filter doesn't snap
+              back to "this week". */}
+          {week ? (
+            <input type="hidden" name="week" value={week} />
+          ) : null}
+          <label
+            htmlFor="dept-filter"
+            className="text-xs uppercase tracking-wider text-muted-foreground"
+          >
+            Department:
+          </label>
+          <select
+            id="dept-filter"
+            name="dept"
+            defaultValue={deptFilter}
+            className="h-8 rounded-md border border-[color:var(--input)] bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+          >
+            <option value="">All departments</option>
+            <option value="none">No department</option>
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+          <Button type="submit" variant="outline" size="sm">
+            Apply
+          </Button>
+          {deptFilter ? (
+            <Button asChild variant="ghost" size="sm">
+              <Link href={`/app/timesheets${qsFor({ dept: null })}`}>
+                Clear
+              </Link>
+            </Button>
+          ) : null}
+        </form>
+      ) : null}
 
       <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
         {visibleRows.length === 0 ? (
@@ -226,12 +338,20 @@ export default async function TimesheetsPage({
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {visibleRows.map((r) => (
+                {visibleRows.map((r) => {
+                  const link = deptByUserId.get(r.userId);
+                  const deptLabel = link?.departmentName ?? null;
+                  return (
                   <tr key={r.userId}>
                     <td className="px-4 py-2">
                       <div className="text-sm font-medium">{r.name}</div>
                       <div className="text-xs text-muted-foreground">
                         {r.email}
+                        {isAdmin && deptLabel ? (
+                          <span className="ml-2 inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                            {deptLabel}
+                          </span>
+                        ) : null}
                       </div>
                     </td>
                     {r.perDay.map((ms, i) => (
@@ -259,7 +379,8 @@ export default async function TimesheetsPage({
                       />
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
