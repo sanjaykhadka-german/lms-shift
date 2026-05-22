@@ -30,6 +30,7 @@ import {
   clearTimesheetApprovalAction,
   disputeTimesheetAction,
 } from "./actions";
+import { TimesheetRow } from "./_row";
 
 export const metadata = { title: "Timesheets · ShiftCraft" };
 
@@ -45,12 +46,69 @@ interface RowTotals {
   totalBreakMs: number;
   approvalStatus: ScTimesheetApprovalStatus | null;
   approvalNotes: string | null;
+  /** Numeric cost in AUD (work hours × hourly_rate). null if rate not set. */
+  costAud: number | null;
+  /** Pre-formatted per-day segment breakdown for the expansion row. Empty
+   *  array on days with no events; outer length up to 7. */
+  perDayDetail: PerDayDetailEntry[];
+}
+
+interface PerDayDetailEntry {
+  /** Human label like "Mon 19 May". */
+  dayLabel: string;
+  segments: Array<{ kind: "work" | "break"; label: string }>;
+}
+
+function fmtClock(d: Date): string {
+  return d.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+const audFormatter = new Intl.NumberFormat("en-AU", {
+  style: "currency",
+  currency: "AUD",
+  maximumFractionDigits: 2,
+});
+
+function fmtAud(value: number | null): string {
+  if (value == null) return "—";
+  return audFormatter.format(value);
+}
+
+type StatusFilter =
+  | "all"
+  | "pending"
+  | "approved"
+  | "disputed"
+  | "no_activity";
+
+const STATUS_FILTERS: StatusFilter[] = [
+  "all",
+  "pending",
+  "approved",
+  "disputed",
+  "no_activity",
+];
+
+function parseStatusFilter(raw: string | undefined): StatusFilter {
+  if (
+    raw === "pending" ||
+    raw === "approved" ||
+    raw === "disputed" ||
+    raw === "no_activity"
+  ) {
+    return raw;
+  }
+  return "all";
 }
 
 export default async function TimesheetsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ week?: string; dept?: string }>;
+  searchParams: Promise<{ week?: string; dept?: string; status?: string }>;
 }) {
   const user = await currentUser();
   if (!user) redirect("/sign-in");
@@ -61,23 +119,34 @@ export default async function TimesheetsPage({
     membership.role === "owner" || membership.role === "admin";
   const tenantId = membership.tenant.id;
 
-  const { week, dept } = await searchParams;
+  const { week, dept, status: statusRaw } = await searchParams;
   const deptFilter = dept ?? "";
+  const statusFilter = parseStatusFilter(statusRaw);
   const weekStart = startOfWeek(parseIsoDate(week) ?? new Date());
   const weekEnd = addDays(weekStart, 7);
   const prevWeek = addDays(weekStart, -7);
   const nextWeek = addDays(weekStart, 7);
 
   // Build query-string preserving the active filters so week navigation
-  // and the Clear button don't drop the dept selection.
-  const qsFor = (overrides: { week?: string; dept?: string | null }) => {
+  // and the Clear button don't drop a selection. Pass `null` for an
+  // override to deliberately clear that param.
+  const qsFor = (overrides: {
+    week?: string;
+    dept?: string | null;
+    status?: StatusFilter | null;
+  }) => {
     const params = new URLSearchParams();
     const w = overrides.week ?? (week ?? "");
     if (w) params.set("week", w);
     const d = overrides.dept === null ? "" : (overrides.dept ?? deptFilter);
     if (d) params.set("dept", d);
-    const s = params.toString();
-    return s ? `?${s}` : "";
+    const s =
+      overrides.status === null
+        ? "all"
+        : (overrides.status ?? statusFilter);
+    if (s && s !== "all") params.set("status", s);
+    const qs = params.toString();
+    return qs ? `?${qs}` : "";
   };
 
   // Resolve which users to show. Admins: everyone in the tenant. Non-admins:
@@ -112,6 +181,7 @@ export default async function TimesheetsPage({
               appUserId: scEmployees.appUserId,
               departmentId: scEmployees.departmentId,
               departmentName: scDepartments.name,
+              hourlyRate: scEmployees.hourlyRate,
             })
             .from(scEmployees)
             .leftJoin(
@@ -130,13 +200,24 @@ export default async function TimesheetsPage({
 
   const deptByUserId = new Map<
     string,
-    { departmentId: string | null; departmentName: string | null }
+    {
+      departmentId: string | null;
+      departmentName: string | null;
+      hourlyRate: number | null;
+    }
   >();
   for (const link of scLinks) {
     if (link.appUserId) {
+      // hourly_rate is numeric(10,2) which Drizzle returns as string. Parse
+      // here so the row builder doesn't repeat the conversion per row.
+      const rate =
+        link.hourlyRate == null || link.hourlyRate === ""
+          ? null
+          : Number(link.hourlyRate);
       deptByUserId.set(link.appUserId, {
         departmentId: link.departmentId,
         departmentName: link.departmentName,
+        hourlyRate: rate != null && Number.isFinite(rate) ? rate : null,
       });
     }
   }
@@ -197,6 +278,11 @@ export default async function TimesheetsPage({
     // as the live clock page.
     const segments = deriveSegments(userEvents, weekEnd);
     const perDay = Array.from({ length: 7 }, () => 0);
+    // Bucket pre-split chunks back by day so the expansion view can render
+    // them in chronological order with formatted clock labels.
+    const chunksByDay: Array<
+      Array<{ kind: "work" | "break"; startedAt: Date; endedAt: Date }>
+    > = Array.from({ length: 7 }, () => []);
     let totalWork = 0;
     let totalBreak = 0;
     for (const seg of segments) {
@@ -212,9 +298,42 @@ export default async function TimesheetsPage({
         } else {
           totalBreak += ms;
         }
+        chunksByDay[dayIdx]!.push({
+          kind: seg.kind,
+          startedAt: chunk.startedAt,
+          endedAt: chunk.endedAt,
+        });
       }
     }
+
+    // Pre-format the per-day expansion content server-side so the client
+    // row component can stay dumb (it doesn't import server-only helpers).
+    const perDayDetail: PerDayDetailEntry[] = [];
+    for (let dayIdx = 0; dayIdx < 7; dayIdx += 1) {
+      const dayChunks = chunksByDay[dayIdx]!;
+      if (dayChunks.length === 0) continue;
+      dayChunks.sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
+      const dayDate = addDays(weekStart, dayIdx);
+      perDayDetail.push({
+        dayLabel: dayDate.toLocaleDateString(undefined, {
+          weekday: "short",
+          day: "numeric",
+          month: "short",
+        }),
+        segments: dayChunks.map((c) => ({
+          kind: c.kind,
+          label: `${fmtClock(c.startedAt)}–${fmtClock(c.endedAt)} (${fmtHours(c.endedAt.getTime() - c.startedAt.getTime())})`,
+        })),
+      });
+    }
+
     const approval = approvalByUser.get(m.userId);
+    const rate = deptByUserId.get(m.userId)?.hourlyRate ?? null;
+    const costAud =
+      rate != null && totalWork > 0
+        ? Math.round((rate * (totalWork / 3_600_000)) * 100) / 100
+        : null;
+
     return {
       userId: m.userId,
       name: m.name ?? m.email,
@@ -224,18 +343,65 @@ export default async function TimesheetsPage({
       totalBreakMs: totalBreak,
       approvalStatus: approval?.status ?? null,
       approvalNotes: approval?.notes ?? null,
+      costAud,
+      perDayDetail,
     };
   });
 
   rows.sort((a, b) => a.name.localeCompare(b.name));
-  const visibleRows = rows.filter(
-    (r) => r.totalWorkMs > 0 || r.totalBreakMs > 0 || isAdmin,
+
+  // Counts for the status filter pills. Computed on the post-dept-filter
+  // set so each pill's number is meaningful inside the current slice.
+  // "all" matches the legacy default (admins see everyone; non-admins
+  // see themselves regardless of activity).
+  function rowMatches(r: RowTotals, status: StatusFilter): boolean {
+    const hasActivity = r.totalWorkMs > 0 || r.totalBreakMs > 0;
+    switch (status) {
+      case "pending":
+        return r.approvalStatus === null && hasActivity;
+      case "approved":
+        return r.approvalStatus === "approved";
+      case "disputed":
+        return r.approvalStatus === "disputed";
+      case "no_activity":
+        return !hasActivity;
+      case "all":
+      default:
+        return hasActivity || isAdmin;
+    }
+  }
+  const statusCounts: Record<StatusFilter, number> = {
+    all: rows.filter((r) => rowMatches(r, "all")).length,
+    pending: rows.filter((r) => rowMatches(r, "pending")).length,
+    approved: rows.filter((r) => rowMatches(r, "approved")).length,
+    disputed: rows.filter((r) => rowMatches(r, "disputed")).length,
+    no_activity: rows.filter((r) => rowMatches(r, "no_activity")).length,
+  };
+
+  const visibleRows = rows.filter((r) => rowMatches(r, statusFilter));
+
+  // Summary numbers reflect the CURRENT filtered slice (dept × status).
+  const summary = visibleRows.reduce(
+    (acc, r) => {
+      acc.workMs += r.totalWorkMs;
+      acc.breakMs += r.totalBreakMs;
+      if (r.totalWorkMs > 0) acc.onShift += 1;
+      if (r.costAud != null) acc.costAud += r.costAud;
+      return acc;
+    },
+    { workMs: 0, breakMs: 0, onShift: 0, costAud: 0 },
   );
+  // Hide the cost card entirely if no row in the slice has cost data —
+  // a tenant that hasn't set any hourly rates shouldn't see "$0.00".
+  const anyCost = visibleRows.some((r) => r.costAud != null);
 
   const weekLabel = formatWeekLabel(weekStart, weekEnd);
-  // CSV export preserves the dept filter so what you see is what you get.
+  // CSV export preserves the dept + status filter so what you see is what
+  // you get. (Export route handler reads `dept` already; `status` is
+  // forwarded for future use.)
   const exportParams = new URLSearchParams({ week: fmtIsoDate(weekStart) });
   if (deptFilter) exportParams.set("dept", deptFilter);
+  if (statusFilter !== "all") exportParams.set("status", statusFilter);
   const exportHref = `/api/timesheets/export?${exportParams.toString()}`;
 
   return (
@@ -270,47 +436,102 @@ export default async function TimesheetsPage({
       </div>
 
       {isAdmin ? (
-        <form
-          action="/app/timesheets"
-          method="get"
-          className="flex flex-wrap items-center gap-2 text-sm"
-        >
-          {/* Preserve the active week so picking a filter doesn't snap
-              back to "this week". */}
-          {week ? (
-            <input type="hidden" name="week" value={week} />
-          ) : null}
-          <label
-            htmlFor="dept-filter"
-            className="text-xs uppercase tracking-wider text-muted-foreground"
+        <>
+          {/* ─── Summary bar ─── */}
+          <section
+            className={`grid gap-3 ${anyCost ? "sm:grid-cols-4" : "sm:grid-cols-3"}`}
           >
-            Department:
-          </label>
-          <select
-            id="dept-filter"
-            name="dept"
-            defaultValue={deptFilter}
-            className="h-8 rounded-md border border-[color:var(--input)] bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+            <StatCard label="Total work" value={fmtHours(summary.workMs)} />
+            <StatCard label="Total break" value={fmtHours(summary.breakMs)} />
+            <StatCard
+              label="On shift"
+              value={`${summary.onShift} ${summary.onShift === 1 ? "person" : "people"}`}
+            />
+            {anyCost ? (
+              <StatCard
+                label="Total cost (AUD)"
+                value={fmtAud(summary.costAud)}
+              />
+            ) : null}
+          </section>
+
+          {/* ─── Status filter pills ─── */}
+          <section className="flex flex-wrap items-center gap-2">
+            {STATUS_FILTERS.map((s) => {
+              const active = statusFilter === s;
+              const count = statusCounts[s];
+              const label = STATUS_PILL_LABEL[s];
+              return (
+                <Link
+                  key={s}
+                  href={`/app/timesheets${qsFor({ status: s })}`}
+                  className={
+                    active
+                      ? "inline-flex items-center gap-1.5 rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground"
+                      : "inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-muted"
+                  }
+                >
+                  {label}
+                  <span
+                    className={
+                      active
+                        ? "rounded-full bg-primary-foreground/20 px-1.5 text-[10px] tabular-nums"
+                        : "rounded-full bg-muted px-1.5 text-[10px] tabular-nums text-muted-foreground"
+                    }
+                  >
+                    {count}
+                  </span>
+                </Link>
+              );
+            })}
+          </section>
+
+          {/* ─── Dept filter form ─── */}
+          <form
+            action="/app/timesheets"
+            method="get"
+            className="flex flex-wrap items-center gap-2 text-sm"
           >
-            <option value="">All departments</option>
-            <option value="none">No department</option>
-            {departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </select>
-          <Button type="submit" variant="outline" size="sm">
-            Apply
-          </Button>
-          {deptFilter ? (
-            <Button asChild variant="ghost" size="sm">
-              <Link href={`/app/timesheets${qsFor({ dept: null })}`}>
-                Clear
-              </Link>
+            {/* Preserve the active week + status so picking a department
+                doesn't snap back to defaults. */}
+            {week ? (
+              <input type="hidden" name="week" value={week} />
+            ) : null}
+            {statusFilter !== "all" ? (
+              <input type="hidden" name="status" value={statusFilter} />
+            ) : null}
+            <label
+              htmlFor="dept-filter"
+              className="text-xs uppercase tracking-wider text-muted-foreground"
+            >
+              Department:
+            </label>
+            <select
+              id="dept-filter"
+              name="dept"
+              defaultValue={deptFilter}
+              className="h-8 rounded-md border border-[color:var(--input)] bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+            >
+              <option value="">All departments</option>
+              <option value="none">No department</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+            <Button type="submit" variant="outline" size="sm">
+              Apply
             </Button>
-          ) : null}
-        </form>
+            {deptFilter ? (
+              <Button asChild variant="ghost" size="sm">
+                <Link href={`/app/timesheets${qsFor({ dept: null })}`}>
+                  Clear
+                </Link>
+              </Button>
+            ) : null}
+          </form>
+        </>
       ) : null}
 
       <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
@@ -323,6 +544,9 @@ export default async function TimesheetsPage({
             <table className="w-full text-sm">
               <thead className="bg-muted/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
                 <tr>
+                  {/* Chevron column — toggles per-day expansion. Header
+                      stays blank to keep the table dense. */}
+                  <th className="w-8 px-2 py-2" aria-hidden />
                   <th className="px-4 py-2 font-medium">Employee</th>
                   {WEEKDAYS.map((d, i) => (
                     <th key={d} className="px-3 py-2 font-medium">
@@ -334,6 +558,9 @@ export default async function TimesheetsPage({
                   ))}
                   <th className="px-3 py-2 font-medium">Work</th>
                   <th className="px-3 py-2 font-medium">Break</th>
+                  {anyCost ? (
+                    <th className="px-3 py-2 font-medium">Cost</th>
+                  ) : null}
                   <th className="px-3 py-2 font-medium">Status</th>
                 </tr>
               </thead>
@@ -341,44 +568,40 @@ export default async function TimesheetsPage({
                 {visibleRows.map((r) => {
                   const link = deptByUserId.get(r.userId);
                   const deptLabel = link?.departmentName ?? null;
+                  const perDayDisplay = r.perDay.map((ms) =>
+                    ms > 0 ? fmtHours(ms) : "—",
+                  );
+                  // Chevron + Employee + 7 weekdays + Work + Break +
+                  // (optional Cost) + Status. Used by the expansion row
+                  // to colspan the full table width.
+                  const totalColumnCount = 1 + 1 + 7 + 1 + 1 + (anyCost ? 1 : 0) + 1;
+                  const approvalCell = (
+                    <ApprovalCell
+                      userId={r.userId}
+                      weekStartIso={weekStartIso}
+                      status={r.approvalStatus}
+                      notes={r.approvalNotes}
+                      canManage={isAtLeastManager(membership.role)}
+                      hasActivity={r.totalWorkMs > 0 || r.totalBreakMs > 0}
+                    />
+                  );
                   return (
-                  <tr key={r.userId}>
-                    <td className="px-4 py-2">
-                      <div className="text-sm font-medium">{r.name}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {r.email}
-                        {isAdmin && deptLabel ? (
-                          <span className="ml-2 inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                            {deptLabel}
-                          </span>
-                        ) : null}
-                      </div>
-                    </td>
-                    {r.perDay.map((ms, i) => (
-                      <td
-                        key={i}
-                        className="px-3 py-2 font-mono text-xs tabular-nums text-muted-foreground"
-                      >
-                        {ms > 0 ? fmtHours(ms) : "—"}
-                      </td>
-                    ))}
-                    <td className="px-3 py-2 font-mono text-sm tabular-nums font-semibold">
-                      {fmtHours(r.totalWorkMs)}
-                    </td>
-                    <td className="px-3 py-2 font-mono text-xs tabular-nums text-muted-foreground">
-                      {fmtHours(r.totalBreakMs)}
-                    </td>
-                    <td className="px-3 py-2 align-top">
-                      <ApprovalCell
-                        userId={r.userId}
-                        weekStartIso={weekStartIso}
-                        status={r.approvalStatus}
-                        notes={r.approvalNotes}
-                        canManage={isAtLeastManager(membership.role)}
-                        hasActivity={r.totalWorkMs > 0 || r.totalBreakMs > 0}
-                      />
-                    </td>
-                  </tr>
+                    <TimesheetRow
+                      key={r.userId}
+                      userId={r.userId}
+                      name={r.name}
+                      email={r.email}
+                      deptLabel={deptLabel}
+                      perDayDisplay={perDayDisplay}
+                      totalWorkDisplay={fmtHours(r.totalWorkMs)}
+                      totalBreakDisplay={fmtHours(r.totalBreakMs)}
+                      costDisplay={fmtAud(r.costAud)}
+                      perDayDetail={r.perDayDetail}
+                      totalColumnCount={totalColumnCount}
+                      approvalCell={approvalCell}
+                      isAdmin={isAdmin}
+                      showCost={anyCost}
+                    />
                   );
                 })}
               </tbody>
@@ -489,6 +712,27 @@ function ApprovalCell({
             </button>
           </form>
         )}
+      </div>
+    </div>
+  );
+}
+
+const STATUS_PILL_LABEL: Record<StatusFilter, string> = {
+  all: "All",
+  pending: "Pending",
+  approved: "Approved",
+  disputed: "Disputed",
+  no_activity: "No activity",
+};
+
+function StatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-border bg-card p-4">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+        {label}
+      </div>
+      <div className="mt-1 font-mono text-2xl font-semibold tabular-nums">
+        {value}
       </div>
     </div>
   );
