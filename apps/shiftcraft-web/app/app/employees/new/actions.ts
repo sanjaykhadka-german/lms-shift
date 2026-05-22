@@ -11,6 +11,7 @@ import {
   scDepartments,
   scEmployeePins,
   scEmployees,
+  users,
   type Role,
 } from "@tracey/db";
 import { currentMembership, currentUser } from "~/lib/auth/current";
@@ -105,6 +106,31 @@ function emptyToNull(v: string | undefined | null): string | null {
   return trimmed.length === 0 ? null : trimmed;
 }
 
+/**
+ * Find the `app.users.id` whose email matches `email` AND is a member of
+ * `tenantId`. Returns null if no match. The list-page row dedupe uses the
+ * same case-insensitive email match — this puts the link in the DB column
+ * so the edit page's PIN / Role cards (gated on `app_user_id IS NOT NULL`)
+ * actually render. Lookup hits the shared `app` schema, not per-tenant.
+ */
+async function findAppUserIdByTenantEmail(
+  tenantId: string,
+  email: string,
+): Promise<string | null> {
+  const matches = await db
+    .select({ userId: users.id })
+    .from(users)
+    .innerJoin(members, eq(members.userId, users.id))
+    .where(
+      and(
+        eq(members.tenantId, tenantId),
+        sql`lower(${users.email}) = lower(${email})`,
+      ),
+    )
+    .limit(1);
+  return matches[0]?.userId ?? null;
+}
+
 export async function createEmployeeAction(
   _prev: FormState,
   formData: FormData,
@@ -169,6 +195,13 @@ export async function createEmployeeAction(
 
   const hourlyRate = emptyToNull(parsed.data.hourlyRate);
 
+  // Auto-link to the matching auth user if this email already belongs to
+  // a member of this tenant. Without this, the row creates with
+  // app_user_id=NULL and the edit page's PIN / Role cards never render.
+  const linkedAppUserId = email
+    ? await findAppUserIdByTenantEmail(tenantId, email)
+    : null;
+
   try {
     await forTenant(tenantId).run(async (tx) => {
       const departmentId = await resolveDepartmentId(tx, tenantId, department);
@@ -182,6 +215,7 @@ export async function createEmployeeAction(
         employmentType: parsed.data.employmentType,
         hourlyRate,
         notes,
+        appUserId: linkedAppUserId,
         createdByUserId: me?.id ?? null,
       });
     });
@@ -282,22 +316,47 @@ export async function updateEmployeeAction(
     }
   }
 
+  // If the row is currently unlinked AND the saved email maps to an
+  // existing tenant member, attach the auth user. Never overwrite an
+  // existing link — that would silently move a row's PIN / role binding
+  // to a different person when an admin edits an email.
+  const [existingRow] = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({ appUserId: scEmployees.appUserId })
+      .from(scEmployees)
+      .where(
+        and(
+          eq(scEmployees.id, id),
+          eq(scEmployees.traceyTenantId, tenantId),
+        ),
+      )
+      .limit(1),
+  );
+  const shouldLink = !existingRow?.appUserId && email !== null;
+  const linkedAppUserId = shouldLink
+    ? await findAppUserIdByTenantEmail(tenantId, email!)
+    : null;
+
   try {
     await forTenant(tenantId).run(async (tx) => {
       const departmentId = await resolveDepartmentId(tx, tenantId, department);
+      const updateSet: Partial<typeof scEmployees.$inferInsert> = {
+        fullName: parsed.data.fullName,
+        email,
+        mobile,
+        departmentId,
+        availability,
+        employmentType: parsed.data.employmentType,
+        hourlyRate,
+        notes,
+        updatedAt: new Date(),
+      };
+      if (linkedAppUserId !== null) {
+        updateSet.appUserId = linkedAppUserId;
+      }
       await tx
         .update(scEmployees)
-        .set({
-          fullName: parsed.data.fullName,
-          email,
-          mobile,
-          departmentId,
-          availability,
-          employmentType: parsed.data.employmentType,
-          hourlyRate,
-          notes,
-          updatedAt: new Date(),
-        })
+        .set(updateSet)
         .where(
           and(
             eq(scEmployees.id, id),

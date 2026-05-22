@@ -47,13 +47,49 @@ vi.mock("@tracey/db", () => {
     id: { __field: "id" },
   };
   type AnyTable = typeof scEmployees | typeof scDepartments;
+  // Added with the auto-link fix (2026-05-22): actions.ts now imports
+  // `users` and `members` and runs a select against the shared `app`
+  // schema to find the auth user whose email matches the form's email.
+  // Mock returns an empty result by default so the create/update path
+  // leaves app_user_id null, matching pre-fix behaviour under test.
+  const users = {
+    __table: "users",
+    id: { __field: "id" },
+    email: { __field: "email" },
+  };
+  const members = {
+    __table: "members",
+    userId: { __field: "userId" },
+    tenantId: { __field: "tenantId" },
+    role: { __field: "role" },
+  };
   return {
     scEmployees,
+    scEmployeePins: { __table: "scEmployeePins" },
     scDepartments,
     auditEvents: { __table: "auditEvents" },
+    users,
+    members,
     db: {
       insert: () => ({
         values: async () => [],
+      }),
+      select: () => ({
+        from: () => ({
+          innerJoin: () => ({
+            where: () => ({
+              limit: async () => [],
+            }),
+          }),
+          where: () => ({
+            limit: async () => [],
+          }),
+        }),
+      }),
+      update: () => ({
+        set: () => ({
+          where: async () => [],
+        }),
       }),
     },
     forTenant: (tenantId: string) => ({
