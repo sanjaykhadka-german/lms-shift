@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import { Button } from "~/components/ui/button";
-import { createInvitationAction, type InviteState } from "./actions";
+import { createInvitationAction, type InviteState } from "../_actions";
 
 const INITIAL: InviteState = { status: "idle" };
 

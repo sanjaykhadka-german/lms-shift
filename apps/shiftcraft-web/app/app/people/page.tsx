@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
-export default function MembersAdminPage() {
+export default function PeoplePage() {
   redirect("/app/people/team");
 }

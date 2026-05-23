@@ -10,13 +10,6 @@ import { sendInvitationEmail } from "~/lib/auth/email";
 import { generateToken, tokenExpiry } from "~/lib/auth/tokens";
 import { logAuditEvent } from "~/lib/audit";
 
-// Invite + revoke for app.members. Mirrors apps/lms-web/app/app/members/
-// actions.ts with shiftcraft-web's conventions (currentMembership +
-// isAtLeastManager instead of requireTenant). Same shared `app.invitations`
-// table — the accepted invite gives access to both lms-web and
-// shiftcraft-web, so the email's accept URL points at lms-web (see
-// lib/auth/email.ts).
-
 const inviteSchema = z.object({
   email: z.string().trim().toLowerCase().email("Enter a valid email address."),
   role: z.enum(["admin", "member"]),
@@ -54,7 +47,6 @@ export async function createInvitationAction(
   }
   const { email, role } = parsed.data;
 
-  // Already a member of this tenant?
   const [existingMember] = await db
     .select({ id: members.id })
     .from(members)
@@ -68,7 +60,6 @@ export async function createInvitationAction(
     };
   }
 
-  // Existing pending invitation?
   const [existingInvite] = await db
     .select({ id: invitations.id })
     .from(invitations)
@@ -91,7 +82,7 @@ export async function createInvitationAction(
       email,
       role,
       token,
-      expiresAt: tokenExpiry(24 * 7), // 7 days
+      expiresAt: tokenExpiry(24 * 7),
       invitedByUserId: me.id,
     })
     .returning({ id: invitations.id });
@@ -104,8 +95,6 @@ export async function createInvitationAction(
       inviterName: me.name,
     });
   } catch (err) {
-    // Roll back the invitation row so the user can retry without seeing a
-    // stale pending invite.
     await db.delete(invitations).where(eq(invitations.token, token));
     console.error("[invitation] email send failed:", err);
     return {
@@ -121,7 +110,7 @@ export async function createInvitationAction(
     details: { email, role },
   });
 
-  revalidatePath("/app/admin/members");
+  revalidatePath("/app/people/team");
   return { status: "ok", message: `Invitation sent to ${email}.` };
 }
 
@@ -144,9 +133,6 @@ export async function revokeInvitationAction(formData: FormData): Promise<void> 
     throw new Error("Invalid invitation id");
   }
 
-  // Capture invite details for the audit log before deleting. Tenant scope
-  // on the SELECT guards against an admin in tenant A revoking tenant B's
-  // invite via a crafted form post.
   const [target] = await db
     .select({ email: invitations.email, role: invitations.role })
     .from(invitations)
@@ -176,5 +162,5 @@ export async function revokeInvitationAction(formData: FormData): Promise<void> 
     });
   }
 
-  revalidatePath("/app/admin/members");
+  revalidatePath("/app/people/team");
 }
