@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useFormStatus } from "react-dom";
 import {
   addClockEventAction,
@@ -62,8 +63,14 @@ export function EventEditModal({ ctx, onClose }: Props) {
   }, [ctx, onClose]);
 
   if (!ctx) return null;
+  // Portal the dialog out to document.body so its <form> isn't nested
+  // inside the table's BulkSelectionForm. Nested forms aren't valid
+  // HTML and React 19 catches the resulting submit collision ('A React
+  // form was unexpectedly submitted'). Server actions render the same
+  // way through a portal — no behavioral change other than placement.
+  if (typeof document === "undefined") return null;
 
-  return (
+  return createPortal(
     <div
       role="dialog"
       aria-modal="true"
@@ -90,7 +97,8 @@ export function EventEditModal({ ctx, onClose }: Props) {
           <AddForm ctx={ctx} onClose={onClose} />
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -118,6 +126,10 @@ function EditForm({
         name="originalEventId"
         value={ctx.originalEventId}
       />
+      {/* Same id under the name voidClockEventAction's zod schema expects.
+          Two names, one value — saves having a nested form for the void
+          button (nested forms throw 'unexpectedly submitted' in React 19). */}
+      <input type="hidden" name="eventId" value={ctx.originalEventId} />
       <Field label="Time">
         <input
           type="datetime-local"
@@ -146,7 +158,7 @@ function EditForm({
         >
           Cancel
         </button>
-        <VoidButton originalEventId={ctx.originalEventId} onDone={onClose} />
+        <VoidButton onDone={onClose} />
         <SubmitButton label="Save" pendingLabel="Saving…" />
       </div>
     </form>
@@ -220,13 +232,11 @@ function AddForm({
   );
 }
 
-function VoidButton({
-  originalEventId,
-  onDone,
-}: {
-  originalEventId: string;
-  onDone: () => void;
-}) {
+// Single-button void confirmation flow — no nested <form>. The button
+// lives inside the parent EditForm and overrides the action via
+// formAction= on submit. The parent's hidden `eventId` + the shared
+// `reason` textarea satisfy voidClockEventAction's schema.
+function VoidButton({ onDone }: { onDone: () => void }) {
   const [confirming, setConfirming] = useState(false);
   if (!confirming) {
     return (
@@ -240,32 +250,20 @@ function VoidButton({
     );
   }
   return (
-    <form
-      action={async (formData) => {
-        formData.set("eventId", originalEventId);
-        // Inherit the reason field from the parent form by reading it
-        // here at submit time; if blank, fall back to a default.
-        const reasonFromForm =
-          (
-            document.querySelector(
-              'form textarea[name="reason"]',
-            ) as HTMLTextAreaElement | null
-          )?.value?.trim() ?? "";
-        formData.set(
-          "reason",
-          reasonFromForm.length > 0 ? reasonFromForm : "Voided by manager",
-        );
+    <button
+      type="submit"
+      formAction={async (formData) => {
+        // Fallback reason: voiding without a typed reason should still
+        // record an audit trail message, not fail server validation.
+        const reasonRaw = String(formData.get("reason") ?? "").trim();
+        if (!reasonRaw) formData.set("reason", "Voided by manager");
         await voidClockEventAction(formData);
         onDone();
       }}
+      className="w-full rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
     >
-      <button
-        type="submit"
-        className="w-full rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
-      >
-        Confirm void
-      </button>
-    </form>
+      Confirm void
+    </button>
   );
 }
 
