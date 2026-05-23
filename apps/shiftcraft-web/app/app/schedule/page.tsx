@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { and, asc, between, eq, sql } from "drizzle-orm";
+import { and, asc, between, count, eq, gte, lte, sql } from "drizzle-orm";
 import {
   forTenant,
   scEmployees,
   scLocations,
   scShiftAssignments,
   scShifts,
+  scShiftSwapRequests,
+  scTimeOffRequests,
   users,
 } from "@tracey/db";
 import { currentMembership } from "~/lib/auth/current";
@@ -14,9 +16,10 @@ import { forecastWeek } from "~/lib/labour-forecast";
 import { Button } from "~/components/ui/button";
 import { WeeklyLabourForecast } from "~/components/WeeklyLabourForecast";
 import { AreaScheduleView, type AreaShift } from "./_area-view";
+import { EmployeeScheduleView, type EmployeeRow } from "./_employee-view";
 import { bulkPublishWeekAction, duplicateWeekAction } from "./actions";
 
-type ScheduleView = "day" | "area";
+type ScheduleView = "day" | "area" | "employee";
 
 export const metadata = { title: "Schedule · ShiftCraft" };
 
@@ -83,7 +86,8 @@ export default async function SchedulePage({
     copied,
     skipped,
   } = await searchParams;
-  const view: ScheduleView = viewRaw === "area" ? "area" : "day";
+  const view: ScheduleView =
+    viewRaw === "area" ? "area" : viewRaw === "employee" ? "employee" : "day";
   const copiedCount = Number.parseInt(copied ?? "", 10);
   const skippedCount = Number.parseInt(skipped ?? "", 10);
   const showCopyFlash = Number.isFinite(copiedCount) && copied !== undefined;
@@ -174,13 +178,14 @@ export default async function SchedulePage({
         .from(scLocations)
         .orderBy(asc(scLocations.name)),
     ),
-    view === "area"
+    view === "area" || view === "employee"
       ? ctx.run((tx) =>
           tx
             .select({
               id: scEmployees.id,
               fullName: scEmployees.fullName,
               email: scEmployees.email,
+              appUserId: scEmployees.appUserId,
             })
             .from(scEmployees)
             .where(
@@ -192,9 +197,105 @@ export default async function SchedulePage({
             .orderBy(asc(scEmployees.fullName)),
         )
       : Promise.resolve(
-          [] as Array<{ id: string; fullName: string; email: string | null }>,
+          [] as Array<{
+            id: string;
+            fullName: string;
+            email: string | null;
+            appUserId: string | null;
+          }>,
         ),
   ]);
+
+  // For the employee row view we need (shiftId → acceptedUserIds[]) so a
+  // shift assigned to multiple people lands in each of their rows. Fetched
+  // only when the employee view is selected to keep the area/day queries
+  // unchanged.
+  const assignmentsByShift = new Map<string, string[]>();
+  if (view === "employee" && shifts.length > 0) {
+    const shiftIds = shifts.map((s) => s.id);
+    const assignmentRows = await ctx.run((tx) =>
+      tx
+        .select({
+          shiftId: scShiftAssignments.shiftId,
+          userId: scShiftAssignments.userId,
+        })
+        .from(scShiftAssignments)
+        .where(
+          and(
+            eq(scShiftAssignments.status, "accepted"),
+            sql`${scShiftAssignments.shiftId} = ANY(${shiftIds})`,
+          ),
+        ),
+    );
+    for (const a of assignmentRows) {
+      const arr = assignmentsByShift.get(a.shiftId) ?? [];
+      arr.push(a.userId);
+      assignmentsByShift.set(a.shiftId, arr);
+    }
+  }
+
+  // ─── Bottom status strip counts ───
+  //
+  // All admin-visible. Members only see the day/employee grid; the strip
+  // is hidden for them. Each metric is bounded by the week being viewed
+  // so navigating to a different week refreshes the counts.
+  const weekStartIso = fmtIsoDate(weekStart);
+  const weekEndInclusiveIso = fmtIsoDate(addDays(weekStart, 6));
+  const publishedCount = shifts.filter((s) => s.status === "published").length;
+  const cancelledCount = shifts.filter((s) => s.status === "cancelled").length;
+  const openShiftCount = shifts.filter(
+    (s) => s.status !== "cancelled" && s.acceptedCount === 0,
+  ).length;
+
+  // Counts are cheap (three COUNT queries) — always fetch so the strip
+  // renders consistently across admin/member roles.
+  const [swapsPending, leavePending, leaveApprovedWeek] = await Promise.all([
+    ctx.run((tx) =>
+      tx
+        .select({ n: count() })
+        .from(scShiftSwapRequests)
+        .where(
+          and(
+            eq(scShiftSwapRequests.traceyTenantId, membership.tenant.id),
+            eq(scShiftSwapRequests.status, "pending"),
+          ),
+        ),
+    ),
+    ctx.run((tx) =>
+      tx
+        .select({ n: count() })
+        .from(scTimeOffRequests)
+        .where(
+          and(
+            eq(scTimeOffRequests.traceyTenantId, membership.tenant.id),
+            eq(scTimeOffRequests.status, "pending"),
+          ),
+        ),
+    ),
+    ctx.run((tx) =>
+      tx
+        .select({ n: count() })
+        .from(scTimeOffRequests)
+        .where(
+          and(
+            eq(scTimeOffRequests.traceyTenantId, membership.tenant.id),
+            eq(scTimeOffRequests.status, "approved"),
+            lte(scTimeOffRequests.startDate, weekEndInclusiveIso),
+            gte(scTimeOffRequests.endDate, weekStartIso),
+          ),
+        ),
+    ),
+  ]);
+
+  const stripCounts = {
+    published: publishedCount,
+    draft: shifts.filter((s) => s.status === "draft").length,
+    cancelled: cancelledCount,
+    open: openShiftCount,
+    swapsPending: swapsPending[0]?.n ?? 0,
+    leavePending: leavePending[0]?.n ?? 0,
+    leaveApprovedThisWeek: leaveApprovedWeek[0]?.n ?? 0,
+  };
 
   // Group shifts by day index (0=Mon … 6=Sun).
   const days: Array<{ date: Date; shifts: typeof shifts }> = Array.from(
@@ -249,6 +350,16 @@ export default async function SchedulePage({
               }`}
             >
               Area
+            </Link>
+            <Link
+              href={`/app/schedule${qs({ view: "employee" })}`}
+              className={`px-3 py-1.5 text-xs font-medium ${
+                view === "employee"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-background hover:bg-muted"
+              }`}
+            >
+              Employee
             </Link>
           </div>
           <Button asChild variant="outline" size="sm">
@@ -377,6 +488,13 @@ export default async function SchedulePage({
           shifts={shifts as unknown as AreaShift[]}
           employees={employees}
         />
+      ) : view === "employee" ? (
+        <EmployeeScheduleView
+          weekStart={weekStart}
+          shifts={shifts as unknown as AreaShift[]}
+          employees={employees as EmployeeRow[]}
+          assignmentsByShift={assignmentsByShift}
+        />
       ) : (
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {days.map((d) => (
@@ -445,6 +563,76 @@ export default async function SchedulePage({
         ))}
       </div>
       )}
+
+      {/* ─── Bottom status strip ─── */}
+      <section className="rounded-lg border border-border bg-card px-4 py-3 shadow-sm">
+        <ul className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs">
+          <StatusPill
+            label="Published"
+            value={stripCounts.published}
+            tone={stripCounts.published > 0 ? "emerald" : "muted"}
+          />
+          <StatusPill
+            label="Draft"
+            value={stripCounts.draft}
+            tone={stripCounts.draft > 0 ? "amber" : "muted"}
+          />
+          <StatusPill
+            label="Open"
+            value={stripCounts.open}
+            tone={stripCounts.open > 0 ? "amber" : "muted"}
+          />
+          <StatusPill
+            label="Cancelled"
+            value={stripCounts.cancelled}
+            tone={stripCounts.cancelled > 0 ? "rose" : "muted"}
+          />
+          <span className="hidden h-3 border-r border-border sm:block" />
+          <StatusPill
+            label="Swaps pending"
+            value={stripCounts.swapsPending}
+            tone={stripCounts.swapsPending > 0 ? "blue" : "muted"}
+          />
+          <StatusPill
+            label="Leave pending"
+            value={stripCounts.leavePending}
+            tone={stripCounts.leavePending > 0 ? "amber" : "muted"}
+          />
+          <StatusPill
+            label="Leave approved"
+            value={stripCounts.leaveApprovedThisWeek}
+            tone={stripCounts.leaveApprovedThisWeek > 0 ? "blue" : "muted"}
+          />
+        </ul>
+      </section>
     </div>
+  );
+}
+
+function StatusPill({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "emerald" | "amber" | "rose" | "blue" | "muted";
+}) {
+  const dot =
+    tone === "emerald"
+      ? "bg-emerald-500"
+      : tone === "amber"
+        ? "bg-amber-500"
+        : tone === "rose"
+          ? "bg-rose-500"
+          : tone === "blue"
+            ? "bg-blue-500"
+            : "bg-slate-400";
+  return (
+    <li className="flex items-center gap-1.5">
+      <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${dot}`} />
+      <span className="font-semibold tabular-nums">{value}</span>
+      <span className="text-muted-foreground">{label}</span>
+    </li>
   );
 }
