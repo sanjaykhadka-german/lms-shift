@@ -22,11 +22,7 @@ export function UploadDocumentForm({
   const [state, formAction] = useActionState(uploadDocumentAction, INITIAL);
 
   return (
-    <form
-      action={formAction}
-      encType="multipart/form-data"
-      className="space-y-3"
-    >
+    <form action={formAction} className="space-y-3">
       <input type="hidden" name="scope" value={scope} />
 
       <Field

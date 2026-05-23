@@ -29,13 +29,9 @@ import {
   parseIsoDate,
   startOfWeek,
 } from "~/lib/clock";
-import {
-  approveTimesheetAction,
-  clearTimesheetApprovalAction,
-  disputeTimesheetAction,
-} from "./actions";
 import { TimesheetRow } from "./_row";
 import { BulkSelectionForm } from "./_bulk_form";
+import { ApprovalButtons } from "./_approval_buttons";
 
 export const metadata = { title: "Timesheets · ShiftCraft" };
 
@@ -1118,49 +1114,12 @@ function ApprovalCell({
           {notes}
         </p>
       )}
-      <div className="flex flex-wrap gap-1">
-        {status !== "approved" && hasActivity && (
-          <form action={approveTimesheetAction}>
-            <input type="hidden" name="employeeUserId" value={userId} />
-            <input type="hidden" name="weekStart" value={weekStartIso} />
-            <button
-              type="submit"
-              className="rounded-md bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white transition-colors hover:bg-emerald-700"
-            >
-              Approve
-            </button>
-          </form>
-        )}
-        {status !== "disputed" && hasActivity && (
-          <form action={disputeTimesheetAction}>
-            <input type="hidden" name="employeeUserId" value={userId} />
-            <input type="hidden" name="weekStart" value={weekStartIso} />
-            <input
-              type="hidden"
-              name="notes"
-              value="Flagged by manager — please review punches."
-            />
-            <button
-              type="submit"
-              className="rounded-md bg-amber-500 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white transition-colors hover:bg-amber-600"
-            >
-              Dispute
-            </button>
-          </form>
-        )}
-        {status != null && (
-          <form action={clearTimesheetApprovalAction}>
-            <input type="hidden" name="employeeUserId" value={userId} />
-            <input type="hidden" name="weekStart" value={weekStartIso} />
-            <button
-              type="submit"
-              className="rounded-md border border-border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground transition-colors hover:bg-muted"
-            >
-              Reset
-            </button>
-          </form>
-        )}
-      </div>
+      <ApprovalButtons
+        userId={userId}
+        weekStartIso={weekStartIso}
+        status={status}
+        hasActivity={hasActivity}
+      />
     </div>
   );
 }
