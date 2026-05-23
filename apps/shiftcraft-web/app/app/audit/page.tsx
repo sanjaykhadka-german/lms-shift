@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { auditEvents, db } from "@tracey/db";
 import { currentMembership } from "~/lib/auth/current";
 import { isAtLeastManager } from "~/lib/roles";
@@ -31,24 +31,46 @@ function actionTone(action: string): string {
   return "bg-slate-500 text-white";
 }
 
+function parseDate(raw: string | undefined, endOfDay: boolean): Date | null {
+  if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const d = new Date(`${raw}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  if (endOfDay) d.setHours(23, 59, 59, 999);
+  return d;
+}
+
 export default async function AuditPage({
   searchParams,
 }: {
-  searchParams: Promise<{ action?: string; page?: string }>;
+  searchParams: Promise<{
+    action?: string;
+    page?: string;
+    from?: string;
+    to?: string;
+  }>;
 }) {
   const membership = await currentMembership();
   if (!membership) redirect("/app");
   if (!isAtLeastManager(membership.role)) redirect("/app");
 
-  const { action: actionFilter, page: pageRaw } = await searchParams;
+  const {
+    action: actionFilter,
+    page: pageRaw,
+    from: fromRaw,
+    to: toRaw,
+  } = await searchParams;
   const page = Math.max(1, Number.parseInt(pageRaw ?? "1", 10) || 1);
   const offset = (page - 1) * PAGE_SIZE;
+  const fromDate = parseDate(fromRaw, false);
+  const toDate = parseDate(toRaw, true);
 
   const where = and(
     eq(auditEvents.tenantId, membership.tenant.id),
     actionFilter && actionFilter.length > 0
       ? eq(auditEvents.action, actionFilter)
       : undefined,
+    fromDate ? gte(auditEvents.createdAt, fromDate) : undefined,
+    toDate ? lte(auditEvents.createdAt, toDate) : undefined,
   );
 
   const [rows, totalRows] = await Promise.all([
@@ -78,16 +100,29 @@ export default async function AuditPage({
     .orderBy(auditEvents.action)
     .limit(50);
 
-  const qsFor = (overrides: { action?: string | null; page?: number }) => {
+  const qsFor = (overrides: {
+    action?: string | null;
+    page?: number;
+    from?: string | null;
+    to?: string | null;
+  }) => {
     const params = new URLSearchParams();
     const act =
       overrides.action === null ? undefined : (overrides.action ?? actionFilter);
     if (act) params.set("action", act);
+    const f =
+      overrides.from === null ? undefined : (overrides.from ?? fromRaw);
+    if (f) params.set("from", f);
+    const t =
+      overrides.to === null ? undefined : (overrides.to ?? toRaw);
+    if (t) params.set("to", t);
     if (overrides.page && overrides.page > 1)
       params.set("page", String(overrides.page));
     const s = params.toString();
     return s ? `?${s}` : "";
   };
+
+  const hasAnyFilter = !!(actionFilter || fromRaw || toRaw);
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-6 py-10">
@@ -102,41 +137,73 @@ export default async function AuditPage({
       <form
         action="/app/audit"
         method="get"
-        className="flex flex-wrap items-center gap-2 text-sm"
+        className="flex flex-wrap items-end gap-2 text-sm"
       >
-        <label
-          htmlFor="action-filter"
-          className="text-xs uppercase tracking-wider text-muted-foreground"
-        >
-          Action:
-        </label>
-        <select
-          id="action-filter"
-          name="action"
-          defaultValue={actionFilter ?? ""}
-          className="h-8 rounded-md border border-[color:var(--input)] bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
-        >
-          <option value="">All actions ({total})</option>
-          {distinctActions.map((a) => (
-            <option key={a.action} value={a.action}>
-              {a.action}
-            </option>
-          ))}
-        </select>
+        <div className="space-y-1">
+          <label
+            htmlFor="action-filter"
+            className="block text-xs uppercase tracking-wider text-muted-foreground"
+          >
+            Action
+          </label>
+          <select
+            id="action-filter"
+            name="action"
+            defaultValue={actionFilter ?? ""}
+            className="h-8 rounded-md border border-[color:var(--input)] bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+          >
+            <option value="">All actions</option>
+            {distinctActions.map((a) => (
+              <option key={a.action} value={a.action}>
+                {a.action}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-1">
+          <label
+            htmlFor="audit-from"
+            className="block text-xs uppercase tracking-wider text-muted-foreground"
+          >
+            From
+          </label>
+          <input
+            id="audit-from"
+            name="from"
+            type="date"
+            defaultValue={fromRaw ?? ""}
+            className="h-8 rounded-md border border-[color:var(--input)] bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+          />
+        </div>
+        <div className="space-y-1">
+          <label
+            htmlFor="audit-to"
+            className="block text-xs uppercase tracking-wider text-muted-foreground"
+          >
+            To
+          </label>
+          <input
+            id="audit-to"
+            name="to"
+            type="date"
+            defaultValue={toRaw ?? ""}
+            className="h-8 rounded-md border border-[color:var(--input)] bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+          />
+        </div>
         <Button type="submit" variant="outline" size="sm">
           Apply
         </Button>
-        {actionFilter && (
+        {hasAnyFilter ? (
           <Button asChild variant="ghost" size="sm">
             <Link href="/app/audit">Clear</Link>
           </Button>
-        )}
+        ) : null}
       </form>
 
       <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
           <h2 className="text-base font-semibold">
-            {actionFilter ? `Filtered events` : `All events`}{" "}
+            {hasAnyFilter ? `Filtered events` : `All events`}{" "}
             <span className="ml-1 text-xs font-normal text-muted-foreground">
               · {total} total
             </span>
