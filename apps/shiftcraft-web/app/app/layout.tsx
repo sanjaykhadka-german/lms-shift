@@ -1,8 +1,14 @@
 import { redirect } from "next/navigation";
 import { currentMembership, currentUser } from "~/lib/auth/current";
-import { getUnreadCount } from "~/lib/notifications-feed";
+import {
+  getRecentNotifications,
+  getUnreadCount,
+} from "~/lib/notifications-feed";
 import { Sidebar } from "~/components/Sidebar";
-import { NotificationsBell } from "~/components/NotificationsBell";
+import {
+  NotificationsBell,
+  type NotificationPreview,
+} from "~/components/NotificationsBell";
 
 export default async function AppLayout({
   children,
@@ -15,12 +21,24 @@ export default async function AppLayout({
   const membership = await currentMembership();
   const displayName = user.name ?? user.email;
   const roleLabel = membership?.role ?? "member";
-  // Best-effort unread count for the bell badge. If there's no active
-  // membership yet (user just signed up), default to 0 so we don't run
-  // a tenant-scoped query.
-  const unreadCount = membership
-    ? await getUnreadCount(membership.tenant.id, user.id)
-    : 0;
+  // Unread count + 5 recent notifications power the top-right bell.
+  // Both are tenant-scoped via the same recipientUserId, so we run them
+  // in parallel. Skip the query if there's no active membership (user
+  // just signed up — they have no tenant context yet).
+  const [unreadCount, recentRows] = membership
+    ? await Promise.all([
+        getUnreadCount(membership.tenant.id, user.id),
+        getRecentNotifications(membership.tenant.id, user.id, 5),
+      ])
+    : [0, []];
+  const recent: NotificationPreview[] = recentRows.map((n) => ({
+    id: n.id,
+    title: n.title,
+    body: n.body,
+    actionUrl: n.actionUrl,
+    readAt: n.readAt?.toISOString() ?? null,
+    createdAtIso: n.createdAt.toISOString(),
+  }));
 
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
@@ -34,7 +52,7 @@ export default async function AppLayout({
         {/* Global chrome — only renders on md+ so the existing mobile
             top-bar in Sidebar.tsx isn't doubled up. */}
         <header className="sticky top-0 z-30 hidden h-12 items-center justify-end border-b border-border bg-card/95 px-4 backdrop-blur md:flex">
-          <NotificationsBell unreadCount={unreadCount} />
+          <NotificationsBell unreadCount={unreadCount} recent={recent} />
         </header>
         <main className="flex-1">{children}</main>
       </div>
