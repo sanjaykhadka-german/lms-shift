@@ -34,33 +34,68 @@ import { Avatar } from "./Avatar";
 import { Logo } from "./Logo";
 import { signOutAction } from "~/app/app/_actions";
 
-const NAV = [
-  { href: "/app", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/app/notifications", label: "Notifications", icon: Bell },
-  { href: "/app/clock", label: "Time clock", icon: Clock },
-  { href: "/app/my-shifts", label: "My shifts", icon: CalendarCheck },
-  { href: "/app/open-shifts", label: "Open shifts", icon: Hand },
-  { href: "/app/schedule", label: "Schedule", icon: CalendarDays },
-  { href: "/app/coverage-gaps", label: "Coverage gaps", icon: AlertCircle },
-  { href: "/app/timesheets", label: "Timesheets", icon: ClipboardList },
-  { href: "/app/tasks", label: "Tasks", icon: KanbanSquare },
-  { href: "/app/locations", label: "Locations", icon: MapPin },
-  { href: "/app/employees", label: "Employees", icon: Users },
-  { href: "/app/team", label: "Team", icon: Shield },
-  { href: "/app/availability", label: "My availability", icon: CalendarCheck },
-  { href: "/app/time-off", label: "Time off", icon: CalendarOff },
-  { href: "/app/announcements", label: "Announcements", icon: Megaphone },
-  { href: "/app/settings", label: "Settings", icon: Settings },
-];
+type NavItem = {
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+};
 
-const ADMIN_NAV = [
-  { href: "/app/reports", label: "Reports", icon: BarChart3 },
-  { href: "/app/departments", label: "Departments", icon: Building2 },
-  { href: "/app/shift-templates", label: "Shift templates", icon: CalendarDays },
-  { href: "/app/swaps", label: "Swap requests", icon: Repeat },
-  { href: "/app/admin/members", label: "Members", icon: Users },
-  { href: "/app/admin/kiosks", label: "Kiosks", icon: Tablet },
-  { href: "/app/audit", label: "Audit log", icon: History },
+type NavSection = {
+  label: string;
+  adminOnly?: boolean;
+  items: NavItem[];
+};
+
+const SECTIONS: NavSection[] = [
+  {
+    label: "Overview",
+    items: [
+      { href: "/app", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/app/notifications", label: "Notifications", icon: Bell },
+      { href: "/app/announcements", label: "Announcements", icon: Megaphone },
+    ],
+  },
+  {
+    label: "My work",
+    items: [
+      { href: "/app/clock", label: "Time clock", icon: Clock },
+      { href: "/app/my-shifts", label: "Shifts", icon: CalendarCheck },
+      { href: "/app/availability", label: "Availability", icon: CalendarCheck },
+      { href: "/app/time-off", label: "Time off", icon: CalendarOff },
+      { href: "/app/open-shifts", label: "Open shifts", icon: Hand },
+    ],
+  },
+  {
+    label: "Team",
+    items: [
+      { href: "/app/schedule", label: "Schedule", icon: CalendarDays },
+      { href: "/app/team", label: "Team roster", icon: Shield },
+      { href: "/app/tasks", label: "Tasks", icon: KanbanSquare },
+    ],
+  },
+  {
+    label: "Workspace",
+    items: [
+      { href: "/app/locations", label: "Locations", icon: MapPin },
+      { href: "/app/employees", label: "Employees", icon: Users },
+      { href: "/app/coverage-gaps", label: "Coverage gaps", icon: AlertCircle },
+      { href: "/app/timesheets", label: "Timesheets", icon: ClipboardList },
+      { href: "/app/settings", label: "Settings", icon: Settings },
+    ],
+  },
+  {
+    label: "Admin",
+    adminOnly: true,
+    items: [
+      { href: "/app/reports", label: "Reports", icon: BarChart3 },
+      { href: "/app/departments", label: "Departments", icon: Building2 },
+      { href: "/app/shift-templates", label: "Shift templates", icon: CalendarDays },
+      { href: "/app/swaps", label: "Swap requests", icon: Repeat },
+      { href: "/app/admin/members", label: "Members", icon: Users },
+      { href: "/app/admin/kiosks", label: "Kiosks", icon: Tablet },
+      { href: "/app/audit", label: "Audit log", icon: History },
+    ],
+  },
 ];
 
 export function Sidebar({
@@ -78,7 +113,7 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const isAdmin = role === "admin" || role === "owner";
-  const items = isAdmin ? [...NAV, ...ADMIN_NAV] : NAV;
+  const sections = SECTIONS.filter((s) => !s.adminOnly || isAdmin);
 
   // Mobile drawer state. Closes automatically on route change so the user
   // doesn't see the drawer linger across navigation. Esc closes it too.
@@ -108,42 +143,56 @@ export function Sidebar({
           <X className="h-5 w-5" />
         </button>
       </div>
-      <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4">
-        {items.map((item) => {
-          const active =
-            pathname === item.href || pathname.startsWith(item.href + "/");
-          const Icon = item.icon;
-          const showBadge =
-            item.href === "/app/notifications" && unreadNotifications > 0;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                active
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
-              )}
-            >
-              <Icon className="h-4 w-4" strokeWidth={2} />
-              <span className="flex-1">{item.label}</span>
-              {showBadge && (
-                <span
+      <nav className="flex-1 overflow-y-auto px-3 py-4">
+        {sections.map((section, sectionIdx) => (
+          <div
+            key={section.label}
+            className={cn(
+              "space-y-0.5",
+              sectionIdx > 0 && "mt-2 border-t border-border/60 pt-2",
+            )}
+          >
+            <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              {section.label}
+            </div>
+            {section.items.map((item) => {
+              const active =
+                pathname === item.href ||
+                pathname.startsWith(item.href + "/");
+              const Icon = item.icon;
+              const showBadge =
+                item.href === "/app/notifications" && unreadNotifications > 0;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
                   className={cn(
-                    "inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-[10px] font-bold tabular-nums",
+                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
                     active
-                      ? "bg-primary-foreground/20 text-primary-foreground"
-                      : "bg-rose-600 text-white",
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
                   )}
-                  aria-label={`${unreadNotifications} unread`}
                 >
-                  {unreadNotifications > 99 ? "99+" : unreadNotifications}
-                </span>
-              )}
-            </Link>
-          );
-        })}
+                  <Icon className="h-4 w-4" strokeWidth={2} />
+                  <span className="flex-1">{item.label}</span>
+                  {showBadge && (
+                    <span
+                      className={cn(
+                        "inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-[10px] font-bold tabular-nums",
+                        active
+                          ? "bg-primary-foreground/20 text-primary-foreground"
+                          : "bg-rose-600 text-white",
+                      )}
+                      aria-label={`${unreadNotifications} unread`}
+                    >
+                      {unreadNotifications > 99 ? "99+" : unreadNotifications}
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
       <div className="border-t border-border px-3 py-4">
         <div className="mb-2 flex items-center gap-3 px-3">
