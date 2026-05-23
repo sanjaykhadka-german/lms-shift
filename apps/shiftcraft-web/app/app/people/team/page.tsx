@@ -445,9 +445,14 @@ export default async function PeopleTeamPage({
           </p>
         </div>
         {canManage ? (
-          <Button asChild>
-            <Link href="/app/employees/new">Add employee</Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="outline">
+              <Link href="/app/employees/import">Import CSV</Link>
+            </Button>
+            <Button asChild>
+              <Link href="/app/employees/new">Add employee</Link>
+            </Button>
+          </div>
         ) : null}
       </div>
 
