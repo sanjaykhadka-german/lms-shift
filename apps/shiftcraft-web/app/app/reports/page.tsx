@@ -368,6 +368,21 @@ export default async function ReportsPage({
             Hours worked across {membership.tenant.name} this week, with
             week-over-week deltas. Derived from clock-event activity.
           </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-muted-foreground">More reports:</span>
+            <Link
+              href="/app/reports/birthdays-anniversaries"
+              className="rounded-md border border-border bg-background px-2.5 py-1 font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              🎂 Birthdays & anniversaries
+            </Link>
+            <Link
+              href="/app/reports/attendance"
+              className="rounded-md border border-border bg-background px-2.5 py-1 font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              📋 Attendance
+            </Link>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Button asChild variant="outline" size="sm">
