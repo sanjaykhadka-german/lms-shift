@@ -183,16 +183,6 @@ export function EmployeeDetailModal({
       }}
     >
       <div className="relative flex h-[90vh] max-h-[920px] w-full max-w-5xl overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
-        {/* ─── Close button ─── */}
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="absolute right-4 top-4 z-10 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          ✕
-        </button>
-
         {/* ─── Left rail ─── */}
         <aside className="flex w-64 flex-col border-r border-border bg-muted/20">
           <div className="flex flex-col items-center gap-2 border-b border-border px-5 py-6">
@@ -252,16 +242,26 @@ export function EmployeeDetailModal({
             <h2 className="text-xl font-semibold tracking-tight">
               {TABS.find((t) => t.id === tab)?.label}
             </h2>
-            {canManage ? (
-              <Button asChild>
-                <Link
-                  href={`/app/employees/${employee.id}/edit`}
-                  onClick={onClose}
-                >
-                  Edit
-                </Link>
-              </Button>
-            ) : null}
+            <div className="flex items-center gap-2">
+              {canManage ? (
+                <Button asChild>
+                  <Link
+                    href={`/app/employees/${employee.id}/edit`}
+                    onClick={onClose}
+                  >
+                    Edit
+                  </Link>
+                </Button>
+              ) : null}
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close"
+                className="rounded-md border border-border bg-background p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <span className="block h-4 w-4 leading-none">✕</span>
+              </button>
+            </div>
           </header>
           <div className="flex-1 overflow-y-auto px-6 py-5">
             {tab === "personal" ? (
