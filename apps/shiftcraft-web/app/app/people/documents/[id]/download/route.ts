@@ -66,10 +66,18 @@ export async function GET(
   // RFC 5987 percent-encoded filename so unicode titles survive the header.
   const safeName = encodeURIComponent(row.title);
 
+  // PDFs and images preview in the browser ('inline') — managers verify
+  // the right file landed without a download round-trip. Office docs
+  // (DOCX/DOC) and plain text fall back to 'attachment' because browsers
+  // don't render them and would just dump bytes into a tab otherwise.
+  const previewable =
+    row.mimeType === "application/pdf" || row.mimeType.startsWith("image/");
+  const disposition = previewable ? "inline" : "attachment";
+
   return new NextResponse(new Uint8Array(row.data), {
     headers: {
       "Content-Type": row.mimeType,
-      "Content-Disposition": `attachment; filename*=UTF-8''${safeName}`,
+      "Content-Disposition": `${disposition}; filename*=UTF-8''${safeName}`,
       "Cache-Control": "private, no-cache",
     },
   });
