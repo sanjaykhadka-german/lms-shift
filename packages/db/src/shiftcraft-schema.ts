@@ -852,6 +852,64 @@ export const scEmployeeOnboardingTasks = pgTable(
   ],
 );
 
+// ─── Documents ───
+//
+// People-tab document storage. Two scopes:
+//   - 'library' : workspace-wide documents (handbook, policies, contract
+//     templates). `employee_id` is NULL.
+//   - 'team'    : per-employee documents (signed contracts, licences,
+//     certifications). `employee_id` is required.
+//
+// Binary payload is stored as bytea — matches the existing kiosk-selfie
+// pattern (sc_clock_event_photos) and works on the free Render Postgres
+// tier without any external blob-storage dependency. Per-file cap is
+// enforced by a CHECK constraint at 5 MiB (5 * 1024 * 1024 bytes).
+//
+// `expires_at` is nullable but populated for licences/certifications so
+// the Team documents view can surface an "expiring soon" badge.
+
+export const scDocuments = pgTable(
+  "sc_documents",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    scope: text("scope").notNull(),
+    employeeId: uuid("employee_id").references(() => scEmployees.id, {
+      onDelete: "cascade",
+    }),
+    title: text("title").notNull(),
+    notes: text("notes"),
+    mimeType: text("mime_type").notNull(),
+    fileSize: integer("file_size").notNull(),
+    data: bytea("data").notNull(),
+    uploadedByUserId: uuid("uploaded_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    uploadedAt: timestamp("uploaded_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("sc_documents_tenant_scope_idx").on(
+      t.traceyTenantId,
+      t.scope,
+      t.uploadedAt,
+    ),
+    index("sc_documents_employee_idx").on(t.employeeId),
+    index("sc_documents_tenant_expiry_idx").on(t.traceyTenantId, t.expiresAt),
+    check("sc_documents_scope_chk", sql`${t.scope} in ('library','team')`),
+    check(
+      "sc_documents_size_chk",
+      sql`${t.fileSize} > 0 and ${t.fileSize} <= 5242880`,
+    ),
+    check(
+      "sc_documents_scope_employee_chk",
+      sql`(${t.scope} = 'team' and ${t.employeeId} is not null) or (${t.scope} = 'library' and ${t.employeeId} is null)`,
+    ),
+  ],
+);
+
 // ─── Inferred types ───
 
 export type ScLocation = typeof scLocations.$inferSelect;
@@ -908,3 +966,6 @@ export type NewScEmployeeOnboardingTask =
   typeof scEmployeeOnboardingTasks.$inferInsert;
 export type ScOnboardingStatus = "pending" | "in_progress" | "active";
 export type ScOnboardingTaskStatus = "pending" | "done";
+export type ScDocument = typeof scDocuments.$inferSelect;
+export type NewScDocument = typeof scDocuments.$inferInsert;
+export type ScDocumentScope = "library" | "team";
