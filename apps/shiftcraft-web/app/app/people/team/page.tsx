@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
 import {
   auditEvents,
   db,
@@ -8,7 +8,11 @@ import {
   invitations,
   members,
   scDepartments,
+  scDocuments,
   scEmployees,
+  scLocations,
+  scShiftAssignments,
+  scShifts,
   users,
   type ScEmploymentType,
   type ScOnboardingStatus,
@@ -20,6 +24,8 @@ import { Button } from "~/components/ui/button";
 import { InviteForm } from "../_components/InviteForm";
 import { RevokeInvitationButton } from "../_components/RevokeInvitationButton";
 import { revokeInvitationAction } from "../_actions";
+import { EmployeeNameButton } from "../_components/EmployeeNameButton";
+import type { EmployeeDetail } from "../_components/EmployeeDetailModal";
 
 export const metadata = { title: "Team members · ShiftCraft" };
 export const dynamic = "force-dynamic";
@@ -85,6 +91,90 @@ function formatRate(rate: string | null): string | null {
   return `$${n.toFixed(2)}`;
 }
 
+function buildEmployeeDetail(
+  sc: {
+    id: string;
+    fullName: string;
+    email: string | null;
+    mobile: string | null;
+    department: string | null;
+    employmentType: string;
+    appUserId: string | null;
+    isActive: boolean;
+    hourlyRate: string | null;
+    onboardingStatus: string;
+    onboardingStartedAt: Date | null;
+    onboardingCompletedAt: Date | null;
+    createdAt: Date;
+    notes: string | null;
+    availability: unknown;
+    preferredName: string | null;
+    gender: string | null;
+    dateOfBirth: string | null;
+    addressLine: string | null;
+    emergencyContactName: string | null;
+    emergencyContactPhone: string | null;
+  },
+  authRole: string | null,
+  docs: Array<{
+    id: string;
+    title: string;
+    mimeType: string;
+    fileSize: number;
+    uploadedAt: Date;
+    expiresAt: Date | null;
+  }>,
+  shifts: Array<{
+    startsAt: Date;
+    endsAt: Date;
+    locationName: string | null;
+    status: string;
+  }>,
+): EmployeeDetail {
+  return {
+    id: sc.id,
+    fullName: sc.fullName,
+    preferredName: sc.preferredName,
+    email: sc.email,
+    mobile: sc.mobile,
+    gender: sc.gender,
+    dateOfBirthIso: sc.dateOfBirth,
+    addressLine: sc.addressLine,
+    emergencyContactName: sc.emergencyContactName,
+    emergencyContactPhone: sc.emergencyContactPhone,
+    departmentName: sc.department,
+    employmentType: sc.employmentType,
+    hourlyRate: sc.hourlyRate,
+    hireDateIso: sc.createdAt.toISOString(),
+    notes: sc.notes,
+    isActive: sc.isActive,
+    onboardingStatus: sc.onboardingStatus as
+      | "pending"
+      | "in_progress"
+      | "active",
+    onboardingStartedAtIso: sc.onboardingStartedAt?.toISOString() ?? null,
+    onboardingCompletedAtIso: sc.onboardingCompletedAt?.toISOString() ?? null,
+    availability:
+      (sc.availability as Record<string, string> | null) ?? null,
+    documents: docs.map((d) => ({
+      id: d.id,
+      title: d.title,
+      mimeType: d.mimeType,
+      fileSize: d.fileSize,
+      uploadedAtIso: d.uploadedAt.toISOString(),
+      expiresAtIso: d.expiresAt?.toISOString() ?? null,
+    })),
+    shifts: shifts.map((s) => ({
+      startsAtIso: s.startsAt.toISOString(),
+      endsAtIso: s.endsAt.toISOString(),
+      locationName: s.locationName,
+      status: s.status,
+    })),
+    appUserId: sc.appUserId,
+    authRole,
+  };
+}
+
 function OnboardingPill({
   status,
   employeeId,
@@ -143,7 +233,9 @@ export default async function PeopleTeamPage({
     .where(eq(members.tenantId, tenantId))
     .orderBy(asc(users.name), asc(users.email));
 
-  // ShiftCraft-side HR roster (includes labour-hire / no-auth rows).
+  // ShiftCraft-side HR roster (includes labour-hire / no-auth rows). The
+  // SELECT pulls every column the People > Team detail modal renders so
+  // the modal can open without a follow-up round-trip.
   const scRoster = await forTenant(tenantId).run((tx) =>
     tx
       .select({
@@ -157,6 +249,17 @@ export default async function PeopleTeamPage({
         isActive: scEmployees.isActive,
         hourlyRate: scEmployees.hourlyRate,
         onboardingStatus: scEmployees.onboardingStatus,
+        onboardingStartedAt: scEmployees.onboardingStartedAt,
+        onboardingCompletedAt: scEmployees.onboardingCompletedAt,
+        createdAt: scEmployees.createdAt,
+        notes: scEmployees.notes,
+        availability: scEmployees.availability,
+        preferredName: scEmployees.preferredName,
+        gender: scEmployees.gender,
+        dateOfBirth: scEmployees.dateOfBirth,
+        addressLine: scEmployees.addressLine,
+        emergencyContactName: scEmployees.emergencyContactName,
+        emergencyContactPhone: scEmployees.emergencyContactPhone,
       })
       .from(scEmployees)
       .leftJoin(
@@ -166,6 +269,97 @@ export default async function PeopleTeamPage({
       .where(eq(scEmployees.traceyTenantId, tenantId))
       .orderBy(asc(scEmployees.fullName)),
   );
+
+  // Prefetch detail-modal payloads: team documents per employee, and the
+  // next ~10 upcoming shifts per linked auth user. Both keyed for O(1)
+  // lookup at row render time. Skipped for members who can't see admin
+  // surfaces since the modal hides those sections anyway.
+  const scEmployeeIds = scRoster.map((r) => r.id);
+  const linkedUserIds = scRoster
+    .map((r) => r.appUserId)
+    .filter((v): v is string => v != null);
+
+  const [docsRows, shiftRows] = scEmployeeIds.length === 0
+    ? [[] as Array<{
+        id: string;
+        employeeId: string | null;
+        title: string;
+        mimeType: string;
+        fileSize: number;
+        uploadedAt: Date;
+        expiresAt: Date | null;
+      }>, [] as Array<{
+        userId: string;
+        startsAt: Date;
+        endsAt: Date;
+        locationName: string | null;
+        status: string;
+      }>]
+    : await forTenant(tenantId).run(async (tx) => {
+        const docs = await tx
+          .select({
+            id: scDocuments.id,
+            employeeId: scDocuments.employeeId,
+            title: scDocuments.title,
+            mimeType: scDocuments.mimeType,
+            fileSize: scDocuments.fileSize,
+            uploadedAt: scDocuments.uploadedAt,
+            expiresAt: scDocuments.expiresAt,
+          })
+          .from(scDocuments)
+          .where(
+            and(
+              eq(scDocuments.scope, "team"),
+              inArray(scDocuments.employeeId, scEmployeeIds),
+            ),
+          )
+          .orderBy(asc(scDocuments.expiresAt));
+
+        const shifts = linkedUserIds.length === 0
+          ? []
+          : await tx
+              .select({
+                userId: scShiftAssignments.userId,
+                startsAt: scShifts.startsAt,
+                endsAt: scShifts.endsAt,
+                locationName: scLocations.name,
+                status: scShiftAssignments.status,
+              })
+              .from(scShiftAssignments)
+              .innerJoin(
+                scShifts,
+                eq(scShifts.id, scShiftAssignments.shiftId),
+              )
+              .leftJoin(
+                scLocations,
+                eq(scLocations.id, scShifts.locationId),
+              )
+              .where(
+                and(
+                  inArray(scShiftAssignments.userId, linkedUserIds),
+                  gte(scShifts.startsAt, new Date()),
+                ),
+              )
+              .orderBy(asc(scShifts.startsAt))
+              .limit(linkedUserIds.length * 10);
+
+        return [docs, shifts];
+      });
+
+  // Group rows for fast per-row lookup.
+  const docsByEmployee = new Map<string, typeof docsRows>();
+  for (const d of docsRows) {
+    if (!d.employeeId) continue;
+    const arr = docsByEmployee.get(d.employeeId) ?? [];
+    arr.push(d);
+    docsByEmployee.set(d.employeeId, arr);
+  }
+  const shiftsByUser = new Map<string, typeof shiftRows>();
+  for (const s of shiftRows) {
+    const arr = shiftsByUser.get(s.userId) ?? [];
+    if (arr.length < 10) arr.push(s);
+    shiftsByUser.set(s.userId, arr);
+  }
 
   // Dedup: an scEmployees row already linked to an app.users (via appUserId
   // or matching email) renders as a single member-row with the SC payload
@@ -333,7 +527,20 @@ export default async function PeopleTeamPage({
                     />
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium">
-                        {r.name ?? r.email}
+                        {r.shiftcraft ? (
+                          <EmployeeNameButton
+                            display={r.name ?? r.email}
+                            canManage={canManage}
+                            employee={buildEmployeeDetail(
+                              r.shiftcraft,
+                              r.role,
+                              docsByEmployee.get(r.shiftcraft.id) ?? [],
+                              shiftsByUser.get(r.userId) ?? [],
+                            )}
+                          />
+                        ) : (
+                          r.name ?? r.email
+                        )}
                       </div>
                       <div className="truncate text-xs text-muted-foreground">
                         {r.name ? r.email : null}
@@ -418,7 +625,18 @@ export default async function PeopleTeamPage({
                     />
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium">
-                        {r.fullName}
+                        <EmployeeNameButton
+                          display={r.fullName}
+                          canManage={canManage}
+                          employee={buildEmployeeDetail(
+                            r,
+                            null,
+                            docsByEmployee.get(r.id) ?? [],
+                            r.appUserId
+                              ? shiftsByUser.get(r.appUserId) ?? []
+                              : [],
+                          )}
+                        />
                       </div>
                       <div className="truncate text-xs text-muted-foreground">
                         {r.email ?? "No email"}

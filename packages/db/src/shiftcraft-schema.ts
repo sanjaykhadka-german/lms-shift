@@ -314,6 +314,16 @@ export const scEmployees = pgTable(
     onboardingCompletedAt: timestamp("onboarding_completed_at", {
       withTimezone: true,
     }),
+    // Personal details surfaced by the employee profile modal. All
+    // nullable so existing rows back-fill cleanly. Edited via the
+    // existing /app/employees/[id]/edit form, displayed read-only in the
+    // detail modal on /app/people/team.
+    preferredName: text("preferred_name"),
+    gender: text("gender"),
+    dateOfBirth: date("date_of_birth"),
+    addressLine: text("address_line"),
+    emergencyContactName: text("emergency_contact_name"),
+    emergencyContactPhone: text("emergency_contact_phone"),
     createdByUserId: uuid("created_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
@@ -341,6 +351,10 @@ export const scEmployees = pgTable(
     check(
       "sc_employees_onboarding_status_chk",
       sql`${t.onboardingStatus} in ('pending','in_progress','active')`,
+    ),
+    check(
+      "sc_employees_gender_chk",
+      sql`${t.gender} is null or ${t.gender} in ('female','male','non_binary','prefer_not_to_say')`,
     ),
   ],
 );

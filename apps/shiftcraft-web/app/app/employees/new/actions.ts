@@ -85,6 +85,23 @@ const employeeSchema = z.object({
     ])
     .optional(),
   notes: z.string().trim().max(2000).optional().or(z.literal("")),
+  // Personal details surfaced by the People > Team detail modal.
+  preferredName: z.string().trim().max(120).optional().or(z.literal("")),
+  gender: z
+    .union([
+      z.literal(""),
+      z.enum(["female", "male", "non_binary", "prefer_not_to_say"]),
+    ])
+    .optional(),
+  dateOfBirth: z
+    .union([
+      z.literal(""),
+      z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD"),
+    ])
+    .optional(),
+  addressLine: z.string().trim().max(300).optional().or(z.literal("")),
+  emergencyContactName: z.string().trim().max(120).optional().or(z.literal("")),
+  emergencyContactPhone: z.string().trim().max(40).optional().or(z.literal("")),
 });
 
 function collectAvailability(formData: FormData): Record<Weekday, string> | null {
@@ -143,6 +160,12 @@ export async function createEmployeeAction(
     employmentType: formData.get("employmentType") ?? "permanent",
     hourlyRate: formData.get("hourlyRate") ?? "",
     notes: formData.get("notes") ?? "",
+    preferredName: formData.get("preferredName") ?? "",
+    gender: formData.get("gender") ?? "",
+    dateOfBirth: formData.get("dateOfBirth") ?? "",
+    addressLine: formData.get("addressLine") ?? "",
+    emergencyContactName: formData.get("emergencyContactName") ?? "",
+    emergencyContactPhone: formData.get("emergencyContactPhone") ?? "",
   });
   if (!parsed.success) {
     return {
@@ -217,6 +240,12 @@ export async function createEmployeeAction(
         notes,
         appUserId: linkedAppUserId,
         createdByUserId: me?.id ?? null,
+        preferredName: emptyToNull(parsed.data.preferredName),
+        gender: emptyToNull(parsed.data.gender),
+        dateOfBirth: emptyToNull(parsed.data.dateOfBirth),
+        addressLine: emptyToNull(parsed.data.addressLine),
+        emergencyContactName: emptyToNull(parsed.data.emergencyContactName),
+        emergencyContactPhone: emptyToNull(parsed.data.emergencyContactPhone),
       });
     });
   } catch (err) {
@@ -267,6 +296,12 @@ export async function updateEmployeeAction(
     employmentType: formData.get("employmentType") ?? "permanent",
     hourlyRate: formData.get("hourlyRate") ?? "",
     notes: formData.get("notes") ?? "",
+    preferredName: formData.get("preferredName") ?? "",
+    gender: formData.get("gender") ?? "",
+    dateOfBirth: formData.get("dateOfBirth") ?? "",
+    addressLine: formData.get("addressLine") ?? "",
+    emergencyContactName: formData.get("emergencyContactName") ?? "",
+    emergencyContactPhone: formData.get("emergencyContactPhone") ?? "",
   });
   if (!parsed.success) {
     return {
@@ -349,6 +384,12 @@ export async function updateEmployeeAction(
         employmentType: parsed.data.employmentType,
         hourlyRate,
         notes,
+        preferredName: emptyToNull(parsed.data.preferredName),
+        gender: emptyToNull(parsed.data.gender),
+        dateOfBirth: emptyToNull(parsed.data.dateOfBirth),
+        addressLine: emptyToNull(parsed.data.addressLine),
+        emergencyContactName: emptyToNull(parsed.data.emergencyContactName),
+        emergencyContactPhone: emptyToNull(parsed.data.emergencyContactPhone),
         updatedAt: new Date(),
       };
       if (linkedAppUserId !== null) {

@@ -21,7 +21,21 @@ export interface EmployeeFormDefaults {
   hourlyRate: string | null;
   notes: string | null;
   availability: Record<string, string> | null;
+  preferredName: string | null;
+  gender: string | null;
+  dateOfBirth: string | null;
+  addressLine: string | null;
+  emergencyContactName: string | null;
+  emergencyContactPhone: string | null;
 }
+
+const GENDER_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "", label: "Prefer not to say" },
+  { value: "female", label: "Female" },
+  { value: "male", label: "Male" },
+  { value: "non_binary", label: "Non-binary" },
+  { value: "prefer_not_to_say", label: "Prefer not to say (recorded)" },
+];
 
 const EMPLOYMENT_TYPES: Array<{ value: string; label: string; hint: string }> = [
   {
@@ -234,6 +248,81 @@ export function EmployeeForm({
           ))}
         </div>
       </div>
+
+      {/* ─── Personal details ─── */}
+      <fieldset className="space-y-4 rounded-md border border-border p-4">
+        <legend className="px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Personal details
+        </legend>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="preferredName">Preferred name</Label>
+            <Input
+              id="preferredName"
+              name="preferredName"
+              defaultValue={v?.preferredName ?? ""}
+              placeholder="e.g. Janie"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="gender">Gender</Label>
+            <select
+              id="gender"
+              name="gender"
+              defaultValue={v?.gender ?? ""}
+              className="flex h-9 w-full rounded-md border border-[color:var(--input)] bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+            >
+              {GENDER_OPTIONS.map((g) => (
+                <option key={g.value} value={g.value}>
+                  {g.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="dateOfBirth">Date of birth</Label>
+            <Input
+              id="dateOfBirth"
+              name="dateOfBirth"
+              type="date"
+              defaultValue={v?.dateOfBirth ?? ""}
+              aria-invalid={!!fieldError(state, "dateOfBirth")}
+            />
+            {fieldError(state, "dateOfBirth") && (
+              <p className="text-xs text-[color:var(--destructive)]">
+                {fieldError(state, "dateOfBirth")}
+              </p>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="addressLine">Address</Label>
+            <Input
+              id="addressLine"
+              name="addressLine"
+              defaultValue={v?.addressLine ?? ""}
+              placeholder="Street, suburb, state, postcode"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="emergencyContactName">Emergency contact</Label>
+            <Input
+              id="emergencyContactName"
+              name="emergencyContactName"
+              defaultValue={v?.emergencyContactName ?? ""}
+              placeholder="Full name"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="emergencyContactPhone">Emergency contact phone</Label>
+            <Input
+              id="emergencyContactPhone"
+              name="emergencyContactPhone"
+              defaultValue={v?.emergencyContactPhone ?? ""}
+              placeholder="0400 000 000"
+            />
+          </div>
+        </div>
+      </fieldset>
 
       <div className="space-y-1.5">
         <Label htmlFor="notes">Notes (optional)</Label>

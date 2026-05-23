@@ -41,6 +41,12 @@ export default async function NewEmployeePage({
           hourlyRate: null,
           notes: null,
           availability: null,
+          preferredName: null,
+          gender: null,
+          dateOfBirth: null,
+          addressLine: null,
+          emergencyContactName: null,
+          emergencyContactPhone: null,
         }
       : undefined;
 

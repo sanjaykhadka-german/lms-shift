@@ -44,6 +44,12 @@ export default async function EditEmployeePage({
         notes: scEmployees.notes,
         availability: scEmployees.availability,
         createdAt: scEmployees.createdAt,
+        preferredName: scEmployees.preferredName,
+        gender: scEmployees.gender,
+        dateOfBirth: scEmployees.dateOfBirth,
+        addressLine: scEmployees.addressLine,
+        emergencyContactName: scEmployees.emergencyContactName,
+        emergencyContactPhone: scEmployees.emergencyContactPhone,
       })
       .from(scEmployees)
       .leftJoin(
@@ -147,6 +153,12 @@ export default async function EditEmployeePage({
             hourlyRate: row.hourlyRate,
             notes: row.notes,
             availability: row.availability as Record<string, string> | null,
+            preferredName: row.preferredName,
+            gender: row.gender,
+            dateOfBirth: row.dateOfBirth,
+            addressLine: row.addressLine,
+            emergencyContactName: row.emergencyContactName,
+            emergencyContactPhone: row.emergencyContactPhone,
           }}
           departmentSuggestions={departments.map((d) => d.name)}
         />
