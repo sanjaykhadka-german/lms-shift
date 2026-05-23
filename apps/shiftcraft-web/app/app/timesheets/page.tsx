@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { and, asc, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import {
+  auditEvents,
   db,
   forTenant,
   members,
@@ -56,8 +57,12 @@ interface RowTotals {
   totalBreakMs: number;
   approvalStatus: ScTimesheetApprovalStatus | null;
   approvalNotes: string | null;
+  approvedAtIso: string | null;
+  approverName: string | null;
   /** Numeric cost in AUD (work hours × hourly_rate). null if rate not set. */
   costAud: number | null;
+  /** Hourly rate in AUD (parsed numeric). null if rate not set. */
+  hourlyRate: number | null;
   /** Pre-formatted per-day segment breakdown for the expansion row. Empty
    *  array on days with no events; outer length up to 7. */
   perDayDetail: PerDayDetailEntry[];
@@ -296,8 +301,13 @@ export default async function TimesheetsPage({
         employeeUserId: scTimesheetApprovals.employeeUserId,
         status: scTimesheetApprovals.status,
         notes: scTimesheetApprovals.notes,
+        approvedAt: scTimesheetApprovals.approvedAt,
+        approverId: scTimesheetApprovals.approvedByUserId,
+        approverName: users.name,
+        approverEmail: users.email,
       })
       .from(scTimesheetApprovals)
+      .leftJoin(users, eq(users.id, scTimesheetApprovals.approvedByUserId))
       .where(
         and(
           eq(scTimesheetApprovals.traceyTenantId, tenantId),
@@ -311,9 +321,70 @@ export default async function TimesheetsPage({
       {
         status: r.status as ScTimesheetApprovalStatus,
         notes: r.notes,
+        approvedAt: r.approvedAt,
+        approverName: r.approverName ?? r.approverEmail ?? null,
       },
     ]),
   );
+
+  // Activity log for the detail panel — only approve/dispute/reset events
+  // for THIS week. Cheap query: targetKind narrows to ~tens of rows even
+  // on big tenants, and the details->>'weekStart' filter scopes to this
+  // week's slice. Grouped per-employee so the panel can render its own
+  // timeline without another query.
+  const activityRows = isAdmin
+    ? await db
+        .select({
+          id: auditEvents.id,
+          action: auditEvents.action,
+          actorEmail: auditEvents.actorEmail,
+          actorName: users.name,
+          createdAt: auditEvents.createdAt,
+          details: auditEvents.details,
+        })
+        .from(auditEvents)
+        .leftJoin(users, eq(users.id, auditEvents.actorUserId))
+        .where(
+          and(
+            eq(auditEvents.tenantId, tenantId),
+            eq(auditEvents.targetKind, "sc_timesheet_approval"),
+            sql`(${auditEvents.details}->>'weekStart') = ${weekStartIso}`,
+          ),
+        )
+        .orderBy(desc(auditEvents.createdAt))
+    : [];
+
+  const activityByUser = new Map<
+    string,
+    Array<{
+      id: string;
+      action: string;
+      actor: string;
+      occurredAtIso: string;
+      notes: string | null;
+    }>
+  >();
+  for (const a of activityRows) {
+    const details = (a.details ?? {}) as Record<string, unknown>;
+    const employeeUserId =
+      typeof details.employeeUserId === "string"
+        ? details.employeeUserId
+        : null;
+    if (!employeeUserId) continue;
+    const notes =
+      typeof details.notes === "string" && details.notes.length > 0
+        ? details.notes
+        : null;
+    const arr = activityByUser.get(employeeUserId) ?? [];
+    arr.push({
+      id: a.id,
+      action: a.action,
+      actor: a.actorName ?? a.actorEmail ?? "system",
+      occurredAtIso: a.createdAt.toISOString(),
+      notes,
+    });
+    activityByUser.set(employeeUserId, arr);
+  }
 
   // ─── Audit detail (locations, photos) + scheduled shifts for the week ───
   //
@@ -616,7 +687,10 @@ export default async function TimesheetsPage({
       totalBreakMs: totalBreak,
       approvalStatus: approval?.status ?? null,
       approvalNotes: approval?.notes ?? null,
+      approvedAtIso: approval?.approvedAt?.toISOString() ?? null,
+      approverName: approval?.approverName ?? null,
       costAud,
+      hourlyRate: rate,
       perDayDetail,
       plannedDailyMs: planned,
       plannedTotalMs,
@@ -950,9 +1024,21 @@ export default async function TimesheetsPage({
                           totalColumnCount={totalColumnCount}
                           approvalCell={approvalCell}
                           isAdmin={isAdmin}
+                          canManage={isAtLeastManager(membership.role)}
                           showCost={anyCost}
                           showCheckbox={showCheckbox}
                           anomalies={r.anomalies}
+                          weekStartIso={weekStartIso}
+                          weekLabel={weekLabel}
+                          approvalStatus={r.approvalStatus}
+                          approvalNotes={r.approvalNotes}
+                          approverName={r.approverName}
+                          approvedAtIso={r.approvedAtIso}
+                          totalWorkMs={r.totalWorkMs}
+                          totalBreakMs={r.totalBreakMs}
+                          hourlyRate={r.hourlyRate}
+                          costAud={r.costAud}
+                          activity={activityByUser.get(r.userId) ?? []}
                         />
                       );
                     })}

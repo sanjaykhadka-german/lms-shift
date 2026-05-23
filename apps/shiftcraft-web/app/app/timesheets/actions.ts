@@ -104,6 +104,11 @@ export async function approveTimesheetAction(
     return;
   }
   const weekStartIso = fmtIsoDate(g.payload.weekStart);
+  // Optional manager note carried alongside approval — surfaced via the
+  // detail panel's textarea. Falls back to null so an approval without a
+  // typed note clears any previously-stored dispute reason.
+  const notes =
+    String(formData.get("notes") ?? "").trim().slice(0, 1000) || null;
 
   await forTenant(g.tenantId).run((tx) =>
     upsertApproval(
@@ -113,7 +118,7 @@ export async function approveTimesheetAction(
       weekStartIso,
       "approved",
       g.me,
-      null,
+      notes,
     ),
   );
 
@@ -121,7 +126,11 @@ export async function approveTimesheetAction(
     action: "shiftcraft.timesheet.approved",
     targetKind: "sc_timesheet_approval",
     targetId: `${g.payload.employeeUserId}:${weekStartIso}`,
-    details: { weekStart: weekStartIso, employeeUserId: g.payload.employeeUserId },
+    details: {
+      weekStart: weekStartIso,
+      employeeUserId: g.payload.employeeUserId,
+      notes,
+    },
   });
 
   revalidatePath("/app/timesheets");

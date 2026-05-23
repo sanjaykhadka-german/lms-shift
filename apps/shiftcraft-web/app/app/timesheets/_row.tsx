@@ -5,6 +5,10 @@ import {
   EventEditModal,
   type ModalContext,
 } from "./_event_edit_modal";
+import {
+  TimesheetDetailPanel,
+  type ActivityEntry,
+} from "./_detail_panel";
 
 // Per-day expansion row + anomaly chips + scheduled-vs-actual subscripts +
 // per-segment audit detail (source / location / selfie thumbnail) + inline
@@ -72,9 +76,24 @@ export interface RowProps {
   totalColumnCount: number;
   approvalCell: ReactNode;
   isAdmin: boolean;
+  canManage: boolean;
   showCost: boolean;
   showCheckbox: boolean;
   anomalies: AnomalyKind[];
+  // Detail-panel payload — passed through verbatim. The panel renders
+  // lazily (only when the user clicks Details) so this only allocates
+  // when needed.
+  weekStartIso: string;
+  weekLabel: string;
+  approvalStatus: "approved" | "disputed" | null;
+  approvalNotes: string | null;
+  approverName: string | null;
+  approvedAtIso: string | null;
+  totalWorkMs: number;
+  totalBreakMs: number;
+  hourlyRate: number | null;
+  costAud: number | null;
+  activity: ActivityEntry[];
 }
 
 const ANOMALY_LABEL: Record<AnomalyKind, { label: string; classes: string }> = {
@@ -110,12 +129,25 @@ export function TimesheetRow({
   totalColumnCount,
   approvalCell,
   isAdmin,
+  canManage,
   showCost,
   showCheckbox,
   anomalies,
+  weekStartIso,
+  weekLabel,
+  approvalStatus,
+  approvalNotes,
+  approverName,
+  approvedAtIso,
+  totalWorkMs,
+  totalBreakMs,
+  hourlyRate,
+  costAud,
+  activity,
 }: RowProps) {
   const [expanded, setExpanded] = useState(false);
   const [modalCtx, setModalCtx] = useState<ModalContext | null>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
   const canExpand = perDayDetail.length > 0;
 
   return (
@@ -149,7 +181,14 @@ export function TimesheetRow({
         </td>
         <td className="px-4 py-2">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-sm font-medium">{name}</span>
+            <button
+              type="button"
+              onClick={() => setPanelOpen(true)}
+              className="text-sm font-medium hover:underline"
+              aria-label={`Open timesheet details for ${name}`}
+            >
+              {name}
+            </button>
             {isAdmin && anomalies.length > 0
               ? anomalies.map((a) => (
                   <span
@@ -161,6 +200,13 @@ export function TimesheetRow({
                   </span>
                 ))
               : null}
+            <button
+              type="button"
+              onClick={() => setPanelOpen(true)}
+              className="ml-1 rounded-md border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              Details
+            </button>
           </div>
           <div className="text-xs text-muted-foreground">
             {email}
@@ -310,6 +356,27 @@ export function TimesheetRow({
         </tr>
       ) : null}
       <EventEditModal ctx={modalCtx} onClose={() => setModalCtx(null)} />
+      <TimesheetDetailPanel
+        open={panelOpen}
+        onClose={() => setPanelOpen(false)}
+        userId={userId}
+        userName={name}
+        userEmail={email}
+        weekStartIso={weekStartIso}
+        weekLabel={weekLabel}
+        approvalStatus={approvalStatus}
+        approvalNotes={approvalNotes}
+        approverName={approverName}
+        approvedAtIso={approvedAtIso}
+        totalWorkMs={totalWorkMs}
+        totalBreakMs={totalBreakMs}
+        hourlyRate={hourlyRate}
+        costAud={costAud}
+        perDayDetail={perDayDetail}
+        anomalies={anomalies}
+        activity={activity}
+        canManage={canManage}
+      />
     </>
   );
 }
