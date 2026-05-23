@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { forTenant, scDocuments, scEmployees } from "@tracey/db";
 import { currentMembership, currentUser } from "~/lib/auth/current";
@@ -11,6 +11,16 @@ import { logAuditEvent } from "~/lib/audit";
 // 5 MiB — matches the CHECK constraint on sc_documents.file_size and the
 // experimental.serverActions.bodySizeLimit in next.config.ts.
 const MAX_BYTES = 5 * 1024 * 1024;
+
+// Per-tenant total cap on bytea storage. Render's free Postgres tier caps
+// at 1 GB shared across ALL tenants in this DB; capping each tenant well
+// below that keeps a single noisy tenant from filling the disk and
+// breaking the rest. Bump this when we migrate documents to R2/S3.
+const TENANT_STORAGE_CAP_BYTES = 500 * 1024 * 1024;
+
+function fmtMB(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
 
 // Conservative allow-list. Adding to this list is cheap — but accepting
 // arbitrary mime types invites trouble (HTML uploads with stored XSS in
@@ -134,6 +144,27 @@ export async function uploadDocumentAction(
         fieldErrors: { employeeId: ["Employee not found."] },
       };
     }
+  }
+
+  // Per-tenant storage cap check — bytea fills Render's Postgres disk
+  // fast; refuse uploads when the tenant is already at its budget.
+  const totalRow = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({
+        total: sql<number>`coalesce(sum(${scDocuments.fileSize}), 0)::bigint`,
+      })
+      .from(scDocuments),
+  );
+  const usedBytes = Number(totalRow[0]?.total ?? 0);
+  if (usedBytes + file.size > TENANT_STORAGE_CAP_BYTES) {
+    const remaining = Math.max(0, TENANT_STORAGE_CAP_BYTES - usedBytes);
+    return {
+      status: "error",
+      message: `Workspace storage cap reached (${fmtMB(usedBytes)} of ${fmtMB(TENANT_STORAGE_CAP_BYTES)} used; ${fmtMB(remaining)} remaining). Delete some documents before uploading more.`,
+      fieldErrors: {
+        file: [`Not enough storage for ${fmtMB(file.size)}; ${fmtMB(remaining)} left.`],
+      },
+    };
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
