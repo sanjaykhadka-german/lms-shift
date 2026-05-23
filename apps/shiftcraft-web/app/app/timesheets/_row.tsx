@@ -1,14 +1,17 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import {
+  EventEditModal,
+  type ModalContext,
+} from "./_event_edit_modal";
 
 // Per-day expansion row + anomaly chips + scheduled-vs-actual subscripts +
-// per-segment audit detail (source / location / selfie thumbnail).
+// per-segment audit detail (source / location / selfie thumbnail) + inline
+// edit / add / void via the modal mounted at the row level.
 //
 // Server pre-formats every display string so this client component stays
-// dumb — no server-only imports, no date math, no currency math. Display
-// data is opaque strings; structural data (selfieEventId, anomalies array)
-// drives the conditional render.
+// free of server-only imports + date math.
 
 export interface RowSegmentDisplay {
   kind: "work" | "break";
@@ -21,11 +24,22 @@ export interface RowSegmentDisplay {
   /** When non-null, /api/kiosk-selfie/<id> serves a 32×24 thumbnail of
    *  the selfie captured at this opening event. */
   selfieEventId: string | null;
+  /** The scClockEvents.id that opened this segment. */
+  openingEventId: string;
+  /** ISO 8601 of the opening event's occurredAt — pre-fills the edit
+   *  modal's datetime-local input. */
+  openingOccurredAtIso: string;
+  /** Human label for the opening event ('Clock-in' / 'Clock-out' /
+   *  'Break start' / 'Break end'). Read-only in the edit modal. */
+  openingEventTypeLabel: string;
 }
 
 export interface RowDayDetail {
   /** "Mon 19 May". */
   dayLabel: string;
+  /** YYYY-MM-DD — used by the "Add punch" modal to pre-fill the date
+   *  portion of the datetime-local input. */
+  dayIso: string;
   /** "Planned 8h" or null when nothing scheduled. */
   plannedLabel: string | null;
   /** "Actual 7h 30m". */
@@ -101,6 +115,7 @@ export function TimesheetRow({
   anomalies,
 }: RowProps) {
   const [expanded, setExpanded] = useState(false);
+  const [modalCtx, setModalCtx] = useState<ModalContext | null>(null);
   const canExpand = perDayDetail.length > 0;
 
   return (
@@ -190,7 +205,7 @@ export function TimesheetRow({
           <td colSpan={totalColumnCount} className="px-6 py-3">
             <ul className="space-y-2 text-xs">
               {perDayDetail.map((d) => (
-                <li key={d.dayLabel} className="space-y-1">
+                <li key={d.dayIso} className="space-y-1">
                   <div className="flex flex-wrap items-center gap-3">
                     <span className="min-w-[5.5rem] font-medium text-foreground">
                       {d.dayLabel}
@@ -215,6 +230,22 @@ export function TimesheetRow({
                       >
                         · {d.deltaLabel}
                       </span>
+                    ) : null}
+                    {isAdmin ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setModalCtx({
+                            mode: "add",
+                            appUserId: userId,
+                            userName: name,
+                            dateIso: d.dayIso,
+                          })
+                        }
+                        className="ml-auto rounded-md border border-dashed border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                      >
+                        + Add punch
+                      </button>
                     ) : null}
                   </div>
                   {d.segments.length > 0 ? (
@@ -250,6 +281,24 @@ export function TimesheetRow({
                               · {s.locationName}
                             </span>
                           ) : null}
+                          {isAdmin ? (
+                            <button
+                              type="button"
+                              aria-label="Edit this punch"
+                              onClick={() =>
+                                setModalCtx({
+                                  mode: "edit",
+                                  originalEventId: s.openingEventId,
+                                  occurredAtIso: s.openingOccurredAtIso,
+                                  eventTypeLabel: s.openingEventTypeLabel,
+                                  userName: name,
+                                })
+                              }
+                              className="ml-1 rounded p-0.5 text-current/70 hover:bg-foreground/10"
+                            >
+                              ✎
+                            </button>
+                          ) : null}
                         </li>
                       ))}
                     </ul>
@@ -260,6 +309,7 @@ export function TimesheetRow({
           </td>
         </tr>
       ) : null}
+      <EventEditModal ctx={modalCtx} onClose={() => setModalCtx(null)} />
     </>
   );
 }

@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, gte, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, lt } from "drizzle-orm";
 import {
   forTenant,
   scClockEvents,
@@ -316,6 +316,8 @@ export function validateTransition(
 /**
  * Load *today's* events for one user — enough to derive current clock state
  * and "elapsed today". Today is interpreted as midnight-to-midnight local.
+ * Voided events (admin corrections) are excluded everywhere; the row stays
+ * in the table for audit but is invisible to aggregation.
  */
 export async function getTodayEventsForUser(
   tenantId: string,
@@ -333,6 +335,7 @@ export async function getTodayEventsForUser(
           eq(scClockEvents.appUserId, userId),
           gte(scClockEvents.occurredAt, today),
           lt(scClockEvents.occurredAt, tomorrow),
+          isNull(scClockEvents.voidedAt),
         ),
       )
       .orderBy(asc(scClockEvents.occurredAt)),
@@ -352,7 +355,12 @@ export async function getLatestEventForUser(
     tx
       .select()
       .from(scClockEvents)
-      .where(eq(scClockEvents.appUserId, userId))
+      .where(
+        and(
+          eq(scClockEvents.appUserId, userId),
+          isNull(scClockEvents.voidedAt),
+        ),
+      )
       .orderBy(desc(scClockEvents.occurredAt))
       .limit(1),
   );
@@ -378,6 +386,7 @@ export async function getEventsInRangeForUser(
           eq(scClockEvents.appUserId, userId),
           gte(scClockEvents.occurredAt, from),
           lt(scClockEvents.occurredAt, to),
+          isNull(scClockEvents.voidedAt),
         ),
       )
       .orderBy(asc(scClockEvents.occurredAt)),
@@ -401,6 +410,7 @@ export async function getEventsInRangeForTenant(
         and(
           gte(scClockEvents.occurredAt, from),
           lt(scClockEvents.occurredAt, to),
+          isNull(scClockEvents.voidedAt),
         ),
       )
       .orderBy(asc(scClockEvents.appUserId), asc(scClockEvents.occurredAt)),

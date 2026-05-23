@@ -70,6 +70,9 @@ interface RowTotals {
 interface PerDayDetailEntry {
   /** Human label like "Mon 19 May". */
   dayLabel: string;
+  /** ISO YYYY-MM-DD for the day — used by the "Add punch" modal's
+   *  default datetime. */
+  dayIso: string;
   /** Planned ms from sc_shift_assignments. 0 when nothing scheduled. */
   plannedMs: number;
   /** Sum of work-chunk ms for the day — saves the client doing math. */
@@ -82,8 +85,24 @@ interface PerDayDetailEntry {
     /** When present, the eventId is the clock event with a captured selfie.
      *  Used to build the /api/kiosk-selfie/<id> thumbnail src. */
     selfieEventId: string | null;
+    /** scClockEvents.id of the event that OPENED this segment. The edit
+     *  modal targets this id; on a void+insert the original is the row
+     *  this id points to. */
+    openingEventId: string;
+    /** ISO 8601 of the original opening event's occurredAt — pre-fills
+     *  the datetime-local input in the edit modal. */
+    openingOccurredAtIso: string;
+    /** Human label for the opening event ('Clock-in' etc.). */
+    openingEventTypeLabel: string;
   }>;
 }
+
+const EVENT_TYPE_LABEL: Record<string, string> = {
+  in: "Clock-in",
+  out: "Clock-out",
+  break_start: "Break start",
+  break_end: "Break end",
+};
 
 const SOURCE_LABEL: Record<string, PerDayDetailEntry["segments"][number]["sourceLabel"]> = {
   kiosk: "Kiosk",
@@ -397,6 +416,7 @@ export default async function TimesheetsPage({
       openingEventId: string;
       openingSource: string;
       openingLocationId: string | null;
+      openingEventType: string;
     }
     const segs: SegMeta[] = [];
     let open: {
@@ -405,6 +425,7 @@ export default async function TimesheetsPage({
       eventId: string;
       source: string;
       locationId: string | null;
+      eventType: string;
     } | null = null;
     const closeOpen = (endedAt: Date) => {
       if (!open) return;
@@ -416,6 +437,7 @@ export default async function TimesheetsPage({
           openingEventId: open.eventId,
           openingSource: open.source,
           openingLocationId: open.locationId,
+          openingEventType: open.eventType,
         });
       }
       open = null;
@@ -430,6 +452,7 @@ export default async function TimesheetsPage({
               eventId: e.id,
               source: e.source,
               locationId: e.locationId,
+              eventType: e.eventType,
             };
           }
           break;
@@ -442,6 +465,7 @@ export default async function TimesheetsPage({
               eventId: e.id,
               source: e.source,
               locationId: e.locationId,
+              eventType: e.eventType,
             };
           }
           break;
@@ -454,6 +478,7 @@ export default async function TimesheetsPage({
               eventId: e.id,
               source: e.source,
               locationId: e.locationId,
+              eventType: e.eventType,
             };
           }
           break;
@@ -479,6 +504,8 @@ export default async function TimesheetsPage({
         openingEventId: string;
         openingSource: string;
         openingLocationId: string | null;
+        openingEventType: string;
+        openingOccurredAt: Date;
       }>
     > = Array.from({ length: 7 }, () => []);
     let totalWork = 0;
@@ -512,6 +539,8 @@ export default async function TimesheetsPage({
             openingEventId: seg.openingEventId,
             openingSource: seg.openingSource,
             openingLocationId: seg.openingLocationId,
+            openingEventType: seg.openingEventType,
+            openingOccurredAt: seg.startedAt,
           });
         }
         cursor = chunkEnd;
@@ -540,6 +569,7 @@ export default async function TimesheetsPage({
           day: "numeric",
           month: "short",
         }),
+        dayIso: fmtIsoDate(dayDate),
         plannedMs,
         actualWorkMs,
         segments: dayChunks.map((c) => ({
@@ -553,6 +583,10 @@ export default async function TimesheetsPage({
             c.kind === "work" && selfieEventIds.has(c.openingEventId)
               ? c.openingEventId
               : null,
+          openingEventId: c.openingEventId,
+          openingOccurredAtIso: c.openingOccurredAt.toISOString(),
+          openingEventTypeLabel:
+            EVENT_TYPE_LABEL[c.openingEventType] ?? c.openingEventType,
         })),
       });
     }
@@ -874,6 +908,7 @@ export default async function TimesheetsPage({
                               : "amber";
                         return {
                           dayLabel: d.dayLabel,
+                          dayIso: d.dayIso,
                           plannedLabel: hasPlan
                             ? `Planned ${fmtHours(d.plannedMs)}`
                             : null,

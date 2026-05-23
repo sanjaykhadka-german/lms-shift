@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { forTenant, scClockEvents, type ScClockEventType } from "@tracey/db";
 import { currentMembership, currentUser } from "~/lib/auth/current";
 import { validateTransition } from "~/lib/clock";
@@ -37,7 +37,12 @@ async function recordPunch(
     tx
       .select({ eventType: scClockEvents.eventType })
       .from(scClockEvents)
-      .where(eq(scClockEvents.appUserId, user.id))
+      .where(
+        and(
+          eq(scClockEvents.appUserId, user.id),
+          isNull(scClockEvents.voidedAt),
+        ),
+      )
       .orderBy(desc(scClockEvents.occurredAt))
       .limit(1),
   );

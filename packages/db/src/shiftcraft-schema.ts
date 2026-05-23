@@ -360,6 +360,15 @@ export const scClockEvents = pgTable(
       .defaultNow(),
     source: text("source").notNull().default("manual"),
     notes: text("notes"),
+    // Append-only correction model: managers void a wrong punch instead
+    // of mutating it. All read paths in lib/clock.ts filter voided_at IS
+    // NULL so the aggregation behaves as if the row were gone. The void
+    // metadata stays in the table so the audit trail is reconstructable.
+    voidedAt: timestamp("voided_at", { withTimezone: true }),
+    voidedByUserId: uuid("voided_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    voidReason: text("void_reason"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -370,6 +379,7 @@ export const scClockEvents = pgTable(
       t.traceyTenantId,
       t.occurredAt,
     ),
+    index("sc_clock_events_user_voided_idx").on(t.appUserId, t.voidedAt),
     check(
       "sc_clock_events_type_chk",
       sql`${t.eventType} in ('in','out','break_start','break_end')`,

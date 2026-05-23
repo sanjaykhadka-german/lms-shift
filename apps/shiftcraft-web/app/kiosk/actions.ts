@@ -2,7 +2,7 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import {
   forTenant,
   scClockEventPhotos,
@@ -212,7 +212,12 @@ export async function kioskPunchAction(
     tx
       .select({ eventType: scClockEvents.eventType })
       .from(scClockEvents)
-      .where(eq(scClockEvents.appUserId, appUserId))
+      .where(
+        and(
+          eq(scClockEvents.appUserId, appUserId),
+          isNull(scClockEvents.voidedAt),
+        ),
+      )
       .orderBy(desc(scClockEvents.occurredAt))
       .limit(1),
   );
