@@ -54,6 +54,7 @@ const SECTIONS: NavSection[] = [
     label: "Overview",
     items: [
       { href: "/app", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/app/schedule", label: "Schedule", icon: CalendarDays },
       { href: "/app/notifications", label: "Notifications", icon: Bell },
       { href: "/app/announcements", label: "Announcements", icon: Megaphone },
     ],
@@ -66,13 +67,6 @@ const SECTIONS: NavSection[] = [
       { href: "/app/availability", label: "Availability", icon: CalendarCheck },
       { href: "/app/time-off", label: "Time off", icon: CalendarOff },
       { href: "/app/open-shifts", label: "Open shifts", icon: Hand },
-    ],
-  },
-  {
-    label: "Team",
-    items: [
-      { href: "/app/schedule", label: "Schedule", icon: CalendarDays },
-      { href: "/app/tasks", label: "Tasks", icon: KanbanSquare },
     ],
   },
   {
@@ -89,8 +83,7 @@ const SECTIONS: NavSection[] = [
     label: "Workspace",
     items: [
       { href: "/app/locations", label: "Locations", icon: MapPin },
-      { href: "/app/coverage-gaps", label: "Coverage gaps", icon: AlertCircle },
-      { href: "/app/timesheets", label: "Timesheets", icon: ClipboardList },
+      { href: "/app/tasks", label: "Tasks", icon: KanbanSquare },
       { href: "/app/settings", label: "Settings", icon: Settings },
     ],
   },
@@ -102,6 +95,8 @@ const SECTIONS: NavSection[] = [
       { href: "/app/departments", label: "Departments", icon: Building2 },
       { href: "/app/shift-templates", label: "Shift templates", icon: CalendarDays },
       { href: "/app/swaps", label: "Swap requests", icon: Repeat },
+      { href: "/app/coverage-gaps", label: "Coverage gaps", icon: AlertCircle },
+      { href: "/app/timesheets", label: "Timesheets", icon: ClipboardList },
       { href: "/app/admin/kiosks", label: "Kiosks", icon: Tablet },
       { href: "/app/audit", label: "Audit log", icon: History },
     ],
