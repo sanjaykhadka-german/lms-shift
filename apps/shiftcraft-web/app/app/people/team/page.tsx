@@ -11,6 +11,7 @@ import {
   scEmployees,
   users,
   type ScEmploymentType,
+  type ScOnboardingStatus,
 } from "@tracey/db";
 import { currentMembership } from "~/lib/auth/current";
 import { isAtLeastManager, friendlyRoleLabel } from "~/lib/roles";
@@ -84,6 +85,30 @@ function formatRate(rate: string | null): string | null {
   return `$${n.toFixed(2)}`;
 }
 
+function OnboardingPill({
+  status,
+  employeeId,
+}: {
+  status: ScOnboardingStatus | null | undefined;
+  employeeId: string | null;
+}) {
+  if (!status || status === "active" || !employeeId) return null;
+  const tone =
+    status === "pending"
+      ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+      : "bg-blue-500/15 text-blue-700 dark:text-blue-300";
+  const label =
+    status === "pending" ? "Onboarding pending" : "Onboarding in progress";
+  return (
+    <Link
+      href={`/app/people/onboarding/${employeeId}`}
+      className={`mt-0.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${tone} hover:underline`}
+    >
+      {label} →
+    </Link>
+  );
+}
+
 type SearchParams = {
   q?: string;
   added?: string;
@@ -131,6 +156,7 @@ export default async function PeopleTeamPage({
         appUserId: scEmployees.appUserId,
         isActive: scEmployees.isActive,
         hourlyRate: scEmployees.hourlyRate,
+        onboardingStatus: scEmployees.onboardingStatus,
       })
       .from(scEmployees)
       .leftJoin(
@@ -316,6 +342,14 @@ export default async function PeopleTeamPage({
                           : ""}
                         {r.shiftcraft?.mobile ? ` · ${r.shiftcraft.mobile}` : ""}
                       </div>
+                      <OnboardingPill
+                        status={
+                          r.shiftcraft?.onboardingStatus as
+                            | ScOnboardingStatus
+                            | undefined
+                        }
+                        employeeId={r.shiftcraft?.id ?? null}
+                      />
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -391,6 +425,12 @@ export default async function PeopleTeamPage({
                         {r.department ? ` · ${r.department}` : ""}
                         {r.mobile ? ` · ${r.mobile}` : ""}
                       </div>
+                      <OnboardingPill
+                        status={
+                          r.onboardingStatus as ScOnboardingStatus | undefined
+                        }
+                        employeeId={r.id}
+                      />
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">

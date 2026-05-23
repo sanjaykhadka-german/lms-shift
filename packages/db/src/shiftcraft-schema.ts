@@ -302,6 +302,18 @@ export const scEmployees = pgTable(
     hourlyRate: numeric("hourly_rate", { precision: 10, scale: 2 }),
     isActive: boolean("is_active").notNull().default(true),
     notes: text("notes"),
+    // Onboarding workflow status. New hires start at 'pending' (created but
+    // not yet walked through the checklist), move to 'in_progress' the first
+    // time their checklist is opened, and flip to 'active' once all required
+    // tasks are marked done. Default 'active' so historical rows back-fill
+    // without breaking existing list/edit pages.
+    onboardingStatus: text("onboarding_status").notNull().default("active"),
+    onboardingStartedAt: timestamp("onboarding_started_at", {
+      withTimezone: true,
+    }),
+    onboardingCompletedAt: timestamp("onboarding_completed_at", {
+      withTimezone: true,
+    }),
     createdByUserId: uuid("created_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
@@ -311,6 +323,10 @@ export const scEmployees = pgTable(
   (t) => [
     index("sc_employees_tenant_idx").on(t.traceyTenantId, t.isActive),
     index("sc_employees_app_user_idx").on(t.appUserId),
+    index("sc_employees_onboarding_idx").on(
+      t.traceyTenantId,
+      t.onboardingStatus,
+    ),
     uniqueIndex("sc_employees_tenant_email_uq")
       .on(t.traceyTenantId, sql`lower(${t.email})`)
       .where(sql`${t.email} is not null`),
@@ -321,6 +337,10 @@ export const scEmployees = pgTable(
     check(
       "sc_employees_email_format_chk",
       sql`${t.email} is null or position('@' in ${t.email}) > 1`,
+    ),
+    check(
+      "sc_employees_onboarding_status_chk",
+      sql`${t.onboardingStatus} in ('pending','in_progress','active')`,
     ),
   ],
 );
@@ -789,6 +809,49 @@ export const scClockEventPhotos = pgTable(
   ],
 );
 
+// ─── Employee onboarding tasks ───
+//
+// Per-employee checklist items spawned when an admin starts onboarding
+// for a new hire. Each row is one tickable task ("Sign tax form",
+// "Read handbook", etc). For first cut the task set is seeded from a
+// hard-coded default list when onboarding starts — a templates surface
+// can land in a later slice.
+//
+// `required` distinguishes hard blockers from nice-to-haves: completion
+// of onboarding (status → 'active') requires every required task done;
+// optional ones can stay pending without blocking the transition.
+
+export const scEmployeeOnboardingTasks = pgTable(
+  "sc_employee_onboarding_tasks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    employeeId: uuid("employee_id")
+      .notNull()
+      .references(() => scEmployees.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    description: text("description"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    required: boolean("required").notNull().default(true),
+    status: text("status").notNull().default("pending"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    completedByUserId: uuid("completed_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("sc_emp_onb_tasks_employee_idx").on(t.employeeId, t.sortOrder),
+    index("sc_emp_onb_tasks_tenant_idx").on(t.traceyTenantId, t.status),
+    check(
+      "sc_emp_onb_tasks_status_chk",
+      sql`${t.status} in ('pending','done')`,
+    ),
+  ],
+);
+
 // ─── Inferred types ───
 
 export type ScLocation = typeof scLocations.$inferSelect;
@@ -839,3 +902,9 @@ export type NewScKioskDevice = typeof scKioskDevices.$inferInsert;
 export type ScClockEventPhoto = typeof scClockEventPhotos.$inferSelect;
 export type NewScClockEventPhoto = typeof scClockEventPhotos.$inferInsert;
 export type ScSelfieStatus = "captured" | "denied" | "unavailable";
+export type ScEmployeeOnboardingTask =
+  typeof scEmployeeOnboardingTasks.$inferSelect;
+export type NewScEmployeeOnboardingTask =
+  typeof scEmployeeOnboardingTasks.$inferInsert;
+export type ScOnboardingStatus = "pending" | "in_progress" | "active";
+export type ScOnboardingTaskStatus = "pending" | "done";
