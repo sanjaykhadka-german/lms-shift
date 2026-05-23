@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation";
 import {
   AlertCircle,
   BarChart3,
-  Bell,
   Building2,
   CalendarCheck,
   CalendarDays,
@@ -55,7 +54,6 @@ const SECTIONS: NavSection[] = [
     items: [
       { href: "/app", label: "Dashboard", icon: LayoutDashboard },
       { href: "/app/schedule", label: "Schedule", icon: CalendarDays },
-      { href: "/app/notifications", label: "Notifications", icon: Bell },
       { href: "/app/announcements", label: "Announcements", icon: Megaphone },
     ],
   },
@@ -108,13 +106,11 @@ export function Sidebar({
   email,
   image,
   role,
-  unreadNotifications = 0,
 }: {
   name: string;
   email: string;
   image: string | null;
   role: string;
-  unreadNotifications?: number;
 }) {
   const pathname = usePathname();
   const isAdmin = role === "admin" || role === "owner";
@@ -165,8 +161,6 @@ export function Sidebar({
                 pathname === item.href ||
                 pathname.startsWith(item.href + "/");
               const Icon = item.icon;
-              const showBadge =
-                item.href === "/app/notifications" && unreadNotifications > 0;
               return (
                 <Link
                   key={item.href}
@@ -180,19 +174,6 @@ export function Sidebar({
                 >
                   <Icon className="h-4 w-4" strokeWidth={2} />
                   <span className="flex-1">{item.label}</span>
-                  {showBadge && (
-                    <span
-                      className={cn(
-                        "inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-[10px] font-bold tabular-nums",
-                        active
-                          ? "bg-primary-foreground/20 text-primary-foreground"
-                          : "bg-rose-600 text-white",
-                      )}
-                      aria-label={`${unreadNotifications} unread`}
-                    >
-                      {unreadNotifications > 99 ? "99+" : unreadNotifications}
-                    </span>
-                  )}
                 </Link>
               );
             })}
