@@ -101,6 +101,13 @@ export interface RowProps {
   /** Number of public-holiday days in this week per the tenant's
    *  configured region. Drives a single chip. */
   publicHolidayCount: number;
+  /** AUDIT.md Phase 2 #3b.4 — pre-formatted award-derived cost string
+   *  (e.g. "$345.20"). Same fmtAud output as costDisplay. */
+  awardCostDisplay: string;
+  /** True when the award cost equals the flat cost (or there's no work)
+   *  — the row hides the second line in that case to reduce visual
+   *  noise on simple weeks. */
+  awardCostMatchesFlat: boolean;
 }
 
 const ANOMALY_LABEL: Record<AnomalyKind, { label: string; classes: string }> = {
@@ -153,6 +160,8 @@ export function TimesheetRow({
   activity,
   awardBreakdownDisplay,
   publicHolidayCount,
+  awardCostDisplay,
+  awardCostMatchesFlat,
 }: RowProps) {
   const [expanded, setExpanded] = useState(false);
   const [modalCtx, setModalCtx] = useState<ModalContext | null>(null);
@@ -268,7 +277,15 @@ export function TimesheetRow({
         </td>
         {showCost ? (
           <td className="px-3 py-2 font-mono text-xs tabular-nums text-muted-foreground">
-            {costDisplay}
+            <div>{costDisplay}</div>
+            {!awardCostMatchesFlat ? (
+              <div
+                className="text-[10px] text-amber-600"
+                title="Award-derived using OT × penalty multipliers under the default 'max' policy. Per-tenant policy override pending."
+              >
+                {awardCostDisplay} award
+              </div>
+            ) : null}
           </td>
         ) : null}
         <td className="px-3 py-2 align-top">{approvalCell}</td>

@@ -25,9 +25,11 @@ vi.mock("~/lib/clock", () => ({
 import {
   buildDayInputs,
   classifyEmployeeWeek,
+  computeAwardCost,
   countPublicHolidays,
   fmtBreakdown,
   highestPenaltyCategory,
+  roundCents,
 } from "~/lib/timesheet-classifier";
 
 // 2026-05-25 is a Monday — matches the startOfWeek output from clock.ts.
@@ -190,5 +192,182 @@ describe("highestPenaltyCategory", () => {
     // Build a breakdown with only weekday inputs.
     const out = classifyEmployeeWeek(MON, [ms(8), ms(8), ms(8), ms(8), ms(8)], new Set());
     expect(highestPenaltyCategory(out)).toBe("weekday");
+  });
+});
+
+describe("computeAwardCost — pure-weekday week", () => {
+  it("equals rate × hours when there's no OT and no penalty bands", () => {
+    // 8h on Monday only @ $30/h → $240 flat. No OT, no weekend, no holiday.
+    const breakdown = classifyEmployeeWeek(MON, [ms(8), 0, 0, 0, 0, 0, 0], new Set());
+    const cost = computeAwardCost(breakdown, 30);
+    expect(roundCents(cost.totalCost)).toBe(240);
+    expect(cost.policy).toBe("max");
+  });
+
+  it("applies OT 1.5× on the OT band only — weekday OT", () => {
+    // 9h Monday: 8h ord + 1h OT. @ $30/h:
+    //   ordinary cost = 8 × 30 × 1.0 (weekday) = $240
+    //   ot cost       = 1 × 30 × max(1.0 weekday, 1.5 OT) = $45
+    // Total $285.
+    const breakdown = classifyEmployeeWeek(MON, [ms(9), 0, 0, 0, 0, 0, 0], new Set());
+    const cost = computeAwardCost(breakdown, 30);
+    expect(roundCents(cost.totalCost)).toBe(285);
+  });
+
+  it("applies OT 2× on the double-OT band only", () => {
+    // 12h Monday: 8h ord + 2h OT + 2h double-OT. @ $30/h:
+    //   ord    = 8 × 30 × 1.0 = $240
+    //   ot1.5  = 2 × 30 × 1.5 = $90
+    //   ot2.0  = 2 × 30 × 2.0 = $120
+    // Total $450.
+    const breakdown = classifyEmployeeWeek(MON, [ms(12), 0, 0, 0, 0, 0, 0], new Set());
+    const cost = computeAwardCost(breakdown, 30);
+    expect(roundCents(cost.totalCost)).toBe(450);
+  });
+});
+
+describe("computeAwardCost — penalty days under 'max' policy", () => {
+  it("Saturday ordinary work pays at the saturday penalty (1.25×), not OT", () => {
+    // 6h on Saturday only @ $30/h. No OT.
+    //   ord = 6 × 30 × 1.25 (sat) = $225
+    const breakdown = classifyEmployeeWeek(MON, [0, 0, 0, 0, 0, ms(6), 0], new Set());
+    const cost = computeAwardCost(breakdown, 30);
+    expect(roundCents(cost.totalCost)).toBe(225);
+  });
+
+  it("Sunday ordinary work pays at sunday (1.5×); same band as OT, no extra stacking", () => {
+    // 6h on Sunday only @ $30/h.
+    //   ord = 6 × 30 × 1.5 (sun) = $270
+    const breakdown = classifyEmployeeWeek(MON, [0, 0, 0, 0, 0, 0, ms(6)], new Set());
+    const cost = computeAwardCost(breakdown, 30);
+    expect(roundCents(cost.totalCost)).toBe(270);
+  });
+
+  it("Public-holiday work pays at 2.5× even for ordinary hours", () => {
+    // 6h on a public-holiday Monday @ $30/h.
+    //   ord = 6 × 30 × 2.5 (pubhol) = $450
+    const breakdown = classifyEmployeeWeek(
+      MON,
+      [ms(6), 0, 0, 0, 0, 0, 0],
+      new Set(["2026-05-25"]),
+    );
+    const cost = computeAwardCost(breakdown, 30);
+    expect(roundCents(cost.totalCost)).toBe(450);
+  });
+
+  it("max policy: 9h on a Sunday → ordinary at 1.5×, OT at max(1.5,1.5)=1.5×", () => {
+    // 9h Sunday @ $30: 8h ord + 1h OT.
+    //   ord  = 8 × 30 × 1.5 (sun)         = $360
+    //   ot   = 1 × 30 × max(1.5 sun, 1.5 OT) = $45
+    // Total $405. (Under "max" policy, OT does NOT additionally stack.)
+    const breakdown = classifyEmployeeWeek(MON, [0, 0, 0, 0, 0, 0, ms(9)], new Set());
+    const cost = computeAwardCost(breakdown, 30);
+    expect(roundCents(cost.totalCost)).toBe(405);
+  });
+
+  it("max policy: 9h on a public holiday → ordinary at 2.5×, OT at max(2.5,1.5)=2.5×", () => {
+    // 9h on public holiday Mon @ $30: 8h ord + 1h OT.
+    //   ord  = 8 × 30 × 2.5             = $600
+    //   ot   = 1 × 30 × max(2.5, 1.5)   = $75
+    // Total $675.
+    const breakdown = classifyEmployeeWeek(
+      MON,
+      [ms(9), 0, 0, 0, 0, 0, 0],
+      new Set(["2026-05-25"]),
+    );
+    const cost = computeAwardCost(breakdown, 30);
+    expect(roundCents(cost.totalCost)).toBe(675);
+  });
+});
+
+describe("computeAwardCost — 'stack' policy", () => {
+  it("stacks penalty × OT multipliers on the OT band", () => {
+    // 9h on a Sunday @ $30:
+    //   ord  = 8 × 30 × 1.5           = $360
+    //   ot   = 1 × 30 × (1.5 × 1.5)   = 67.50
+    // Total $427.50.
+    const breakdown = classifyEmployeeWeek(MON, [0, 0, 0, 0, 0, 0, ms(9)], new Set());
+    const cost = computeAwardCost(breakdown, 30, { policy: "stack" });
+    expect(roundCents(cost.totalCost)).toBe(427.5);
+  });
+
+  it("stacks penalty × double-OT for the double-OT band", () => {
+    // 12h on a Sunday @ $30:
+    //   ord  = 8 × 30 × 1.5         = $360
+    //   ot   = 2 × 30 × (1.5 × 1.5) = $135
+    //   ot2  = 2 × 30 × (1.5 × 2.0) = $180
+    // Total $675.
+    const breakdown = classifyEmployeeWeek(MON, [0, 0, 0, 0, 0, 0, ms(12)], new Set());
+    const cost = computeAwardCost(breakdown, 30, { policy: "stack" });
+    expect(roundCents(cost.totalCost)).toBe(675);
+  });
+});
+
+describe("computeAwardCost — week with OT cascade", () => {
+  it("Mon-Fri 9h shifts 2h from Fri ordinary into OT — cost reflects the cascade", () => {
+    // Day-pass: 40h ord + 5h OT @ $30. Week cap forces 2h Fri ord → OT.
+    // Final: 38h ord + 7h OT.
+    //   ord  = 38 × 30 × 1.0 = $1140
+    //   ot   = 7  × 30 × 1.5 = $315
+    // Total $1455.
+    const breakdown = classifyEmployeeWeek(
+      MON,
+      [ms(9), ms(9), ms(9), ms(9), ms(9), 0, 0],
+      new Set(),
+    );
+    const cost = computeAwardCost(breakdown, 30);
+    expect(roundCents(cost.totalCost)).toBe(1455);
+  });
+});
+
+describe("computeAwardCost — per-day breakdown", () => {
+  it("returns a DayCost row per day with the right penaltyCategory tag", () => {
+    const breakdown = classifyEmployeeWeek(
+      MON,
+      [ms(8), 0, 0, 0, 0, ms(4), 0],
+      new Set(),
+    );
+    const cost = computeAwardCost(breakdown, 30);
+    expect(cost.perDay).toHaveLength(7);
+    const mon = cost.perDay.find((d) => d.date === "2026-05-25")!;
+    const sat = cost.perDay.find((d) => d.date === "2026-05-30")!;
+    expect(mon.penaltyCategory).toBe("weekday");
+    expect(roundCents(mon.totalCost)).toBe(8 * 30); // 240
+    expect(sat.penaltyCategory).toBe("saturday");
+    expect(roundCents(sat.totalCost)).toBe(4 * 30 * 1.25); // 150
+    expect(roundCents(cost.totalCost)).toBe(240 + 150);
+  });
+});
+
+describe("computeAwardCost — option overrides", () => {
+  it("honors a custom penaltyMultipliers map (e.g. 1.75× sunday)", () => {
+    const breakdown = classifyEmployeeWeek(MON, [0, 0, 0, 0, 0, 0, ms(8)], new Set());
+    const cost = computeAwardCost(breakdown, 30, {
+      penaltyMultipliers: {
+        weekday: 1.0,
+        saturday: 1.5,
+        sunday: 1.75,
+        public_holiday: 2.5,
+      },
+    });
+    expect(roundCents(cost.totalCost)).toBe(8 * 30 * 1.75); // 420
+  });
+
+  it("honors a custom overtimeMultiplier (e.g. 2.0× instead of 1.5×)", () => {
+    // 9h Mon @ $30 with OT multiplier raised to 2.0×.
+    //   ord = 8 × 30 × 1.0          = $240
+    //   ot  = 1 × 30 × max(1.0, 2.0) = $60
+    // Total $300.
+    const breakdown = classifyEmployeeWeek(MON, [ms(9), 0, 0, 0, 0, 0, 0], new Set());
+    const cost = computeAwardCost(breakdown, 30, { overtimeMultiplier: 2.0 });
+    expect(roundCents(cost.totalCost)).toBe(300);
+  });
+});
+
+describe("roundCents", () => {
+  it("rounds to two decimals", () => {
+    expect(roundCents(1.234)).toBe(1.23);
+    expect(roundCents(1.235)).toBe(1.24);
+    expect(roundCents(0)).toBe(0);
   });
 });

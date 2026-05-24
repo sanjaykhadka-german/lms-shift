@@ -32,8 +32,10 @@ import {
 import { getHolidaysForTenant } from "~/lib/holidays";
 import {
   classifyEmployeeWeek,
+  computeAwardCost,
   countPublicHolidays,
   fmtBreakdown,
+  roundCents,
 } from "~/lib/timesheet-classifier";
 import { TimesheetRow } from "./_row";
 import { BulkSelectionForm } from "./_bulk_form";
@@ -80,6 +82,10 @@ interface RowTotals {
    *  region. Drives a single chip in the row's anomaly area so managers
    *  see when penalty rates may apply. */
   publicHolidayCount: number;
+  /** AUDIT.md Phase 2 #3b.4 — derived cost using OT bands × penalty
+   *  multipliers under the "max" policy. Null when hourly_rate isn't
+   *  set or there's no work (matches costAud's null semantics). */
+  awardCostAud: number | null;
 }
 
 interface PerDayDetailEntry {
@@ -707,6 +713,14 @@ export default async function TimesheetsPage({
     // overrides will arrive when sc_tenant_config gains an
     // award_profile column in a later slice.
     const breakdown = classifyEmployeeWeek(weekStart, perDay, holidayDates);
+    // AUDIT.md Phase 2 #3b.4 — derived cost using OT × penalty under the
+    // default "max" policy. Null when rate isn't set OR no work — the
+    // simple flat `costAud` line uses the same null semantics so both
+    // cost lines either show or are dashes together.
+    const awardCostAud =
+      rate != null && totalWork > 0
+        ? roundCents(computeAwardCost(breakdown, rate).totalCost)
+        : null;
 
     return {
       userId: m.userId,
@@ -727,6 +741,7 @@ export default async function TimesheetsPage({
       anomalies,
       awardBreakdownDisplay: fmtBreakdown(breakdown),
       publicHolidayCount: countPublicHolidays(breakdown),
+      awardCostAud,
     };
   });
 
@@ -769,10 +784,18 @@ export default async function TimesheetsPage({
       acc.breakMs += r.totalBreakMs;
       if (r.totalWorkMs > 0) acc.onShift += 1;
       if (r.costAud != null) acc.costAud += r.costAud;
+      if (r.awardCostAud != null) acc.awardCostAud += r.awardCostAud;
       acc.plannedMs += r.plannedTotalMs;
       return acc;
     },
-    { workMs: 0, breakMs: 0, onShift: 0, costAud: 0, plannedMs: 0 },
+    {
+      workMs: 0,
+      breakMs: 0,
+      onShift: 0,
+      costAud: 0,
+      awardCostAud: 0,
+      plannedMs: 0,
+    },
   );
   // Hide the cost card entirely if no row in the slice has cost data —
   // a tenant that hasn't set any hourly rates shouldn't see "$0.00".
@@ -860,6 +883,14 @@ export default async function TimesheetsPage({
               <StatCard
                 label="Total cost (AUD)"
                 value={fmtAud(summary.costAud)}
+                hint={
+                  summary.awardCostAud !== summary.costAud
+                    ? `Award-derived: ${fmtAud(roundCents(summary.awardCostAud))}`
+                    : "Award-derived matches"
+                }
+                hintTone={
+                  summary.awardCostAud > summary.costAud ? "amber" : "neutral"
+                }
               />
             ) : null}
           </section>
@@ -1073,6 +1104,11 @@ export default async function TimesheetsPage({
                           activity={activityByUser.get(r.userId) ?? []}
                           awardBreakdownDisplay={r.awardBreakdownDisplay}
                           publicHolidayCount={r.publicHolidayCount}
+                          awardCostDisplay={fmtAud(r.awardCostAud)}
+                          awardCostMatchesFlat={
+                            r.awardCostAud === r.costAud ||
+                            r.awardCostAud == null
+                          }
                         />
                       );
                     })}
