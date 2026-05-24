@@ -24,6 +24,7 @@
     "tenant-freeze": "tsx src/cli/tenant-freeze.ts",
     "tenant-unfreeze": "tsx src/cli/tenant-unfreeze.ts",
     "seed-shiftcraft": "tsx src/cli/shiftcraft-seed.ts",
+    "seed-au-holidays": "tsx src/cli/seed-au-holidays.ts",
     "reset": "tsx src/reset.ts",
     "studio": "drizzle-kit studio",
     "typecheck": "tsc --noEmit"

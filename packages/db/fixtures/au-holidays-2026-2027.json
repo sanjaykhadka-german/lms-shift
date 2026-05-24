@@ -1,0 +1,114 @@
+{
+  "_meta": {
+    "description": "AU public holidays for CY2026 + CY2027 used by the ShiftCraft holiday calendar (AUDIT.md Phase 2 #3a).",
+    "sources": [
+      "https://www.fairwork.gov.au/employment-conditions/public-holidays",
+      "https://www.australia.gov.au/public-holidays",
+      "Each state government holidays page (NSW, VIC, QLD, WA, SA, TAS, ACT, NT)"
+    ],
+    "scope": "Statewide gazetted holidays only. Regional / part-day / local-council holidays (e.g. Royal Show days outside Brisbane CBD) are intentionally excluded for v1.",
+    "weekend_rules": "Where a national holiday falls on a weekend, the seed includes only the actual gazette date. State-specific Monday-in-lieu observance can be added per-state in a later seed-refresh once the rate interpreter ships.",
+    "regions": ["national", "NSW", "VIC", "QLD", "WA", "SA", "TAS", "ACT", "NT"]
+  },
+  "holidays": [
+    { "region": "national", "observed_on": "2026-01-01", "name": "New Year's Day", "is_national": true, "source": "Fair Work" },
+    { "region": "national", "observed_on": "2026-01-26", "name": "Australia Day", "is_national": true, "source": "Fair Work" },
+    { "region": "national", "observed_on": "2026-04-03", "name": "Good Friday", "is_national": true, "source": "Fair Work" },
+    { "region": "national", "observed_on": "2026-04-06", "name": "Easter Monday", "is_national": true, "source": "Fair Work" },
+    { "region": "national", "observed_on": "2026-04-25", "name": "ANZAC Day", "is_national": true, "source": "Fair Work" },
+    { "region": "national", "observed_on": "2026-12-25", "name": "Christmas Day", "is_national": true, "source": "Fair Work" },
+    { "region": "national", "observed_on": "2026-12-28", "name": "Boxing Day (observed)", "is_national": true, "source": "Fair Work — 26 Dec 2026 is a Saturday" },
+
+    { "region": "NSW", "observed_on": "2026-04-04", "name": "Easter Saturday", "is_national": false, "source": "NSW Public Holidays Act" },
+    { "region": "NSW", "observed_on": "2026-04-05", "name": "Easter Sunday", "is_national": false, "source": "NSW Public Holidays Act" },
+    { "region": "NSW", "observed_on": "2026-06-08", "name": "King's Birthday", "is_national": false, "source": "NSW Public Holidays Act" },
+    { "region": "NSW", "observed_on": "2026-10-05", "name": "Labour Day", "is_national": false, "source": "NSW Public Holidays Act" },
+
+    { "region": "VIC", "observed_on": "2026-03-09", "name": "Labour Day", "is_national": false, "source": "VIC Public Holidays Act" },
+    { "region": "VIC", "observed_on": "2026-04-04", "name": "Easter Saturday", "is_national": false, "source": "VIC Public Holidays Act" },
+    { "region": "VIC", "observed_on": "2026-04-05", "name": "Easter Sunday", "is_national": false, "source": "VIC Public Holidays Act" },
+    { "region": "VIC", "observed_on": "2026-06-08", "name": "King's Birthday", "is_national": false, "source": "VIC Public Holidays Act" },
+    { "region": "VIC", "observed_on": "2026-11-03", "name": "Melbourne Cup Day", "is_national": false, "source": "VIC Public Holidays Act" },
+
+    { "region": "QLD", "observed_on": "2026-05-04", "name": "Labour Day", "is_national": false, "source": "QLD Holidays Act" },
+    { "region": "QLD", "observed_on": "2026-04-04", "name": "Easter Saturday", "is_national": false, "source": "QLD Holidays Act" },
+    { "region": "QLD", "observed_on": "2026-08-12", "name": "Royal Queensland Show (Brisbane)", "is_national": false, "source": "QLD Holidays Act" },
+    { "region": "QLD", "observed_on": "2026-10-05", "name": "King's Birthday", "is_national": false, "source": "QLD Holidays Act" },
+
+    { "region": "WA", "observed_on": "2026-03-02", "name": "Labour Day", "is_national": false, "source": "WA Public and Bank Holidays Act" },
+    { "region": "WA", "observed_on": "2026-06-01", "name": "Western Australia Day", "is_national": false, "source": "WA Public and Bank Holidays Act" },
+    { "region": "WA", "observed_on": "2026-09-28", "name": "King's Birthday", "is_national": false, "source": "WA Public and Bank Holidays Act" },
+
+    { "region": "SA", "observed_on": "2026-03-09", "name": "Adelaide Cup Day", "is_national": false, "source": "SA Holidays Act" },
+    { "region": "SA", "observed_on": "2026-04-04", "name": "Easter Saturday", "is_national": false, "source": "SA Holidays Act" },
+    { "region": "SA", "observed_on": "2026-06-08", "name": "King's Birthday", "is_national": false, "source": "SA Holidays Act" },
+    { "region": "SA", "observed_on": "2026-10-05", "name": "Labour Day", "is_national": false, "source": "SA Holidays Act" },
+
+    { "region": "TAS", "observed_on": "2026-02-09", "name": "Royal Hobart Regatta", "is_national": false, "source": "TAS Statutory Holidays Act" },
+    { "region": "TAS", "observed_on": "2026-03-09", "name": "Eight Hours Day", "is_national": false, "source": "TAS Statutory Holidays Act" },
+    { "region": "TAS", "observed_on": "2026-04-07", "name": "Easter Tuesday (state servants)", "is_national": false, "source": "TAS Statutory Holidays Act" },
+    { "region": "TAS", "observed_on": "2026-06-08", "name": "King's Birthday", "is_national": false, "source": "TAS Statutory Holidays Act" },
+    { "region": "TAS", "observed_on": "2026-11-02", "name": "Recreation Day (Northern Tas)", "is_national": false, "source": "TAS Statutory Holidays Act" },
+
+    { "region": "ACT", "observed_on": "2026-03-09", "name": "Canberra Day", "is_national": false, "source": "ACT Holidays Act" },
+    { "region": "ACT", "observed_on": "2026-04-04", "name": "Easter Saturday", "is_national": false, "source": "ACT Holidays Act" },
+    { "region": "ACT", "observed_on": "2026-04-05", "name": "Easter Sunday", "is_national": false, "source": "ACT Holidays Act" },
+    { "region": "ACT", "observed_on": "2026-06-01", "name": "Reconciliation Day", "is_national": false, "source": "ACT Holidays Act" },
+    { "region": "ACT", "observed_on": "2026-06-08", "name": "King's Birthday", "is_national": false, "source": "ACT Holidays Act" },
+    { "region": "ACT", "observed_on": "2026-10-05", "name": "Labour Day", "is_national": false, "source": "ACT Holidays Act" },
+
+    { "region": "NT", "observed_on": "2026-05-04", "name": "May Day", "is_national": false, "source": "NT Public Holidays Act" },
+    { "region": "NT", "observed_on": "2026-06-08", "name": "King's Birthday", "is_national": false, "source": "NT Public Holidays Act" },
+    { "region": "NT", "observed_on": "2026-08-03", "name": "Picnic Day", "is_national": false, "source": "NT Public Holidays Act" },
+
+    { "region": "national", "observed_on": "2027-01-01", "name": "New Year's Day", "is_national": true, "source": "Fair Work" },
+    { "region": "national", "observed_on": "2027-01-26", "name": "Australia Day", "is_national": true, "source": "Fair Work" },
+    { "region": "national", "observed_on": "2027-03-26", "name": "Good Friday", "is_national": true, "source": "Fair Work" },
+    { "region": "national", "observed_on": "2027-03-29", "name": "Easter Monday", "is_national": true, "source": "Fair Work" },
+    { "region": "national", "observed_on": "2027-04-26", "name": "ANZAC Day (observed)", "is_national": true, "source": "Fair Work — 25 Apr 2027 is a Sunday" },
+    { "region": "national", "observed_on": "2027-12-27", "name": "Christmas Day (observed)", "is_national": true, "source": "Fair Work — 25 Dec 2027 is a Saturday" },
+    { "region": "national", "observed_on": "2027-12-28", "name": "Boxing Day (observed)", "is_national": true, "source": "Fair Work — 26 Dec 2027 is a Sunday" },
+
+    { "region": "NSW", "observed_on": "2027-03-27", "name": "Easter Saturday", "is_national": false, "source": "NSW Public Holidays Act" },
+    { "region": "NSW", "observed_on": "2027-03-28", "name": "Easter Sunday", "is_national": false, "source": "NSW Public Holidays Act" },
+    { "region": "NSW", "observed_on": "2027-06-14", "name": "King's Birthday", "is_national": false, "source": "NSW Public Holidays Act" },
+    { "region": "NSW", "observed_on": "2027-10-04", "name": "Labour Day", "is_national": false, "source": "NSW Public Holidays Act" },
+
+    { "region": "VIC", "observed_on": "2027-03-08", "name": "Labour Day", "is_national": false, "source": "VIC Public Holidays Act" },
+    { "region": "VIC", "observed_on": "2027-03-27", "name": "Easter Saturday", "is_national": false, "source": "VIC Public Holidays Act" },
+    { "region": "VIC", "observed_on": "2027-03-28", "name": "Easter Sunday", "is_national": false, "source": "VIC Public Holidays Act" },
+    { "region": "VIC", "observed_on": "2027-06-14", "name": "King's Birthday", "is_national": false, "source": "VIC Public Holidays Act" },
+    { "region": "VIC", "observed_on": "2027-11-02", "name": "Melbourne Cup Day", "is_national": false, "source": "VIC Public Holidays Act" },
+
+    { "region": "QLD", "observed_on": "2027-05-03", "name": "Labour Day", "is_national": false, "source": "QLD Holidays Act" },
+    { "region": "QLD", "observed_on": "2027-03-27", "name": "Easter Saturday", "is_national": false, "source": "QLD Holidays Act" },
+    { "region": "QLD", "observed_on": "2027-08-11", "name": "Royal Queensland Show (Brisbane)", "is_national": false, "source": "QLD Holidays Act" },
+    { "region": "QLD", "observed_on": "2027-10-04", "name": "King's Birthday", "is_national": false, "source": "QLD Holidays Act" },
+
+    { "region": "WA", "observed_on": "2027-03-01", "name": "Labour Day", "is_national": false, "source": "WA Public and Bank Holidays Act" },
+    { "region": "WA", "observed_on": "2027-06-07", "name": "Western Australia Day", "is_national": false, "source": "WA Public and Bank Holidays Act" },
+    { "region": "WA", "observed_on": "2027-09-27", "name": "King's Birthday", "is_national": false, "source": "WA Public and Bank Holidays Act" },
+
+    { "region": "SA", "observed_on": "2027-03-08", "name": "Adelaide Cup Day", "is_national": false, "source": "SA Holidays Act" },
+    { "region": "SA", "observed_on": "2027-03-27", "name": "Easter Saturday", "is_national": false, "source": "SA Holidays Act" },
+    { "region": "SA", "observed_on": "2027-06-14", "name": "King's Birthday", "is_national": false, "source": "SA Holidays Act" },
+    { "region": "SA", "observed_on": "2027-10-04", "name": "Labour Day", "is_national": false, "source": "SA Holidays Act" },
+
+    { "region": "TAS", "observed_on": "2027-02-08", "name": "Royal Hobart Regatta", "is_national": false, "source": "TAS Statutory Holidays Act" },
+    { "region": "TAS", "observed_on": "2027-03-08", "name": "Eight Hours Day", "is_national": false, "source": "TAS Statutory Holidays Act" },
+    { "region": "TAS", "observed_on": "2027-03-30", "name": "Easter Tuesday (state servants)", "is_national": false, "source": "TAS Statutory Holidays Act" },
+    { "region": "TAS", "observed_on": "2027-06-14", "name": "King's Birthday", "is_national": false, "source": "TAS Statutory Holidays Act" },
+    { "region": "TAS", "observed_on": "2027-11-01", "name": "Recreation Day (Northern Tas)", "is_national": false, "source": "TAS Statutory Holidays Act" },
+
+    { "region": "ACT", "observed_on": "2027-03-08", "name": "Canberra Day", "is_national": false, "source": "ACT Holidays Act" },
+    { "region": "ACT", "observed_on": "2027-03-27", "name": "Easter Saturday", "is_national": false, "source": "ACT Holidays Act" },
+    { "region": "ACT", "observed_on": "2027-03-28", "name": "Easter Sunday", "is_national": false, "source": "ACT Holidays Act" },
+    { "region": "ACT", "observed_on": "2027-05-31", "name": "Reconciliation Day", "is_national": false, "source": "ACT Holidays Act" },
+    { "region": "ACT", "observed_on": "2027-06-14", "name": "King's Birthday", "is_national": false, "source": "ACT Holidays Act" },
+    { "region": "ACT", "observed_on": "2027-10-04", "name": "Labour Day", "is_national": false, "source": "ACT Holidays Act" },
+
+    { "region": "NT", "observed_on": "2027-05-03", "name": "May Day", "is_national": false, "source": "NT Public Holidays Act" },
+    { "region": "NT", "observed_on": "2027-06-14", "name": "King's Birthday", "is_national": false, "source": "NT Public Holidays Act" },
+    { "region": "NT", "observed_on": "2027-08-02", "name": "Picnic Day", "is_national": false, "source": "NT Public Holidays Act" }
+  ]
+}

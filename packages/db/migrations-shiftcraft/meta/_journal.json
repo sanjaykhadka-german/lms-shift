@@ -134,6 +134,13 @@
       "when": 1779603377258,
       "tag": "0018_whole_anita_blake",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1779660689078,
+      "tag": "0019_vengeful_jack_power",
+      "breakpoints": true
     }
   ]
 }

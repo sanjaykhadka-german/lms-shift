@@ -1013,6 +1013,43 @@ export const scDocumentSignatures = pgTable(
   ],
 );
 
+// ─── Tenant config (AUDIT.md Phase 2 #3a) ────────────────────────────
+//
+// Workspace-level settings, one row per tenant. v1 only carries the AU
+// holiday-calendar region — but we use a dedicated table (not a column
+// on app.tenants) so future workspace prefs land here without touching
+// the cross-app shared registry. Lazy-created: callers read with a
+// default fallback to "national", the upsert path creates the row on
+// first save.
+//
+// Region vocabulary is pinned by a CHECK constraint: {national, NSW,
+// VIC, QLD, WA, SA, TAS, ACT, NT}. The literal "national" sentinel
+// (rather than NULL) keeps `where region in ('national', $tenant)`
+// trivial and dodges the NULL-not-equal trap in unique-index semantics.
+
+export const scTenantConfig = pgTable(
+  "sc_tenant_config",
+  {
+    traceyTenantId: text("tracey_tenant_id").primaryKey(),
+    holidayRegion: text("holiday_region").notNull().default("national"),
+    updatedByUserId: uuid("updated_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check(
+      "sc_tenant_config_holiday_region_chk",
+      sql`${t.holidayRegion} in ('national','NSW','VIC','QLD','WA','SA','TAS','ACT','NT')`,
+    ),
+  ],
+);
+
 // ─── Inferred types ───
 
 export type ScLocation = typeof scLocations.$inferSelect;
@@ -1050,6 +1087,18 @@ export type ScTimesheetApprovalStatus = "approved" | "disputed";
 export type ScShiftStatus = "draft" | "published" | "cancelled";
 export type ScDocumentSignature = typeof scDocumentSignatures.$inferSelect;
 export type NewScDocumentSignature = typeof scDocumentSignatures.$inferInsert;
+export type ScTenantConfig = typeof scTenantConfig.$inferSelect;
+export type NewScTenantConfig = typeof scTenantConfig.$inferInsert;
+export type ScHolidayRegion =
+  | "national"
+  | "NSW"
+  | "VIC"
+  | "QLD"
+  | "WA"
+  | "SA"
+  | "TAS"
+  | "ACT"
+  | "NT";
 export type ScAssignmentStatus =
   | "offered"
   | "accepted"
