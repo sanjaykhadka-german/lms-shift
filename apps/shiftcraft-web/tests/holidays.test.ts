@@ -161,34 +161,48 @@ vi.mock("~/lib/audit", () => ({
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
-// Patch the helper's db.execute path. We use a real import then monkey-
-// patch the public.au_public_holidays SQL builder to record the regions
-// + date bounds onto `lastQuerySpec` for the mock above to read.
+// Patch drizzle's `sql` tag so we can sniff bind parameters: the helper
+// builds its query as the outer template + a sql.join(regions). Each
+// inner `sql\`${r}\`` call also fires the proxy — we accumulate ALL
+// primitive params from any sub-template into `accumulatedParams`, and
+// when the OUTER call (whose strings mention "public.au_public_holidays")
+// fires, we have everything in order: the region values (from inner
+// templates) followed by fromISO + toISO (the outer template's own
+// params). Split by ISO-date regex to recover the structure.
+let accumulatedParams: unknown[] = [];
 vi.mock("drizzle-orm", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
+  const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
   return {
     ...actual,
-    // Wrap `sql` so we can sniff parameters: drizzle.sql is a tagged
-    // template; the helper's only direct sql template is the one that
-    // queries au_public_holidays. We tag the params we care about by
-    // looking at the first non-array param (fromISO) and the array param
-    // (regionsToFetch).
     sql: new Proxy(actual.sql as object, {
       apply(target, thisArg, args) {
         const strings = args[0] as TemplateStringsArray | undefined;
         const params = args.slice(1) as unknown[];
-        // The au_public_holidays helper SQL contains the substring
-        // "public.au_public_holidays" in its template string list.
+        // Collect primitive params only; SQL fragments (objects) are
+        // composed-of params we've already seen via the inner template
+        // invocations.
+        for (const p of params) {
+          if (p == null || typeof p === "object") continue;
+          accumulatedParams.push(p);
+        }
         if (
           strings?.some?.((s: string) =>
             String(s).includes("public.au_public_holidays"),
           )
         ) {
-          // params order: regionsArray, from, to
-          const regions = params[0] as string[];
-          const from = String(params[1]);
-          const to = String(params[2]);
-          lastQuerySpec = { regions, from, to };
+          const dates: string[] = [];
+          const regions: string[] = [];
+          for (const p of accumulatedParams) {
+            if (typeof p === "string" && ISO_DATE.test(p)) dates.push(p);
+            else if (typeof p === "string") regions.push(p);
+          }
+          lastQuerySpec = {
+            regions,
+            from: dates[0] ?? "",
+            to: dates[1] ?? "",
+          };
+          accumulatedParams = [];
         }
         return Reflect.apply(target as never, thisArg, args);
       },
@@ -212,6 +226,7 @@ function fd(values: Record<string, string>): FormData {
 beforeEach(() => {
   resetState();
   lastQuerySpec = null;
+  accumulatedParams = [];
   vi.clearAllMocks();
 });
 

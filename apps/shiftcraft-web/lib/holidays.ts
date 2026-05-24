@@ -69,12 +69,21 @@ export async function getHolidaysForTenant(
 
   // au_public_holidays lives in `public` and is not a Drizzle-tracked
   // table on this branch — it's operator-managed reference data. Query
-  // via raw SQL through the same pool. `inArray` over a parameterised
-  // text-array would also work; explicit values keep the query plan tight.
+  // via raw SQL through the same pool.
+  //
+  // We expand the regions into individual bind parameters via
+  // sql.join so the final SQL reads `region IN ($1, $2)` — passing a
+  // JS array straight into `ANY(...)` makes Drizzle serialize the array
+  // as a single scalar which Postgres then tries to parse as a text[]
+  // array literal, blowing up with "malformed array literal: \"national\"".
+  const regionsList = drizzleSql.join(
+    regionsToFetch.map((r) => drizzleSql`${r}`),
+    drizzleSql`, `,
+  );
   const rows = (await db.execute(drizzleSql`
     SELECT region, observed_on::text AS observed_on, name, is_national
     FROM public.au_public_holidays
-    WHERE region = ANY(${regionsToFetch as unknown as string[]})
+    WHERE region IN (${regionsList})
       AND observed_on BETWEEN ${fromISO}::date AND ${toISO}::date
     ORDER BY observed_on ASC
   `)) as unknown as Array<{
