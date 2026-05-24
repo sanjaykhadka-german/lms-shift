@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyWeek,
+  DEFAULT_PENALTY_MULTIPLIERS,
   DEFAULT_THRESHOLDS,
+  getPenaltyCategory,
   type DayInput,
 } from "@tracey/award";
 
@@ -171,8 +173,10 @@ describe("classifyWeek — ordering + overrides", () => {
   it("honors a custom dailyOrdinaryMinutes threshold (7.6h award)", () => {
     // 7.6h ordinary cap, 9.6h before OT2.
     const out = classifyWeek([day("2026-05-26", 8)], {
-      dailyOrdinaryMinutes: 456, // 7.6h
-      dailyOvertimeMinutes: 576, // 9.6h
+      thresholds: {
+        dailyOrdinaryMinutes: 456, // 7.6h
+        dailyOvertimeMinutes: 576, // 9.6h
+      },
     });
     expect(out.days[0]).toMatchObject({
       ordinaryMinutes: 456,
@@ -192,7 +196,7 @@ describe("classifyWeek — ordering + overrides", () => {
         day("2026-05-28", 9),
         day("2026-05-29", 9),
       ],
-      { weeklyOrdinaryMinutes: 40 * 60 },
+      { thresholds: { weeklyOrdinaryMinutes: 40 * 60 } },
     );
     expect(out.totals.ordinaryMinutes).toBe(40 * 60);
     expect(out.totals.overtimeMinutes).toBe(5 * 60);
@@ -201,15 +205,17 @@ describe("classifyWeek — ordering + overrides", () => {
   it("throws when dailyOvertimeMinutes < dailyOrdinaryMinutes (misconfig)", () => {
     expect(() =>
       classifyWeek([day("2026-05-26", 5)], {
-        dailyOrdinaryMinutes: 600,
-        dailyOvertimeMinutes: 480,
+        thresholds: {
+          dailyOrdinaryMinutes: 600,
+          dailyOvertimeMinutes: 480,
+        },
       }),
     ).toThrow(/dailyOvertimeMinutes/);
   });
 
   it("echoes the resolved thresholds in the output", () => {
     const out = classifyWeek([day("2026-05-26", 5)], {
-      weeklyOrdinaryMinutes: 40 * 60,
+      thresholds: { weeklyOrdinaryMinutes: 40 * 60 },
     });
     expect(out.thresholds).toEqual({
       dailyOrdinaryMinutes: DEFAULT_THRESHOLDS.dailyOrdinaryMinutes,
@@ -258,5 +264,113 @@ describe("classifyWeek — totals consistency", () => {
         d.ordinaryMinutes + d.overtimeMinutes + d.doubleOvertimeMinutes,
       );
     }
+  });
+});
+
+describe("getPenaltyCategory", () => {
+  // Reference dates (UTC parsing, no DST shift):
+  //   2026-05-25 = Monday    (weekday)
+  //   2026-05-30 = Saturday  (saturday)
+  //   2026-05-31 = Sunday    (sunday)
+
+  it("returns 'weekday' for Mon-Fri without a holiday", () => {
+    expect(getPenaltyCategory("2026-05-25")).toBe("weekday");
+    expect(getPenaltyCategory("2026-05-26")).toBe("weekday");
+    expect(getPenaltyCategory("2026-05-29")).toBe("weekday");
+  });
+
+  it("returns 'saturday' for Saturday without a holiday", () => {
+    expect(getPenaltyCategory("2026-05-30")).toBe("saturday");
+  });
+
+  it("returns 'sunday' for Sunday without a holiday", () => {
+    expect(getPenaltyCategory("2026-05-31")).toBe("sunday");
+  });
+
+  it("returns 'public_holiday' when the date is in the holidayDates set", () => {
+    const holidays = new Set(["2026-04-25"]);
+    expect(getPenaltyCategory("2026-04-25", holidays)).toBe("public_holiday");
+  });
+
+  it("public-holiday status overrides weekend (Saturday holiday is 'public_holiday', not 'saturday')", () => {
+    // 2026-04-25 = Saturday + ANZAC Day → public_holiday wins.
+    const holidays = new Set(["2026-04-25"]);
+    expect(getPenaltyCategory("2026-04-25", holidays)).toBe("public_holiday");
+  });
+
+  it("returns 'weekday' for a weekday not in the holiday set even when other dates are", () => {
+    const holidays = new Set(["2026-04-25", "2026-12-25"]);
+    expect(getPenaltyCategory("2026-05-26", holidays)).toBe("weekday");
+  });
+
+  it("throws on a malformed ISO date", () => {
+    expect(() => getPenaltyCategory("not-a-date")).toThrow(/invalid date/);
+  });
+});
+
+describe("classifyWeek — penaltyCategory tagging", () => {
+  it("tags each day with the right category from day-of-week (no holidays)", () => {
+    const out = classifyWeek([
+      day("2026-05-25", 5), // Mon
+      day("2026-05-30", 5), // Sat
+      day("2026-05-31", 5), // Sun
+    ]);
+    expect(out.days.map((d) => d.penaltyCategory)).toEqual([
+      "weekday",
+      "saturday",
+      "sunday",
+    ]);
+  });
+
+  it("uses holidayDates to tag days as public_holiday, eclipsing weekend status", () => {
+    const out = classifyWeek(
+      [
+        day("2026-04-24", 5), // Fri
+        day("2026-04-25", 5), // Sat + ANZAC
+        day("2026-04-26", 5), // Sun
+      ],
+      { holidayDates: new Set(["2026-04-25"]) },
+    );
+    expect(out.days.find((d) => d.date === "2026-04-25")!.penaltyCategory).toBe(
+      "public_holiday",
+    );
+    expect(out.days.find((d) => d.date === "2026-04-24")!.penaltyCategory).toBe(
+      "weekday",
+    );
+    expect(out.days.find((d) => d.date === "2026-04-26")!.penaltyCategory).toBe(
+      "sunday",
+    );
+  });
+
+  it("leaves penalty tagging independent of OT cascade — a Saturday over-cap day is still 'saturday'", () => {
+    // Mon-Fri 8h each (40h ordinary day-pass) + Sat 4h → week cap kicks
+    // in, but Sat's penaltyCategory stays "saturday" regardless.
+    const out = classifyWeek([
+      day("2026-05-25", 8),
+      day("2026-05-26", 8),
+      day("2026-05-27", 8),
+      day("2026-05-28", 8),
+      day("2026-05-29", 8),
+      day("2026-05-30", 4),
+    ]);
+    const sat = out.days.find((d) => d.date === "2026-05-30")!;
+    expect(sat.penaltyCategory).toBe("saturday");
+    // Sanity: Saturday's ordinary got pushed to OT 1.5x by the weekly cap.
+    expect(sat.ordinaryMinutes).toBe(0);
+    expect(sat.overtimeMinutes).toBe(4 * 60);
+  });
+});
+
+describe("DEFAULT_PENALTY_MULTIPLIERS", () => {
+  it("exposes general-rule AU defaults with holiday > sunday > saturday > weekday", () => {
+    expect(DEFAULT_PENALTY_MULTIPLIERS.weekday).toBe(1.0);
+    expect(DEFAULT_PENALTY_MULTIPLIERS.saturday).toBe(1.25);
+    expect(DEFAULT_PENALTY_MULTIPLIERS.sunday).toBe(1.5);
+    expect(DEFAULT_PENALTY_MULTIPLIERS.public_holiday).toBe(2.5);
+    // Strict ordering — important for any "take max" consumer policy.
+    const m = DEFAULT_PENALTY_MULTIPLIERS;
+    expect(m.public_holiday).toBeGreaterThan(m.sunday);
+    expect(m.sunday).toBeGreaterThan(m.saturday);
+    expect(m.saturday).toBeGreaterThan(m.weekday);
   });
 });
