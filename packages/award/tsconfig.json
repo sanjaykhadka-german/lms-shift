@@ -1,0 +1,8 @@
+{
+  "extends": "@tracey/config/tsconfig.base",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "noEmit": true
+  },
+  "include": ["src/**/*"]
+}
