@@ -918,6 +918,13 @@ export const scDocuments = pgTable(
       .notNull()
       .defaultNow(),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
+    // E-sign flag (AUDIT.md Phase 2 #2c). Only meaningful for scope=team
+    // — set by the uploader to indicate the assigned employee must sign
+    // before the document is considered acknowledged. Signatures live in
+    // sc_document_signatures keyed by (document_id, signer_app_user_id).
+    // Enforced application-side (toggle action requires team scope) so
+    // we don't need a DB constraint that locks library docs out forever.
+    requiresSignature: boolean("requires_signature").notNull().default(false),
   },
   (t) => [
     index("sc_documents_tenant_scope_idx").on(
@@ -935,6 +942,73 @@ export const scDocuments = pgTable(
     check(
       "sc_documents_scope_employee_chk",
       sql`(${t.scope} = 'team' and ${t.employeeId} is not null) or (${t.scope} = 'library' and ${t.employeeId} is null)`,
+    ),
+  ],
+);
+
+// ─── Document signatures (AUDIT.md Phase 2 #2c) ───
+//
+// Append-only audit record of every e-signature event on a sc_documents
+// row. A row here is the legal-evidence artifact:
+//
+//   - WHO signed:     signer_app_user_id (+ denormalised email/name)
+//   - WHAT they typed: signature_text — the typed name from the UI
+//   - WHEN:           signed_at (server clock, UTC)
+//   - WHERE FROM:     signer_ip, signer_user_agent (best-effort headers)
+//   - PROOF OF DOC:   source_document_hash — SHA-256 of sc_documents.data
+//                     at sign time. If the source is later mutated, the
+//                     hash mismatch proves it. (We deliberately don't try
+//                     to render a "signed PDF" — that's a follow-up slice
+//                     gated on a PDF lib decision.)
+//
+// One row per (document, signer). Re-signing isn't allowed in v1 — the
+// unique index below blocks it. If a re-sign is needed (admin uploads a
+// new version), delete the old document and upload a fresh one.
+
+export const scDocumentSignatures = pgTable(
+  "sc_document_signatures",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => scDocuments.id, { onDelete: "cascade" }),
+    signerAppUserId: uuid("signer_app_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    signerEmail: text("signer_email").notNull(),
+    signerFullName: text("signer_full_name").notNull(),
+    signatureText: text("signature_text").notNull(),
+    signedAt: timestamp("signed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    signerIp: text("signer_ip"),
+    signerUserAgent: text("signer_user_agent"),
+    sourceDocumentHash: text("source_document_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("sc_document_signatures_document_idx").on(t.documentId),
+    index("sc_document_signatures_tenant_signed_idx").on(
+      t.traceyTenantId,
+      t.signedAt,
+    ),
+    // One signature per (document, signer). Partial index — covers the
+    // common case where the signer has an auth user; legacy rows where
+    // signer_app_user_id is later null (user deleted) are excluded so the
+    // historical evidence isn't blocked by a constraint.
+    uniqueIndex("sc_document_signatures_document_signer_uq")
+      .on(t.documentId, t.signerAppUserId)
+      .where(sql`${t.signerAppUserId} is not null`),
+    check(
+      "sc_document_signatures_text_chk",
+      sql`length(${t.signatureText}) between 2 and 200`,
+    ),
+    check(
+      "sc_document_signatures_hash_chk",
+      sql`length(${t.sourceDocumentHash}) = 64`,
     ),
   ],
 );
@@ -974,6 +1048,8 @@ export type ScTimesheetApproval = typeof scTimesheetApprovals.$inferSelect;
 export type NewScTimesheetApproval = typeof scTimesheetApprovals.$inferInsert;
 export type ScTimesheetApprovalStatus = "approved" | "disputed";
 export type ScShiftStatus = "draft" | "published" | "cancelled";
+export type ScDocumentSignature = typeof scDocumentSignatures.$inferSelect;
+export type NewScDocumentSignature = typeof scDocumentSignatures.$inferInsert;
 export type ScAssignmentStatus =
   | "offered"
   | "accepted"

@@ -77,6 +77,18 @@ export function UploadDocumentForm({
               state.status === "error" ? state.fieldErrors?.expiresAt?.[0] : undefined
             }
           />
+          <label className="flex items-start gap-2 text-xs">
+            <input
+              type="checkbox"
+              name="requiresSignature"
+              className="mt-0.5 h-3.5 w-3.5 rounded border-border accent-primary"
+            />
+            <span className="text-muted-foreground">
+              Requires their signature. The employee will see a "Sign"
+              prompt and the signature is logged with their IP, browser,
+              and a hash of this file (AUDIT.md Phase 2 #2c).
+            </span>
+          </label>
         </>
       ) : null}
 

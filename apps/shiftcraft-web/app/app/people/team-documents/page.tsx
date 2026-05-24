@@ -1,18 +1,20 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { and, asc, desc, eq, isNotNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { File, FileImage, FileText } from "lucide-react";
 import {
   forTenant,
+  scDocumentSignatures,
   scDocuments,
   scEmployees,
   users,
 } from "@tracey/db";
-import { currentMembership } from "~/lib/auth/current";
+import { currentMembership, currentUser } from "~/lib/auth/current";
 import { isAtLeastManager } from "~/lib/roles";
 import { Avatar } from "~/components/Avatar";
 import { Button } from "~/components/ui/button";
 import { UploadDocumentForm } from "../_components/UploadDocumentForm";
+import { SignDocumentDialog } from "../_components/SignDocumentDialog";
 import { deleteDocumentAction } from "../documents/_actions";
 
 export const metadata = { title: "Team documents · ShiftCraft" };
@@ -47,6 +49,28 @@ function daysUntil(d: Date | null): number | null {
   if (!d) return null;
   const ms = d.getTime() - Date.now();
   return Math.ceil(ms / (24 * 60 * 60 * 1000));
+}
+
+function SignatureBadge({
+  requires,
+  signatures,
+}: {
+  requires: boolean;
+  signatures: number;
+}) {
+  if (!requires) return null;
+  if (signatures > 0) {
+    return (
+      <span className="inline-flex items-center rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white">
+        Signed
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center rounded-full bg-amber-600 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white">
+      Signature required
+    </span>
+  );
 }
 
 function ExpiryBadge({ expiresAt }: { expiresAt: Date | null }) {
@@ -85,50 +109,97 @@ export default async function TeamDocumentsPage({
   if (!membership) redirect("/app");
   const tenantId = membership.tenant.id;
   const canManage = isAtLeastManager(membership.role);
+  const me = await currentUser();
 
   const { expiring } = await searchParams;
   const expiringOnly = expiring === "1";
 
-  const [docs, activeEmployees] = await forTenant(tenantId).run(async (tx) => {
-    const rows = await tx
-      .select({
-        id: scDocuments.id,
-        title: scDocuments.title,
-        notes: scDocuments.notes,
-        mimeType: scDocuments.mimeType,
-        fileSize: scDocuments.fileSize,
-        uploadedAt: scDocuments.uploadedAt,
-        expiresAt: scDocuments.expiresAt,
-        employeeId: scDocuments.employeeId,
-        employeeName: scEmployees.fullName,
-        employeeEmail: scEmployees.email,
-        uploaderName: users.name,
-      })
-      .from(scDocuments)
-      .leftJoin(scEmployees, eq(scEmployees.id, scDocuments.employeeId))
-      .leftJoin(users, eq(users.id, scDocuments.uploadedByUserId))
-      .where(
-        and(
-          eq(scDocuments.scope, "team"),
-          isNotNull(scDocuments.employeeId),
-        ),
-      )
-      .orderBy(asc(scDocuments.expiresAt), desc(scDocuments.uploadedAt));
+  const [docs, activeEmployees, signatures, myEmployee] = await forTenant(tenantId).run(
+    async (tx) => {
+      const rows = await tx
+        .select({
+          id: scDocuments.id,
+          title: scDocuments.title,
+          notes: scDocuments.notes,
+          mimeType: scDocuments.mimeType,
+          fileSize: scDocuments.fileSize,
+          uploadedAt: scDocuments.uploadedAt,
+          expiresAt: scDocuments.expiresAt,
+          employeeId: scDocuments.employeeId,
+          requiresSignature: scDocuments.requiresSignature,
+          employeeName: scEmployees.fullName,
+          employeeEmail: scEmployees.email,
+          uploaderName: users.name,
+        })
+        .from(scDocuments)
+        .leftJoin(scEmployees, eq(scEmployees.id, scDocuments.employeeId))
+        .leftJoin(users, eq(users.id, scDocuments.uploadedByUserId))
+        .where(
+          and(
+            eq(scDocuments.scope, "team"),
+            isNotNull(scDocuments.employeeId),
+          ),
+        )
+        .orderBy(asc(scDocuments.expiresAt), desc(scDocuments.uploadedAt));
 
-    const employeeRows = canManage
-      ? await tx
-          .select({
-            id: scEmployees.id,
-            fullName: scEmployees.fullName,
-            email: scEmployees.email,
-          })
-          .from(scEmployees)
-          .where(eq(scEmployees.isActive, true))
-          .orderBy(asc(scEmployees.fullName))
-      : [];
+      const employeeRows = canManage
+        ? await tx
+            .select({
+              id: scEmployees.id,
+              fullName: scEmployees.fullName,
+              email: scEmployees.email,
+            })
+            .from(scEmployees)
+            .where(eq(scEmployees.isActive, true))
+            .orderBy(asc(scEmployees.fullName))
+        : [];
 
-    return [rows, employeeRows];
-  });
+      // Pull signatures for every doc on this page in one query. The
+      // viewer-facing "Sign" affordance only fires when the doc requires
+      // a signature AND the viewer hasn't signed yet — so we group by
+      // documentId in JS rather than running a per-row query.
+      const docIds = rows.map((r) => r.id);
+      const sigRows =
+        docIds.length > 0
+          ? await tx
+              .select({
+                documentId: scDocumentSignatures.documentId,
+                signerAppUserId: scDocumentSignatures.signerAppUserId,
+                signerFullName: scDocumentSignatures.signerFullName,
+                signerEmail: scDocumentSignatures.signerEmail,
+                signedAt: scDocumentSignatures.signedAt,
+                signerIp: scDocumentSignatures.signerIp,
+              })
+              .from(scDocumentSignatures)
+              .where(inArray(scDocumentSignatures.documentId, docIds))
+          : [];
+
+      // Resolve the viewer's sc_employees row so we can decide whether
+      // a "Sign" button shows for a given team doc.
+      const meEmp = me
+        ? (
+            await tx
+              .select({
+                id: scEmployees.id,
+                fullName: scEmployees.fullName,
+              })
+              .from(scEmployees)
+              .where(eq(scEmployees.appUserId, me.id))
+              .limit(1)
+          )[0] ?? null
+        : null;
+
+      return [rows, employeeRows, sigRows, meEmp];
+    },
+  );
+
+  // documentId → signatures[]
+  const sigByDoc = new Map<string, typeof signatures>();
+  for (const s of signatures) {
+    const arr = sigByDoc.get(s.documentId) ?? [];
+    arr.push(s);
+    sigByDoc.set(s.documentId, arr);
+  }
 
   const filtered = expiringOnly
     ? docs.filter((d) => {
@@ -209,70 +280,105 @@ export default async function TeamDocumentsPage({
           </p>
         ) : (
           <ul className="divide-y divide-border">
-            {filtered.map((d) => (
-              <li
-                key={d.id}
-                className="flex flex-wrap items-center justify-between gap-3 px-5 py-3"
-              >
-                <div className="flex min-w-0 items-center gap-3">
-                  <Avatar
-                    name={d.employeeName ?? "?"}
-                    email={d.employeeEmail ?? d.employeeName ?? "?"}
-                    image={null}
-                    sizeClass="h-9 w-9"
-                    textClass="text-xs"
-                  />
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Link
+            {filtered.map((d) => {
+              const docSigs = sigByDoc.get(d.id) ?? [];
+              const myEmpId = myEmployee?.id ?? null;
+              const isMine = myEmpId !== null && d.employeeId === myEmpId;
+              const mySig = docSigs.find(
+                (s) => s.signerAppUserId === (me?.id ?? null),
+              );
+              const showSignButton =
+                d.requiresSignature && isMine && !mySig;
+              return (
+                <li
+                  key={d.id}
+                  className="flex flex-wrap items-center justify-between gap-3 px-5 py-3"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <Avatar
+                      name={d.employeeName ?? "?"}
+                      email={d.employeeEmail ?? d.employeeName ?? "?"}
+                      image={null}
+                      sizeClass="h-9 w-9"
+                      textClass="text-xs"
+                    />
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link
+                          href={`/app/people/documents/${d.id}/download`}
+                          className="truncate text-sm font-medium hover:underline"
+                        >
+                          {d.title}
+                        </Link>
+                        <ExpiryBadge expiresAt={d.expiresAt} />
+                        <SignatureBadge
+                          requires={d.requiresSignature}
+                          signatures={docSigs.length}
+                        />
+                      </div>
+                      <div className="truncate text-xs text-muted-foreground">
+                        {d.employeeName ?? "—"}
+                        {" · "}
+                        <MimeIcon mime={d.mimeType} className="inline h-3 w-3 align-text-bottom" />{" "}
+                        {formatSize(d.fileSize)}
+                        {" · Uploaded "}
+                        {fmtDate(d.uploadedAt)}
+                        {d.uploaderName ? ` by ${d.uploaderName}` : ""}
+                      </div>
+                      {d.notes ? (
+                        <p className="mt-1 truncate text-xs text-muted-foreground">
+                          {d.notes}
+                        </p>
+                      ) : null}
+                      {docSigs.length > 0 ? (
+                        <ul className="mt-1 space-y-0.5 text-[11px] text-muted-foreground">
+                          {docSigs.map((s, i) => (
+                            <li key={i}>
+                              Signed by{" "}
+                              <span className="font-medium">
+                                {s.signerFullName}
+                              </span>{" "}
+                              on {fmtDate(s.signedAt)}
+                              {s.signerIp ? ` from ${s.signerIp}` : ""}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="flex flex-shrink-0 items-center gap-2">
+                    {showSignButton ? (
+                      <SignDocumentDialog
+                        documentId={d.id}
+                        documentTitle={d.title}
+                        defaultName={myEmployee?.fullName ?? me?.name ?? ""}
+                      />
+                    ) : null}
+                    <Button asChild variant="outline" size="sm">
+                      <a
                         href={`/app/people/documents/${d.id}/download`}
-                        className="truncate text-sm font-medium hover:underline"
+                        download
                       >
-                        {d.title}
-                      </Link>
-                      <ExpiryBadge expiresAt={d.expiresAt} />
-                    </div>
-                    <div className="truncate text-xs text-muted-foreground">
-                      {d.employeeName ?? "—"}
-                      {" · "}
-                      <MimeIcon mime={d.mimeType} className="inline h-3 w-3 align-text-bottom" />{" "}
-                      {formatSize(d.fileSize)}
-                      {" · Uploaded "}
-                      {fmtDate(d.uploadedAt)}
-                      {d.uploaderName ? ` by ${d.uploaderName}` : ""}
-                    </div>
-                    {d.notes ? (
-                      <p className="mt-1 truncate text-xs text-muted-foreground">
-                        {d.notes}
-                      </p>
+                        Download
+                      </a>
+                    </Button>
+                    {canManage ? (
+                      <form action={deleteDocumentAction}>
+                        <input type="hidden" name="documentId" value={d.id} />
+                        <Button
+                          type="submit"
+                          variant="ghost"
+                          size="sm"
+                          className="text-[color:var(--destructive)] hover:bg-[color:var(--destructive)]/10"
+                        >
+                          Delete
+                        </Button>
+                      </form>
                     ) : null}
                   </div>
-                </div>
-                <div className="flex flex-shrink-0 items-center gap-2">
-                  <Button asChild variant="outline" size="sm">
-                    <a
-                      href={`/app/people/documents/${d.id}/download`}
-                      download
-                    >
-                      Download
-                    </a>
-                  </Button>
-                  {canManage ? (
-                    <form action={deleteDocumentAction}>
-                      <input type="hidden" name="documentId" value={d.id} />
-                      <Button
-                        type="submit"
-                        variant="ghost"
-                        size="sm"
-                        className="text-[color:var(--destructive)] hover:bg-[color:var(--destructive)]/10"
-                      >
-                        Delete
-                      </Button>
-                    </form>
-                  ) : null}
-                </div>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>

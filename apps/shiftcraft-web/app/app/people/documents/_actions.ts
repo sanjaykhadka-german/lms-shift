@@ -1,9 +1,16 @@
 "use server";
 
+import { createHash } from "node:crypto";
+import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import { forTenant, scDocuments, scEmployees } from "@tracey/db";
+import {
+  forTenant,
+  scDocumentSignatures,
+  scDocuments,
+  scEmployees,
+} from "@tracey/db";
 import { currentMembership, currentUser } from "~/lib/auth/current";
 import { isAtLeastManager } from "~/lib/roles";
 import { logAuditEvent } from "~/lib/audit";
@@ -57,6 +64,12 @@ const teamSchema = baseSchema.extend({
     .trim()
     .optional()
     .transform((v) => (v && v.length > 0 ? v : null)),
+  // Checkbox value — present + "on" when manager ticked "Requires
+  // signature" on the upload form; absent otherwise.
+  requiresSignature: z
+    .union([z.literal("on"), z.literal("")])
+    .optional()
+    .transform((v) => v === "on"),
 });
 
 const uploadSchema = z.discriminatedUnion("scope", [librarySchema, teamSchema]);
@@ -90,6 +103,7 @@ export async function uploadDocumentAction(
     notes: formData.get("notes"),
     employeeId: formData.get("employeeId"),
     expiresAt: formData.get("expiresAt"),
+    requiresSignature: formData.get("requiresSignature") ?? "",
   };
   const parsed = uploadSchema.safeParse(raw);
   if (!parsed.success) {
@@ -178,6 +192,11 @@ export async function uploadDocumentAction(
     };
   }
 
+  // requires_signature is meaningful only for team-scoped docs. Coerce
+  // to false for library uploads so the column can't drift on those.
+  const requiresSignature =
+    data.scope === "team" ? data.requiresSignature : false;
+
   const [inserted] = await forTenant(tenantId).run((tx) =>
     tx
       .insert(scDocuments)
@@ -192,6 +211,7 @@ export async function uploadDocumentAction(
         data: buffer,
         uploadedByUserId: me.id,
         expiresAt,
+        requiresSignature,
       })
       .returning({ id: scDocuments.id }),
   );
@@ -206,6 +226,7 @@ export async function uploadDocumentAction(
       mimeType: file.type,
       fileSize: file.size,
       employeeId: data.scope === "team" ? data.employeeId : null,
+      requiresSignature,
     },
   });
 
@@ -265,4 +286,236 @@ export async function deleteDocumentAction(formData: FormData): Promise<void> {
 
   revalidatePath("/app/people/documents");
   revalidatePath("/app/people/team-documents");
+}
+
+// ─── E-sign (AUDIT.md Phase 2 #2c) ───────────────────────────────────
+
+// Manager flips the "requires signature" flag on an existing team doc.
+// Library docs are explicitly rejected — the column exists on every row
+// but the affordance is only meaningful for per-employee docs.
+const toggleSignatureSchema = z.object({
+  documentId: z.string().uuid(),
+  value: z.union([z.literal("on"), z.literal("off")]),
+});
+
+export type ToggleSignatureState =
+  | { status: "idle" }
+  | { status: "ok"; message: string }
+  | { status: "error"; message: string };
+
+export async function toggleRequiresSignatureAction(
+  _prev: ToggleSignatureState,
+  formData: FormData,
+): Promise<ToggleSignatureState> {
+  const me = await currentUser();
+  const membership = await currentMembership();
+  if (!me || !membership || !isAtLeastManager(membership.role)) {
+    return { status: "error", message: "Only Managers can change this." };
+  }
+  const tenantId = membership.tenant.id;
+
+  const parsed = toggleSignatureSchema.safeParse({
+    documentId: formData.get("documentId"),
+    value: formData.get("value"),
+  });
+  if (!parsed.success) {
+    return { status: "error", message: "Invalid request." };
+  }
+  const newValue = parsed.data.value === "on";
+
+  const updated = await forTenant(tenantId).run(async (tx) => {
+    const [doc] = await tx
+      .select({ id: scDocuments.id, scope: scDocuments.scope })
+      .from(scDocuments)
+      .where(eq(scDocuments.id, parsed.data.documentId))
+      .limit(1);
+    if (!doc) return null;
+    if (doc.scope !== "team") return "library";
+    await tx
+      .update(scDocuments)
+      .set({ requiresSignature: newValue })
+      .where(eq(scDocuments.id, parsed.data.documentId));
+    return doc;
+  });
+  if (updated === null) {
+    return { status: "error", message: "Document not found." };
+  }
+  if (updated === "library") {
+    return {
+      status: "error",
+      message: "Only team-scoped documents can require signatures.",
+    };
+  }
+
+  await logAuditEvent({
+    action: "shiftcraft.document.signature_required_toggled",
+    targetKind: "sc_document",
+    targetId: parsed.data.documentId,
+    details: { requiresSignature: newValue },
+  });
+
+  revalidatePath("/app/people/team-documents");
+  return {
+    status: "ok",
+    message: newValue ? "Signature required." : "Signature no longer required.",
+  };
+}
+
+const signSchema = z.object({
+  documentId: z.string().uuid(),
+  signatureText: z
+    .string()
+    .trim()
+    .min(2, "Type your full name as your signature.")
+    .max(200, "Signature is too long."),
+});
+
+export type SignDocumentState =
+  | { status: "idle" }
+  | { status: "ok"; message: string }
+  | { status: "error"; message: string; fieldErrors?: Record<string, string[]> };
+
+// Reads the best-effort signer IP from forwarding headers. Returns null when
+// none are present (e.g. local dev without a reverse proxy). x-forwarded-for
+// can be a comma-separated chain; the leftmost entry is the originating
+// client per RFC 7239 / common LB convention.
+async function readSignerIp(): Promise<string | null> {
+  const h = await headers();
+  const xff = h.get("x-forwarded-for");
+  if (xff) {
+    const first = xff.split(",")[0]?.trim();
+    if (first && first.length > 0) return first;
+  }
+  return h.get("x-real-ip") ?? null;
+}
+
+export async function signDocumentAction(
+  _prev: SignDocumentState,
+  formData: FormData,
+): Promise<SignDocumentState> {
+  const me = await currentUser();
+  const membership = await currentMembership();
+  if (!me || !membership) {
+    return { status: "error", message: "You must be signed in to sign." };
+  }
+  const tenantId = membership.tenant.id;
+
+  const parsed = signSchema.safeParse({
+    documentId: formData.get("documentId"),
+    signatureText: formData.get("signatureText"),
+  });
+  if (!parsed.success) {
+    return {
+      status: "error",
+      message: "Please fix the highlighted fields.",
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  // Resolve the signer's sc_employees row in this tenant. Only the
+  // employee whose row owns the team doc can sign — Managers cannot sign
+  // on behalf of someone else (that would defeat the audit trail).
+  const result = await forTenant(tenantId).run(async (tx) => {
+    const [myEmployee] = await tx
+      .select({ id: scEmployees.id, fullName: scEmployees.fullName })
+      .from(scEmployees)
+      .where(eq(scEmployees.appUserId, me.id))
+      .limit(1);
+    if (!myEmployee) {
+      return { kind: "no_employee" as const };
+    }
+
+    const [doc] = await tx
+      .select({
+        id: scDocuments.id,
+        scope: scDocuments.scope,
+        employeeId: scDocuments.employeeId,
+        requiresSignature: scDocuments.requiresSignature,
+        data: scDocuments.data,
+        title: scDocuments.title,
+      })
+      .from(scDocuments)
+      .where(eq(scDocuments.id, parsed.data.documentId))
+      .limit(1);
+    if (!doc) return { kind: "not_found" as const };
+    if (doc.scope !== "team" || doc.employeeId !== myEmployee.id) {
+      return { kind: "not_yours" as const };
+    }
+    if (!doc.requiresSignature) {
+      return { kind: "not_required" as const };
+    }
+
+    const [existing] = await tx
+      .select({ id: scDocumentSignatures.id })
+      .from(scDocumentSignatures)
+      .where(
+        and(
+          eq(scDocumentSignatures.documentId, doc.id),
+          eq(scDocumentSignatures.signerAppUserId, me.id),
+        ),
+      )
+      .limit(1);
+    if (existing) return { kind: "already_signed" as const };
+
+    const sourceDocumentHash = createHash("sha256")
+      .update(doc.data)
+      .digest("hex");
+    const ua = (await headers()).get("user-agent");
+    const ip = await readSignerIp();
+
+    const [row] = await tx
+      .insert(scDocumentSignatures)
+      .values({
+        traceyTenantId: tenantId,
+        documentId: doc.id,
+        signerAppUserId: me.id,
+        signerEmail: me.email ?? "",
+        signerFullName: me.name ?? myEmployee.fullName,
+        signatureText: parsed.data.signatureText,
+        signerIp: ip,
+        signerUserAgent: ua,
+        sourceDocumentHash,
+      })
+      .returning({ id: scDocumentSignatures.id });
+    return {
+      kind: "ok" as const,
+      signatureId: row?.id ?? null,
+      docTitle: doc.title,
+      sourceDocumentHash,
+    };
+  });
+
+  if (result.kind === "no_employee") {
+    return {
+      status: "error",
+      message:
+        "We couldn't find your employee record in this workspace. Ask an admin to link your account.",
+    };
+  }
+  if (result.kind === "not_found" || result.kind === "not_yours") {
+    return { status: "error", message: "Document not found." };
+  }
+  if (result.kind === "not_required") {
+    return {
+      status: "error",
+      message: "This document doesn't require a signature.",
+    };
+  }
+  if (result.kind === "already_signed") {
+    return { status: "ok", message: "You've already signed this document." };
+  }
+
+  await logAuditEvent({
+    action: "shiftcraft.document.signed",
+    targetKind: "sc_document",
+    targetId: parsed.data.documentId,
+    details: {
+      signatureId: result.signatureId,
+      title: result.docTitle,
+      sourceDocumentHash: result.sourceDocumentHash,
+    },
+  });
+
+  revalidatePath("/app/people/team-documents");
+  return { status: "ok", message: `Signed "${result.docTitle}".` };
 }
