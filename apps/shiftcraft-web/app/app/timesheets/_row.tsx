@@ -94,6 +94,13 @@ export interface RowProps {
   hourlyRate: number | null;
   costAud: number | null;
   activity: ActivityEntry[];
+  /** AUDIT.md Phase 2 #3b.3 — pre-formatted breakdown line for the row.
+   *  E.g. "28h ord · 2h OT 1.5× · 1h OT 2×". Null when the row has no
+   *  worked minutes (the dash in the actual cell already covers that). */
+  awardBreakdownDisplay: string | null;
+  /** Number of public-holiday days in this week per the tenant's
+   *  configured region. Drives a single chip. */
+  publicHolidayCount: number;
 }
 
 const ANOMALY_LABEL: Record<AnomalyKind, { label: string; classes: string }> = {
@@ -144,6 +151,8 @@ export function TimesheetRow({
   hourlyRate,
   costAud,
   activity,
+  awardBreakdownDisplay,
+  publicHolidayCount,
 }: RowProps) {
   const [expanded, setExpanded] = useState(false);
   const [modalCtx, setModalCtx] = useState<ModalContext | null>(null);
@@ -200,6 +209,16 @@ export function TimesheetRow({
                   </span>
                 ))
               : null}
+            {isAdmin && publicHolidayCount > 0 ? (
+              <span
+                className="inline-flex items-center rounded-full bg-purple-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white"
+                title="Penalty rates likely apply for public-holiday hours. Cost computation pending — see classifier breakdown."
+              >
+                {publicHolidayCount === 1
+                  ? "Public holiday"
+                  : `${publicHolidayCount} public holidays`}
+              </span>
+            ) : null}
             <button
               type="button"
               onClick={() => setPanelOpen(true)}
@@ -234,7 +253,15 @@ export function TimesheetRow({
           );
         })}
         <td className="px-3 py-2 font-mono text-sm tabular-nums font-semibold">
-          {totalWorkDisplay}
+          <div>{totalWorkDisplay}</div>
+          {awardBreakdownDisplay ? (
+            <div
+              className="mt-0.5 font-mono text-[10px] font-normal text-muted-foreground/80"
+              title="Ordinary / OT 1.5× / OT 2× per the default award thresholds (8h daily, 38h weekly). Cost computation pending."
+            >
+              {awardBreakdownDisplay}
+            </div>
+          ) : null}
         </td>
         <td className="px-3 py-2 font-mono text-xs tabular-nums text-muted-foreground">
           {totalBreakDisplay}

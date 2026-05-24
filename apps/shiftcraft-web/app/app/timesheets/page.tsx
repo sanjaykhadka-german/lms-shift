@@ -29,6 +29,12 @@ import {
   parseIsoDate,
   startOfWeek,
 } from "~/lib/clock";
+import { getHolidaysForTenant } from "~/lib/holidays";
+import {
+  classifyEmployeeWeek,
+  countPublicHolidays,
+  fmtBreakdown,
+} from "~/lib/timesheet-classifier";
 import { TimesheetRow } from "./_row";
 import { BulkSelectionForm } from "./_bulk_form";
 import { ApprovalButtons } from "./_approval_buttons";
@@ -66,6 +72,14 @@ interface RowTotals {
   plannedDailyMs: number[];
   plannedTotalMs: number;
   anomalies: AnomalyKind[];
+  /** AUDIT.md Phase 2 #3b.3 — pre-formatted classifier breakdown for the
+   *  row's main line: "28h ord · 2h OT 1.5× · 1h OT 2×". Null when no
+   *  worked minutes (matches the existing dash-style empty state). */
+  awardBreakdownDisplay: string | null;
+  /** Count of public-holiday days in this week per the tenant's holiday
+   *  region. Drives a single chip in the row's anomaly area so managers
+   *  see when penalty rates may apply. */
+  publicHolidayCount: number;
 }
 
 interface PerDayDetailEntry {
@@ -471,6 +485,19 @@ export default async function TimesheetsPage({
     byUser.set(e.appUserId, arr);
   }
 
+  // AUDIT.md Phase 2 #3b.3 — fetch the tenant's holiday calendar for the
+  // visible week once. weekEnd is exclusive in the surrounding code; the
+  // holiday range is inclusive on both ends so we ask for [weekStart,
+  // weekEnd - 1 day]. Empty when the tenant hasn't picked a region yet
+  // (lazy default "national" handled by the helper).
+  const lastDayIso = fmtIsoDate(addDays(weekEnd, -1));
+  const weekHolidays = await getHolidaysForTenant(
+    tenantId,
+    fmtIsoDate(weekStart),
+    lastDayIso,
+  );
+  const holidayDates = new Set(weekHolidays.map((h) => h.date));
+
   const rows: RowTotals[] = memberRows.map((m) => {
     const userEvents = byUser.get(m.userId) ?? [];
     // Walk events directly so each derived segment carries the originating
@@ -674,6 +701,13 @@ export default async function TimesheetsPage({
         ? Math.round((rate * (totalWork / 3_600_000)) * 100) / 100
         : null;
 
+    // AUDIT.md Phase 2 #3b.3 — classify this employee's worked minutes
+    // into ordinary / OT 1.5× / OT 2× + tag each day with its penalty
+    // category. Default thresholds (8h daily, 38h weekly) — per-tenant
+    // overrides will arrive when sc_tenant_config gains an
+    // award_profile column in a later slice.
+    const breakdown = classifyEmployeeWeek(weekStart, perDay, holidayDates);
+
     return {
       userId: m.userId,
       name: m.name ?? m.email,
@@ -691,6 +725,8 @@ export default async function TimesheetsPage({
       plannedDailyMs: planned,
       plannedTotalMs,
       anomalies,
+      awardBreakdownDisplay: fmtBreakdown(breakdown),
+      publicHolidayCount: countPublicHolidays(breakdown),
     };
   });
 
@@ -1035,6 +1071,8 @@ export default async function TimesheetsPage({
                           hourlyRate={r.hourlyRate}
                           costAud={r.costAud}
                           activity={activityByUser.get(r.userId) ?? []}
+                          awardBreakdownDisplay={r.awardBreakdownDisplay}
+                          publicHolidayCount={r.publicHolidayCount}
                         />
                       );
                     })}
