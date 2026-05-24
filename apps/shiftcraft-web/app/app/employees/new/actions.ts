@@ -7,6 +7,7 @@ import { z } from "zod";
 import {
   db,
   forTenant,
+  invitations,
   members,
   scDepartments,
   scEmployeePins,
@@ -16,7 +17,9 @@ import {
 } from "@tracey/db";
 import { decryptPii, encryptPii } from "@tracey/db/pii";
 import { currentMembership, currentUser } from "~/lib/auth/current";
+import { sendInvitationEmail } from "~/lib/auth/email";
 import { hashPassword, verifyPassword } from "~/lib/auth/passwords";
+import { generateToken, tokenExpiry } from "~/lib/auth/tokens";
 import { logAuditEvent } from "~/lib/audit";
 import { notifyTenantAdmins } from "~/lib/notifications";
 import { isAtLeastManager } from "~/lib/roles";
@@ -280,8 +283,73 @@ export async function createEmployeeAction(
     );
   }
 
+  // Auto-invite (AUDIT.md Phase 2 #2b): if the admin opted in via the form
+  // checkbox and the gate conditions hold, fire a workspace invitation so
+  // the new employee can claim their account from the standard
+  // /accept-invite page (hosted on lms-web). Skipped silently when:
+  //   - no email             — no address to send to
+  //   - labour_hire          — roster-only, no login needed
+  //   - already linked       — already a tenant member; auto-link covers it
+  //   - already invited      — pending invitation exists; don't duplicate
+  //   - no `me`              — invitedByUserId is NOT NULL on the schema
+  // Email failures are best-effort: the invitation row is rolled back so a
+  // future create / /app/people/team invite can try again cleanly.
+  const wantsInvite = formData.get("sendInvite") === "on";
+  let invited = false;
+  if (
+    wantsInvite &&
+    email &&
+    parsed.data.employmentType !== "labour_hire" &&
+    linkedAppUserId === null &&
+    me
+  ) {
+    const [existingInvite] = await db
+      .select({ id: invitations.id })
+      .from(invitations)
+      .where(
+        and(eq(invitations.tenantId, tenantId), eq(invitations.email, email)),
+      )
+      .limit(1);
+    if (!existingInvite) {
+      const token = generateToken();
+      const [invRow] = await db
+        .insert(invitations)
+        .values({
+          tenantId,
+          email,
+          role: "member",
+          token,
+          expiresAt: tokenExpiry(24 * 7),
+          invitedByUserId: me.id,
+        })
+        .returning({ id: invitations.id });
+      try {
+        await sendInvitationEmail({
+          to: email,
+          token,
+          tenantName: membership.tenant.name,
+          inviterName: me.name,
+        });
+        invited = true;
+        await logAuditEvent({
+          action: "tenant.member.invited",
+          targetKind: "invitation",
+          targetId: invRow?.id ?? null,
+          details: {
+            email,
+            role: "member",
+            source: "shiftcraft.employee_create",
+          },
+        });
+      } catch (err) {
+        console.error("[employees] invitation email failed:", err);
+        await db.delete(invitations).where(eq(invitations.token, token));
+      }
+    }
+  }
+
   revalidatePath("/app/employees");
-  redirect("/app/employees?added=1");
+  redirect(`/app/employees?added=1${invited ? "&invited=1" : ""}`);
 }
 
 export async function updateEmployeeAction(

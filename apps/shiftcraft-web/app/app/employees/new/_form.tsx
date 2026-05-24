@@ -134,6 +134,20 @@ export function EmployeeForm({
               Required for learner suggestion. Leave blank for labour-hire.
             </p>
           )}
+          {mode === "create" ? (
+            <label className="mt-2 flex items-start gap-2 text-xs">
+              <input
+                type="checkbox"
+                name="sendInvite"
+                defaultChecked
+                className="mt-0.5 h-3.5 w-3.5 rounded border-border accent-primary"
+              />
+              <span className="text-muted-foreground">
+                Email them a link to create their account. Ignored if email
+                is empty or employment type is labour-hire.
+              </span>
+            </label>
+          ) : null}
         </div>
 
         <div className="space-y-1.5">
