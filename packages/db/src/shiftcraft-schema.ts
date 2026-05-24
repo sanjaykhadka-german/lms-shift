@@ -324,6 +324,21 @@ export const scEmployees = pgTable(
     addressLine: text("address_line"),
     emergencyContactName: text("emergency_contact_name"),
     emergencyContactPhone: text("emergency_contact_phone"),
+    // Payroll PII. Encrypted at rest via the @tracey/db `pii` helper
+    // (AES-256-GCM, TRACEY_PII_ENC_KEY). Stored as v1:base64 tokens.
+    // - tfn_enc                : AU Tax File Number
+    // - bsb_enc                : Bank-State-Branch (6-digit routing)
+    // - account_number_enc     : Bank account number
+    // - super_fund_name        : Super fund choice — NOT encrypted; the
+    //                            fund name on its own is not PII
+    // - super_member_number_enc: Member number within that fund
+    // Never select these in list endpoints; reveal only via a server
+    // action that writes a `shiftcraft.employee.pii_revealed` audit event.
+    tfnEnc: text("tfn_enc"),
+    bsbEnc: text("bsb_enc"),
+    accountNumberEnc: text("account_number_enc"),
+    superFundName: text("super_fund_name"),
+    superMemberNumberEnc: text("super_member_number_enc"),
     createdByUserId: uuid("created_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),

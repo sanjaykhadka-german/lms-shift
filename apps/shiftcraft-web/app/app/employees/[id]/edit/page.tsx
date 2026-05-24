@@ -17,6 +17,7 @@ import { EmployeeForm } from "../../new/_form";
 import { deleteEmployeeAction } from "../../new/actions";
 import { SetPinCard } from "./_set_pin_card";
 import { RoleCard } from "./_role_card";
+import { PayrollPiiCard } from "./_payroll_card";
 
 export const metadata = { title: "Edit employee · ShiftCraft" };
 
@@ -50,6 +51,14 @@ export default async function EditEmployeePage({
         addressLine: scEmployees.addressLine,
         emergencyContactName: scEmployees.emergencyContactName,
         emergencyContactPhone: scEmployees.emergencyContactPhone,
+        // Payroll PII — read only the "is this set?" signal, not the
+        // ciphertext itself. The card's Reveal button calls a dedicated
+        // server action that decrypts + writes an audit event.
+        tfnEnc: scEmployees.tfnEnc,
+        bsbEnc: scEmployees.bsbEnc,
+        accountNumberEnc: scEmployees.accountNumberEnc,
+        superFundName: scEmployees.superFundName,
+        superMemberNumberEnc: scEmployees.superMemberNumberEnc,
       })
       .from(scEmployees)
       .leftJoin(
@@ -178,6 +187,17 @@ export default async function EditEmployeePage({
           currentRole={memberRow.role as Role}
           viewerRole={membership.role as Role}
           isSelf={viewer?.id === row.appUserId}
+        />
+      ) : null}
+
+      {isAtLeastManager(membership.role) ? (
+        <PayrollPiiCard
+          employeeId={row.id}
+          hasTfn={row.tfnEnc !== null}
+          hasBsb={row.bsbEnc !== null}
+          hasAccount={row.accountNumberEnc !== null}
+          hasSuperMember={row.superMemberNumberEnc !== null}
+          superFundName={row.superFundName}
         />
       ) : null}
 

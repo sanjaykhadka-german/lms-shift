@@ -14,6 +14,7 @@ import {
   users,
   type Role,
 } from "@tracey/db";
+import { decryptPii, encryptPii } from "@tracey/db/pii";
 import { currentMembership, currentUser } from "~/lib/auth/current";
 import { hashPassword, verifyPassword } from "~/lib/auth/passwords";
 import { logAuditEvent } from "~/lib/audit";
@@ -728,6 +729,221 @@ export async function setMemberRoleAction(
   revalidatePath("/app/employees");
   revalidatePath("/app/team");
   return { status: "ok", message: "Role updated." };
+}
+
+// ─── Payroll PII (AUDIT.md Phase 2 #2a) ───
+//
+// TFN, BSB+account, and super-fund member number are encrypted with the
+// @tracey/db pii helper before they hit Postgres. The plaintext is never
+// stored, never logged. The "Reveal" action below decrypts on demand and
+// writes a `shiftcraft.employee.pii_revealed` audit event so reveals
+// leave a trail.
+
+export type PayrollPiiFormState =
+  | { status: "idle" }
+  | { status: "ok"; message: string }
+  | {
+      status: "error";
+      message: string;
+      fieldErrors?: Record<string, string[]>;
+    };
+
+// AU TFN is 8-9 digits. BSB is exactly 6 digits (xxx-xxx accepted). Account
+// numbers vary (6-10 digits typical). All accept empty to clear the field.
+const payrollPiiSchema = z.object({
+  tfn: z
+    .union([
+      z.literal(""),
+      z.string().trim().regex(/^\d{3}\s?\d{3}\s?\d{2,3}$/, "TFN is 8-9 digits"),
+    ])
+    .optional(),
+  bsb: z
+    .union([
+      z.literal(""),
+      z.string().trim().regex(/^\d{3}-?\d{3}$/, "BSB is 6 digits (xxx-xxx)"),
+    ])
+    .optional(),
+  accountNumber: z
+    .union([
+      z.literal(""),
+      z.string().trim().regex(/^\d{4,12}$/, "Account number is 4-12 digits"),
+    ])
+    .optional(),
+  superFundName: z.string().trim().max(120).optional().or(z.literal("")),
+  superMemberNumber: z
+    .union([
+      z.literal(""),
+      z.string().trim().min(2).max(40),
+    ])
+    .optional(),
+});
+
+export async function savePayrollPiiAction(
+  employeeId: string,
+  _prev: PayrollPiiFormState,
+  formData: FormData,
+): Promise<PayrollPiiFormState> {
+  const membership = await currentMembership();
+  if (!membership || !isAtLeastManager(membership.role)) {
+    return {
+      status: "error",
+      message: "You don't have permission to edit payroll details.",
+    };
+  }
+  const tenantId = membership.tenant.id;
+
+  const parsed = payrollPiiSchema.safeParse({
+    tfn: formData.get("tfn") ?? "",
+    bsb: formData.get("bsb") ?? "",
+    accountNumber: formData.get("accountNumber") ?? "",
+    superFundName: formData.get("superFundName") ?? "",
+    superMemberNumber: formData.get("superMemberNumber") ?? "",
+  });
+  if (!parsed.success) {
+    return {
+      status: "error",
+      message: "Please fix the highlighted fields.",
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  // Verify the row belongs to this tenant before we touch anything.
+  const [target] = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({ id: scEmployees.id })
+      .from(scEmployees)
+      .where(
+        and(
+          eq(scEmployees.id, employeeId),
+          eq(scEmployees.traceyTenantId, tenantId),
+        ),
+      )
+      .limit(1),
+  );
+  if (!target) {
+    return {
+      status: "error",
+      message: "Employee not found in this workspace.",
+    };
+  }
+
+  // Normalise spacing/dashes before encrypting so reveals come back in a
+  // single canonical form (the regex above accepts both "062-000" and
+  // "062000"; we store as digits-only).
+  const tfn = emptyToNull(parsed.data.tfn)?.replace(/\s/g, "") ?? null;
+  const bsb = emptyToNull(parsed.data.bsb)?.replace(/-/g, "") ?? null;
+  const accountNumber = emptyToNull(parsed.data.accountNumber);
+  const superFundName = emptyToNull(parsed.data.superFundName);
+  const superMemberNumber = emptyToNull(parsed.data.superMemberNumber);
+
+  await forTenant(tenantId).run((tx) =>
+    tx
+      .update(scEmployees)
+      .set({
+        tfnEnc: encryptPii(tfn),
+        bsbEnc: encryptPii(bsb),
+        accountNumberEnc: encryptPii(accountNumber),
+        superFundName,
+        superMemberNumberEnc: encryptPii(superMemberNumber),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(scEmployees.id, employeeId),
+          eq(scEmployees.traceyTenantId, tenantId),
+        ),
+      ),
+  );
+
+  // Audit which fields were set vs cleared. We never log the plaintext —
+  // only the field names so the trail says *what* changed, not *to what*.
+  await logAuditEvent({
+    action: "shiftcraft.employee.pii_saved",
+    targetKind: "sc_employee",
+    targetId: employeeId,
+    details: {
+      fields: {
+        tfn: tfn ? "set" : "cleared",
+        bsb: bsb ? "set" : "cleared",
+        accountNumber: accountNumber ? "set" : "cleared",
+        superFundName: superFundName ? "set" : "cleared",
+        superMemberNumber: superMemberNumber ? "set" : "cleared",
+      },
+    },
+  });
+
+  revalidatePath(`/app/employees/${employeeId}/edit`);
+  return { status: "ok", message: "Saved." };
+}
+
+export interface RevealedPayrollPii {
+  tfn: string | null;
+  bsb: string | null;
+  accountNumber: string | null;
+  superMemberNumber: string | null;
+}
+
+// Decrypts the encrypted columns and returns plaintext to the caller.
+// Writes a `pii_revealed` audit event with the field names (NOT the
+// values). Caller is responsible for showing the values in a transient
+// UI and never persisting them to client storage.
+export async function revealPayrollPiiAction(
+  employeeId: string,
+): Promise<
+  | { status: "ok"; data: RevealedPayrollPii }
+  | { status: "error"; message: string }
+> {
+  const membership = await currentMembership();
+  if (!membership || !isAtLeastManager(membership.role)) {
+    return {
+      status: "error",
+      message: "You don't have permission to reveal payroll details.",
+    };
+  }
+  const tenantId = membership.tenant.id;
+
+  const [row] = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({
+        tfnEnc: scEmployees.tfnEnc,
+        bsbEnc: scEmployees.bsbEnc,
+        accountNumberEnc: scEmployees.accountNumberEnc,
+        superMemberNumberEnc: scEmployees.superMemberNumberEnc,
+      })
+      .from(scEmployees)
+      .where(
+        and(
+          eq(scEmployees.id, employeeId),
+          eq(scEmployees.traceyTenantId, tenantId),
+        ),
+      )
+      .limit(1),
+  );
+  if (!row) {
+    return {
+      status: "error",
+      message: "Employee not found in this workspace.",
+    };
+  }
+
+  await logAuditEvent({
+    action: "shiftcraft.employee.pii_revealed",
+    targetKind: "sc_employee",
+    targetId: employeeId,
+    details: {
+      fields: ["tfn", "bsb", "accountNumber", "superMemberNumber"],
+    },
+  });
+
+  return {
+    status: "ok",
+    data: {
+      tfn: decryptPii(row.tfnEnc ?? null),
+      bsb: decryptPii(row.bsbEnc ?? null),
+      accountNumber: decryptPii(row.accountNumberEnc ?? null),
+      superMemberNumber: decryptPii(row.superMemberNumberEnc ?? null),
+    },
+  };
 }
 
 export async function deleteEmployeeAction(formData: FormData): Promise<void> {
