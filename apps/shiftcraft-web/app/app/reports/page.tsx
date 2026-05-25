@@ -314,6 +314,46 @@ export default async function ReportsPage({
     (r) => r.thisWorkMs > 0 && r.hourlyRate == null,
   ).length;
 
+  // AUDIT.md #9 — Hours by department rollup. Sum each user's hours
+  // into their department bucket using the deptByUser map already
+  // built above. "Unassigned" catches active people whose sc_employees
+  // row has no department_id (e.g. casuals not yet sorted).
+  interface DepartmentRow {
+    departmentName: string;
+    thisWorkMs: number;
+    prevWorkMs: number;
+    headcount: number;
+  }
+  const deptThis = new Map<string, { ms: number; ids: Set<string> }>();
+  const deptPrev = new Map<string, number>();
+  const deptKey = (uid: string) => deptByUser.get(uid) ?? "Unassigned";
+  for (const [uid, ms] of thisByUser) {
+    if (ms <= 0) continue;
+    const k = deptKey(uid);
+    const cell = deptThis.get(k) ?? { ms: 0, ids: new Set<string>() };
+    cell.ms += ms;
+    cell.ids.add(uid);
+    deptThis.set(k, cell);
+  }
+  for (const [uid, ms] of prevByUser) {
+    if (ms <= 0) continue;
+    const k = deptKey(uid);
+    deptPrev.set(k, (deptPrev.get(k) ?? 0) + ms);
+  }
+  const departmentKeys = new Set<string>([
+    ...deptThis.keys(),
+    ...deptPrev.keys(),
+  ]);
+  const departmentRows: DepartmentRow[] = Array.from(departmentKeys).map(
+    (name) => ({
+      departmentName: name,
+      thisWorkMs: deptThis.get(name)?.ms ?? 0,
+      prevWorkMs: deptPrev.get(name) ?? 0,
+      headcount: deptThis.get(name)?.ids.size ?? 0,
+    }),
+  );
+  departmentRows.sort((a, b) => b.thisWorkMs - a.thisWorkMs);
+
   // Location rows: include every location with hours in either week,
   // plus an "Unspecified" bucket for events with null locationId.
   const locIds = new Set<string | null>();
@@ -409,6 +449,17 @@ export default async function ReportsPage({
             >
               Next →
             </Link>
+          </Button>
+          <Button asChild size="sm">
+            <a
+              href={
+                "/api/reports/export?week=" +
+                fmtIsoDate(thisWeekStart) +
+                (departmentFilter ? `&department=${encodeURIComponent(departmentFilter)}` : "")
+              }
+            >
+              Export CSV
+            </a>
           </Button>
         </div>
       </div>
@@ -571,6 +622,53 @@ export default async function ReportsPage({
                       </tr>
                     );
                   })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <h2 className="text-base font-semibold">Hours by department</h2>
+          <span className="text-xs text-muted-foreground">
+            Grouped by each employee&rsquo;s assigned department
+          </span>
+        </div>
+        {departmentRows.length === 0 ? (
+          <p className="px-5 py-6 text-sm text-muted-foreground">
+            No clock activity recorded for this period.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-2 font-medium">Department</th>
+                  <th className="px-3 py-2 font-medium">People</th>
+                  <th className="px-3 py-2 font-medium">Hours</th>
+                  <th className="px-3 py-2 font-medium">vs last week</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {departmentRows.map((r) => (
+                  <tr key={r.departmentName}>
+                    <td className="px-4 py-2">
+                      <div className="text-sm font-medium">
+                        {r.departmentName}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs tabular-nums text-muted-foreground">
+                      {r.headcount}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-sm font-semibold tabular-nums">
+                      {fmtHours(r.thisWorkMs)}
+                    </td>
+                    <td className="px-3 py-2">
+                      {deltaCell(r.thisWorkMs, r.prevWorkMs)}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
