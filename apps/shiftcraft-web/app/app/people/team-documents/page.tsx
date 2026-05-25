@@ -16,6 +16,7 @@ import { Button } from "~/components/ui/button";
 import { UploadDocumentForm } from "../_components/UploadDocumentForm";
 import { SignDocumentDialog } from "../_components/SignDocumentDialog";
 import { deleteDocumentAction } from "../documents/_actions";
+import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "Team documents · ShiftCraft" };
 export const dynamic = "force-dynamic";
@@ -216,8 +217,27 @@ export default async function TeamDocumentsPage({
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
+        <h1 className="text-2xl font-semibold tracking-tight inline-flex items-center gap-2">
           Team documents
+          <InfoPopover label="About team documents">
+            <p className="font-semibold">Per-employee documents</p>
+            <p className="mt-1">
+              Signed contracts, licences, certifications. Set an expiry
+              date to get an alert when something is about to lapse.
+            </p>
+            <p className="mt-1 font-semibold">Signatures</p>
+            <p className="mt-1">
+              Tick <strong>Requires signature</strong> when uploading
+              and the assigned employee sees a <strong>Sign</strong>{" "}
+              button. The signature is recorded with their typed name,
+              IP address, browser, and a SHA-256 hash of the file —
+              tamper-evident.
+            </p>
+            <p className="mt-1">
+              Re-signing isn&rsquo;t allowed; if a signed doc needs to
+              change, delete it and upload a fresh one.
+            </p>
+          </InfoPopover>
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Per-employee documents — signed contracts, licences,

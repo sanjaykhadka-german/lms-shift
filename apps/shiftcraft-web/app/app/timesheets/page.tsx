@@ -45,6 +45,7 @@ import { getTenantAwardProfile } from "~/lib/award-profile";
 import { TimesheetRow } from "./_row";
 import { BulkSelectionForm } from "./_bulk_form";
 import { ApprovalButtons } from "./_approval_buttons";
+import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "Timesheets · ShiftCraft" };
 
@@ -1042,12 +1043,85 @@ export default async function TimesheetsPage({
                           </div>
                         </th>
                       ))}
-                      <th className="px-3 py-2 font-medium">Work</th>
+                      <th className="px-3 py-2 font-medium">
+                        <span className="inline-flex items-center gap-1.5">
+                          Work
+                          <InfoPopover label="About the Work column">
+                            <p className="font-semibold">Hours classification</p>
+                            <p className="mt-1">
+                              The total in the cell is raw worked time.
+                              The smaller line below splits it into
+                              <strong> ordinary</strong>, <strong>OT 1.5×</strong>,
+                              and <strong>OT 2×</strong> per your award
+                              profile (8h daily / 38h weekly defaults).
+                            </p>
+                            <p className="mt-1">
+                              Public-holiday weeks show a chip in the
+                              name column — penalty rates apply to those
+                              days in the cost calc.
+                            </p>
+                          </InfoPopover>
+                        </span>
+                      </th>
                       <th className="px-3 py-2 font-medium">Break</th>
                       {anyCost ? (
-                        <th className="px-3 py-2 font-medium">Cost</th>
+                        <th className="px-3 py-2 font-medium">
+                          <span className="inline-flex items-center gap-1.5">
+                            Cost
+                            <InfoPopover label="About the Cost column">
+                              <p className="font-semibold">Two cost lines</p>
+                              <p className="mt-1">
+                                <strong>Top:</strong> flat cost (rate ×
+                                hours) — the legacy figure.
+                              </p>
+                              <p className="mt-1">
+                                <strong>Bottom (amber):</strong>{" "}
+                                award-derived cost using OT × penalty
+                                multipliers under the policy set in
+                                workspace settings (or per-employee
+                                override).
+                              </p>
+                              <p className="mt-1">
+                                When the two match (clean weekday week,
+                                no OT), the second line is hidden to
+                                reduce noise.
+                              </p>
+                            </InfoPopover>
+                          </span>
+                        </th>
                       ) : null}
-                      <th className="px-3 py-2 font-medium">Status</th>
+                      <th className="px-3 py-2 font-medium">
+                        <span className="inline-flex items-center gap-1.5">
+                          Status
+                          <InfoPopover
+                            label="About the Status column"
+                            align="right"
+                          >
+                            <p className="font-semibold">Approval &amp; lock</p>
+                            <p className="mt-1">
+                              <strong>Pending</strong> — has activity,
+                              awaiting your call.
+                            </p>
+                            <p className="mt-1">
+                              <strong>Approved · Locked</strong> —
+                              clock-event edits frozen. The “+ Add
+                              punch” and ✎ edit buttons disappear from
+                              every row in that week.
+                            </p>
+                            <p className="mt-1">
+                              <strong>Disputed</strong> — flagged for
+                              re-check; notes show under the badge.
+                            </p>
+                            <p className="mt-1">
+                              The red <strong>Reopen</strong> button on
+                              an approved row prompts for a reason; the
+                              reason lands in the audit log next to a
+                              <em> shiftcraft.timesheet.reopened</em>{" "}
+                              event.
+                            </p>
+                          </InfoPopover>
+                        </span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
