@@ -31,12 +31,15 @@ import {
 } from "~/lib/clock";
 import { getHolidaysForTenant } from "~/lib/holidays";
 import {
+  _parseAwardProfile,
   classifyEmployeeWeek,
   computeAwardCost,
   countPublicHolidays,
   fmtBreakdown,
+  mergeAwardProfiles,
   resolvePenaltyMultipliers,
   roundCents,
+  type AwardProfileOverrides,
 } from "~/lib/timesheet-classifier";
 import { getTenantAwardProfile } from "~/lib/award-profile";
 import { TimesheetRow } from "./_row";
@@ -257,6 +260,7 @@ export default async function TimesheetsPage({
               departmentId: scEmployees.departmentId,
               departmentName: scDepartments.name,
               hourlyRate: scEmployees.hourlyRate,
+              awardProfile: scEmployees.awardProfile,
             })
             .from(scEmployees)
             .leftJoin(
@@ -279,6 +283,7 @@ export default async function TimesheetsPage({
       departmentId: string | null;
       departmentName: string | null;
       hourlyRate: number | null;
+      awardProfile: AwardProfileOverrides;
     }
   >();
   for (const link of scLinks) {
@@ -293,6 +298,11 @@ export default async function TimesheetsPage({
         departmentId: link.departmentId,
         departmentName: link.departmentName,
         hourlyRate: rate != null && Number.isFinite(rate) ? rate : null,
+        // Phase 2 #3b.6 — per-employee award profile override. Run the
+        // raw jsonb through the defensive parser so a stored shape from
+        // a future schema version degrades to defaults rather than
+        // crashing the row builder.
+        awardProfile: _parseAwardProfile(link.awardProfile),
       });
     }
   }
@@ -504,11 +514,6 @@ export default async function TimesheetsPage({
     getTenantAwardProfile(tenantId),
   ]);
   const holidayDates = new Set(weekHolidays.map((h) => h.date));
-  // AUDIT.md Phase 2 #3b.5 — pre-resolve the multipliers + policy once
-  // so the per-row loop doesn't pay the merge cost.
-  const resolvedPenaltyMultipliers = resolvePenaltyMultipliers(
-    awardProfile.penaltyMultipliers,
-  );
 
   const rows: RowTotals[] = memberRows.map((m) => {
     const userEvents = byUser.get(m.userId) ?? [];
@@ -713,31 +718,35 @@ export default async function TimesheetsPage({
         ? Math.round((rate * (totalWork / 3_600_000)) * 100) / 100
         : null;
 
-    // AUDIT.md Phase 2 #3b.3 — classify this employee's worked minutes
-    // into ordinary / OT 1.5× / OT 2× + tag each day with its penalty
-    // category. Thresholds come from the tenant's award_profile (Phase
-    // 2 #3b.5) with package defaults filling missing fields.
+    // AUDIT.md Phase 2 #3b.3 / #3b.5 / #3b.6 — classify this employee's
+    // worked minutes. The resolution chain is employee profile →
+    // tenant profile → @tracey/award defaults, merged per leaf field.
+    const effectiveProfile = mergeAwardProfiles(
+      awardProfile,
+      deptByUserId.get(m.userId)?.awardProfile,
+    );
     const breakdown = classifyEmployeeWeek(
       weekStart,
       perDay,
       holidayDates,
-      awardProfile.thresholds,
+      effectiveProfile.thresholds,
     );
     // AUDIT.md Phase 2 #3b.4 — derived cost using OT × penalty.
-    // Multipliers + policy come from the tenant's award_profile (Phase
-    // 2 #3b.5) with defaults filling missing fields. Null when rate
-    // isn't set OR no work — the simple flat `costAud` line uses the
-    // same null semantics so both cost lines either show or dash
-    // together.
+    // Multipliers + policy come from the merged effective profile.
+    // Null when rate isn't set OR no work — the simple flat `costAud`
+    // line uses the same null semantics so both cost lines either show
+    // or dash together.
     const awardCostAud =
       rate != null && totalWork > 0
         ? roundCents(
             computeAwardCost(breakdown, rate, {
-              policy: awardProfile.costPolicy,
-              penaltyMultipliers: resolvedPenaltyMultipliers,
-              overtimeMultiplier: awardProfile.overtimeMultiplier,
+              policy: effectiveProfile.costPolicy,
+              penaltyMultipliers: resolvePenaltyMultipliers(
+                effectiveProfile.penaltyMultipliers,
+              ),
+              overtimeMultiplier: effectiveProfile.overtimeMultiplier,
               doubleOvertimeMultiplier:
-                awardProfile.doubleOvertimeMultiplier,
+                effectiveProfile.doubleOvertimeMultiplier,
             }).totalCost,
           )
         : null;

@@ -30,9 +30,11 @@ import {
   countPublicHolidays,
   fmtBreakdown,
   highestPenaltyCategory,
+  mergeAwardProfiles,
   resolvePenaltyMultipliers,
   resolveThresholds,
   roundCents,
+  type AwardProfileOverrides,
 } from "~/lib/timesheet-classifier";
 
 // 2026-05-25 is a Monday — matches the startOfWeek output from clock.ts.
@@ -525,6 +527,81 @@ describe("resolvePenaltyMultipliers — merge override with package defaults", (
       sunday: 1.75,
       public_holiday: 2.5,
     });
+  });
+});
+
+describe("mergeAwardProfiles — per-field employee → tenant → defaults", () => {
+  it("returns the tenant profile unchanged when employee is undefined", () => {
+    const tenant: AwardProfileOverrides = {
+      thresholds: { weeklyOrdinaryMinutes: 2400 },
+      costPolicy: "max",
+    };
+    expect(mergeAwardProfiles(tenant)).toEqual(tenant);
+  });
+
+  it("returns the tenant profile unchanged when employee is empty", () => {
+    const tenant: AwardProfileOverrides = {
+      thresholds: { weeklyOrdinaryMinutes: 2400 },
+      costPolicy: "max",
+    };
+    expect(mergeAwardProfiles(tenant, {})).toEqual(tenant);
+  });
+
+  it("employee fields win over tenant fields at the leaf level", () => {
+    const tenant: AwardProfileOverrides = {
+      thresholds: {
+        dailyOrdinaryMinutes: 480,
+        weeklyOrdinaryMinutes: 2280,
+      },
+      penaltyMultipliers: { sunday: 1.75 },
+      costPolicy: "max",
+    };
+    const employee: AwardProfileOverrides = {
+      thresholds: { weeklyOrdinaryMinutes: 2400 },
+      penaltyMultipliers: { weekday: 1.1 },
+      costPolicy: "stack",
+    };
+    expect(mergeAwardProfiles(tenant, employee)).toEqual({
+      thresholds: {
+        dailyOrdinaryMinutes: 480, // from tenant
+        weeklyOrdinaryMinutes: 2400, // from employee (wins)
+      },
+      penaltyMultipliers: {
+        sunday: 1.75, // from tenant
+        weekday: 1.1, // from employee
+      },
+      costPolicy: "stack", // from employee (wins)
+    });
+  });
+
+  it("preserves tenant values when employee sets only one leaf", () => {
+    const tenant: AwardProfileOverrides = {
+      penaltyMultipliers: { sunday: 1.75, saturday: 1.4 },
+      overtimeMultiplier: 1.6,
+    };
+    const employee: AwardProfileOverrides = {
+      penaltyMultipliers: { weekday: 1.1 },
+    };
+    const out = mergeAwardProfiles(tenant, employee);
+    expect(out.penaltyMultipliers).toEqual({
+      sunday: 1.75,
+      saturday: 1.4,
+      weekday: 1.1,
+    });
+    expect(out.overtimeMultiplier).toBe(1.6);
+  });
+
+  it("employee scalar overrides (OT multipliers, costPolicy) replace tenant scalars", () => {
+    expect(
+      mergeAwardProfiles(
+        { overtimeMultiplier: 1.6 },
+        { overtimeMultiplier: 2.0 },
+      ),
+    ).toEqual({ overtimeMultiplier: 2.0 });
+  });
+
+  it("returns an empty profile when both tenant and employee are empty", () => {
+    expect(mergeAwardProfiles({}, {})).toEqual({});
   });
 });
 

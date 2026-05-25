@@ -1,0 +1,1 @@
+ALTER TABLE "sc_employees" ADD COLUMN "award_profile" jsonb;

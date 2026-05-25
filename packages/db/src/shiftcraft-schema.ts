@@ -324,6 +324,12 @@ export const scEmployees = pgTable(
     addressLine: text("address_line"),
     emergencyContactName: text("emergency_contact_name"),
     emergencyContactPhone: text("emergency_contact_phone"),
+    // Per-employee award profile override (Phase 2 #3b.6). Same jsonb
+    // shape as sc_tenant_config.award_profile — set only the fields that
+    // differ from the tenant profile. Resolution chain: employee →
+    // tenant → @tracey/award defaults. Null means "inherit from
+    // tenant" (which itself may be null → inherit from package).
+    awardProfile: jsonb("award_profile"),
     // Payroll PII. Encrypted at rest via the @tracey/db `pii` helper
     // (AES-256-GCM, TRACEY_PII_ENC_KEY). Stored as v1:base64 tokens.
     // - tfn_enc                : AU Tax File Number

@@ -290,6 +290,44 @@ export function resolvePenaltyMultipliers(
   return { ...DEFAULT_PENALTY_MULTIPLIERS, ...overrides };
 }
 
+// Merge two AwardProfileOverrides — employee fields win over tenant
+// fields at the leaf level (Phase 2 #3b.6). E.g. tenant sets
+// penaltyMultipliers.sunday=1.75; employee sets
+// penaltyMultipliers.weekday=1.10 only — final has both.
+//
+// `nested` containers (`thresholds`, `penaltyMultipliers`) merge their
+// inner keys field-by-field; scalar overrides at the top level (cost
+// policy, OT multipliers) just take the employee value when present.
+//
+// Pure function — no DB, no side effects. The tenant and employee
+// values come from getTenantAwardProfile + getEmployeeAwardProfile.
+export function mergeAwardProfiles(
+  tenant: AwardProfileOverrides,
+  employee?: AwardProfileOverrides,
+): AwardProfileOverrides {
+  if (!employee) return tenant;
+  const out: AwardProfileOverrides = { ...tenant };
+  if (employee.thresholds || tenant.thresholds) {
+    out.thresholds = { ...tenant.thresholds, ...employee.thresholds };
+  }
+  if (employee.penaltyMultipliers || tenant.penaltyMultipliers) {
+    out.penaltyMultipliers = {
+      ...tenant.penaltyMultipliers,
+      ...employee.penaltyMultipliers,
+    };
+  }
+  if (employee.overtimeMultiplier != null) {
+    out.overtimeMultiplier = employee.overtimeMultiplier;
+  }
+  if (employee.doubleOvertimeMultiplier != null) {
+    out.doubleOvertimeMultiplier = employee.doubleOvertimeMultiplier;
+  }
+  if (employee.costPolicy) {
+    out.costPolicy = employee.costPolicy;
+  }
+  return out;
+}
+
 // Convenience: classify + cost in one call using a tenant profile.
 // Lets page.tsx call a single helper instead of threading three
 // override fields through.

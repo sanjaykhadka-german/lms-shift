@@ -18,6 +18,9 @@ import { deleteEmployeeAction } from "../../new/actions";
 import { SetPinCard } from "./_set_pin_card";
 import { RoleCard } from "./_role_card";
 import { PayrollPiiCard } from "./_payroll_card";
+import { EmployeeAwardProfileCard } from "./_employee_award_card";
+import { _parseAwardProfile } from "~/lib/timesheet-classifier";
+import { getTenantAwardProfile } from "~/lib/award-profile";
 
 export const metadata = { title: "Edit employee · ShiftCraft" };
 
@@ -59,6 +62,8 @@ export default async function EditEmployeePage({
         accountNumberEnc: scEmployees.accountNumberEnc,
         superFundName: scEmployees.superFundName,
         superMemberNumberEnc: scEmployees.superMemberNumberEnc,
+        // Phase 2 #3b.6 — per-employee award profile override.
+        awardProfile: scEmployees.awardProfile,
       })
       .from(scEmployees)
       .leftJoin(
@@ -123,6 +128,12 @@ export default async function EditEmployeePage({
       .where(eq(scDepartments.traceyTenantId, tenantId))
       .orderBy(asc(scDepartments.name)),
   );
+
+  // Phase 2 #3b.6 — tenant profile shown as placeholders on the employee
+  // override card so the manager sees what they're inheriting.
+  const tenantAwardProfile = isAtLeastManager(membership.role)
+    ? await getTenantAwardProfile(tenantId)
+    : {};
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
@@ -198,6 +209,14 @@ export default async function EditEmployeePage({
           hasAccount={row.accountNumberEnc !== null}
           hasSuperMember={row.superMemberNumberEnc !== null}
           superFundName={row.superFundName}
+        />
+      ) : null}
+
+      {isAtLeastManager(membership.role) ? (
+        <EmployeeAwardProfileCard
+          employeeId={row.id}
+          tenantProfile={tenantAwardProfile}
+          employeeProfile={_parseAwardProfile(row.awardProfile)}
         />
       ) : null}
 

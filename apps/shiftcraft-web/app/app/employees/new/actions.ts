@@ -1051,3 +1051,204 @@ export async function deleteEmployeeAction(formData: FormData): Promise<void> {
   revalidatePath("/app/employees");
   redirect("/app/employees");
 }
+
+// ─── Per-employee award profile (Phase 2 #3b.6) ──────────────────────
+//
+// Mirror of sc_tenant_config.award_profile but per employee. Employee
+// overrides merge on top of the tenant profile per-leaf-field (see
+// mergeAwardProfiles in lib/timesheet-classifier.ts). Storing only the
+// fields the manager typed keeps "inheritance" intact when the tenant
+// profile later changes.
+
+export type EmployeeAwardFormState =
+  | { status: "idle" }
+  | { status: "ok"; message: string }
+  | {
+      status: "error";
+      message: string;
+      fieldErrors?: Record<string, string[]>;
+    };
+
+function asPositiveNumber(raw: FormDataEntryValue | null): number | null {
+  if (raw == null) return null;
+  const cleaned = String(raw).replace(/[\s,]/g, "");
+  if (cleaned === "") return null;
+  const n = Number(cleaned);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+const employeeAwardSchema = z.object({
+  dailyOrdinaryMinutes: z.number().positive().optional(),
+  dailyOvertimeMinutes: z.number().positive().optional(),
+  weeklyOrdinaryMinutes: z.number().positive().optional(),
+  overtimeMultiplier: z.number().positive().optional(),
+  doubleOvertimeMultiplier: z.number().positive().optional(),
+  penaltyWeekday: z.number().positive().optional(),
+  penaltySaturday: z.number().positive().optional(),
+  penaltySunday: z.number().positive().optional(),
+  penaltyPublicHoliday: z.number().positive().optional(),
+  costPolicy: z.enum(["max", "stack"]).optional(),
+});
+
+export async function setEmployeeAwardProfileAction(
+  employeeId: string,
+  _prev: EmployeeAwardFormState,
+  formData: FormData,
+): Promise<EmployeeAwardFormState> {
+  const me = await currentUser();
+  const membership = await currentMembership();
+  if (!me || !membership || !isAtLeastManager(membership.role)) {
+    return {
+      status: "error",
+      message: "Only Managers can change award profiles.",
+    };
+  }
+  const tenantId = membership.tenant.id;
+
+  // Verify the employee belongs to this tenant before any write.
+  const [target] = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({ id: scEmployees.id })
+      .from(scEmployees)
+      .where(
+        and(
+          eq(scEmployees.id, employeeId),
+          eq(scEmployees.traceyTenantId, tenantId),
+        ),
+      )
+      .limit(1),
+  );
+  if (!target) {
+    return { status: "error", message: "Employee not found in this workspace." };
+  }
+
+  const intent = String(formData.get("intent") ?? "save");
+  if (intent === "reset") {
+    await forTenant(tenantId).run((tx) =>
+      tx
+        .update(scEmployees)
+        .set({ awardProfile: null, updatedAt: new Date() })
+        .where(
+          and(
+            eq(scEmployees.id, employeeId),
+            eq(scEmployees.traceyTenantId, tenantId),
+          ),
+        ),
+    );
+    await logAuditEvent({
+      action: "shiftcraft.employee.award_profile_reset",
+      targetKind: "sc_employee",
+      targetId: employeeId,
+      details: null,
+    });
+    revalidatePath(`/app/employees/${employeeId}/edit`);
+    return { status: "ok", message: "Override cleared — employee inherits the tenant profile." };
+  }
+
+  const raw = {
+    dailyOrdinaryMinutes: asPositiveNumber(formData.get("dailyOrdinaryMinutes")),
+    dailyOvertimeMinutes: asPositiveNumber(formData.get("dailyOvertimeMinutes")),
+    weeklyOrdinaryMinutes: asPositiveNumber(formData.get("weeklyOrdinaryMinutes")),
+    overtimeMultiplier: asPositiveNumber(formData.get("overtimeMultiplier")),
+    doubleOvertimeMultiplier: asPositiveNumber(
+      formData.get("doubleOvertimeMultiplier"),
+    ),
+    penaltyWeekday: asPositiveNumber(formData.get("penaltyWeekday")),
+    penaltySaturday: asPositiveNumber(formData.get("penaltySaturday")),
+    penaltySunday: asPositiveNumber(formData.get("penaltySunday")),
+    penaltyPublicHoliday: asPositiveNumber(formData.get("penaltyPublicHoliday")),
+    costPolicy:
+      formData.get("costPolicy") === "max" ||
+      formData.get("costPolicy") === "stack"
+        ? (formData.get("costPolicy") as "max" | "stack")
+        : undefined,
+  };
+  const filtered = Object.fromEntries(
+    Object.entries(raw).filter(([, v]) => v !== null && v !== undefined),
+  );
+  const parsed = employeeAwardSchema.safeParse(filtered);
+  if (!parsed.success) {
+    return {
+      status: "error",
+      message: "Please fix the highlighted fields.",
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  if (
+    parsed.data.dailyOrdinaryMinutes != null &&
+    parsed.data.dailyOvertimeMinutes != null &&
+    parsed.data.dailyOvertimeMinutes < parsed.data.dailyOrdinaryMinutes
+  ) {
+    return {
+      status: "error",
+      message:
+        "Daily OT ceiling must be greater than or equal to daily ordinary minutes.",
+      fieldErrors: {
+        dailyOvertimeMinutes: [
+          "Must be ≥ dailyOrdinaryMinutes for the OT 1.5× band to make sense.",
+        ],
+      },
+    };
+  }
+
+  const profile: Record<string, unknown> = {};
+  const thresholds: Record<string, number> = {};
+  if (parsed.data.dailyOrdinaryMinutes != null) {
+    thresholds.dailyOrdinaryMinutes = parsed.data.dailyOrdinaryMinutes;
+  }
+  if (parsed.data.dailyOvertimeMinutes != null) {
+    thresholds.dailyOvertimeMinutes = parsed.data.dailyOvertimeMinutes;
+  }
+  if (parsed.data.weeklyOrdinaryMinutes != null) {
+    thresholds.weeklyOrdinaryMinutes = parsed.data.weeklyOrdinaryMinutes;
+  }
+  if (Object.keys(thresholds).length > 0) profile.thresholds = thresholds;
+  if (parsed.data.overtimeMultiplier != null) {
+    profile.overtimeMultiplier = parsed.data.overtimeMultiplier;
+  }
+  if (parsed.data.doubleOvertimeMultiplier != null) {
+    profile.doubleOvertimeMultiplier = parsed.data.doubleOvertimeMultiplier;
+  }
+  const pms: Record<string, number> = {};
+  if (parsed.data.penaltyWeekday != null) pms.weekday = parsed.data.penaltyWeekday;
+  if (parsed.data.penaltySaturday != null) pms.saturday = parsed.data.penaltySaturday;
+  if (parsed.data.penaltySunday != null) pms.sunday = parsed.data.penaltySunday;
+  if (parsed.data.penaltyPublicHoliday != null) {
+    pms.public_holiday = parsed.data.penaltyPublicHoliday;
+  }
+  if (Object.keys(pms).length > 0) profile.penaltyMultipliers = pms;
+  if (parsed.data.costPolicy) profile.costPolicy = parsed.data.costPolicy;
+
+  // Empty submitted form = clear the override. Distinct intent path
+  // handles the explicit "Reset" button above; this catches the case
+  // where the user blanked every field and pressed Save.
+  const profileToStore = Object.keys(profile).length > 0 ? profile : null;
+
+  await forTenant(tenantId).run((tx) =>
+    tx
+      .update(scEmployees)
+      .set({ awardProfile: profileToStore, updatedAt: new Date() })
+      .where(
+        and(
+          eq(scEmployees.id, employeeId),
+          eq(scEmployees.traceyTenantId, tenantId),
+        ),
+      ),
+  );
+
+  await logAuditEvent({
+    action: "shiftcraft.employee.award_profile_changed",
+    targetKind: "sc_employee",
+    targetId: employeeId,
+    details: { profile: profileToStore },
+  });
+
+  revalidatePath(`/app/employees/${employeeId}/edit`);
+  return {
+    status: "ok",
+    message: profileToStore
+      ? "Override saved."
+      : "Override cleared — employee inherits the tenant profile.",
+  };
+}
