@@ -28,6 +28,8 @@ interface Props {
   mode: "create" | "edit";
   shiftId?: string;
   locations: Array<{ id: string; name: string }>;
+  /** Skills catalogue for the optional required-skill dropdown. */
+  skills?: Array<{ id: string; name: string }>;
   /** Saved templates managers can stamp onto a date. Only shown on create. */
   templates?: ShiftTemplateSummary[];
   defaultValues?: {
@@ -36,6 +38,7 @@ interface Props {
     startsAt: string; // datetime-local format: YYYY-MM-DDTHH:mm
     endsAt: string;
     notes: string | null;
+    requiredSkillId?: string | null;
   };
 }
 
@@ -54,6 +57,7 @@ export function ShiftForm({
   mode,
   shiftId,
   locations,
+  skills = [],
   templates = [],
   defaultValues,
 }: Props) {
@@ -205,6 +209,28 @@ export function ShiftForm({
           </p>
         )}
       </div>
+
+      {skills.length > 0 && (
+        <div className="space-y-1.5 sm:col-span-2">
+          <Label htmlFor="requiredSkillId">Required skill (optional)</Label>
+          <select
+            id="requiredSkillId"
+            name="requiredSkillId"
+            defaultValue={defaultValues?.requiredSkillId ?? ""}
+            className="flex h-9 w-full rounded-md border border-[color:var(--input)] bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+          >
+            <option value="">— Any qualification —</option>
+            {skills.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-muted-foreground">
+            The auto-scheduler refuses to assign anyone without this skill.
+          </p>
+        </div>
+      )}
 
       <div className="space-y-1.5 sm:col-span-2">
         <Label htmlFor="notes">Notes (optional)</Label>

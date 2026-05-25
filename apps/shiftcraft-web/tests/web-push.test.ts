@@ -23,11 +23,14 @@ function reset() {
   state.sendBehaviour = null;
 }
 
-// web-push spy — controlled per test via state.sendBehaviour.
-const sendNotification = vi.fn(async (sub: { endpoint: string }) => {
-  if (state.sendBehaviour) return state.sendBehaviour(sub.endpoint);
-  return undefined;
-});
+// web-push spy — controlled per test via state.sendBehaviour. Second
+// arg (body) tracked so tests can assert the payload shape.
+const sendNotification = vi.fn(
+  async (sub: { endpoint: string }, _body?: string) => {
+    if (state.sendBehaviour) return state.sendBehaviour(sub.endpoint);
+    return undefined;
+  },
+);
 
 vi.mock("web-push", () => ({
   default: {

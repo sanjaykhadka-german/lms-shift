@@ -402,6 +402,15 @@ export default async function SchedulePage({
               Export CSV
             </a>
           </Button>
+          {isAdmin && (
+            <Button asChild variant="outline" size="sm">
+              <Link
+                href={`/app/schedule/auto-fill?week=${fmtIsoDate(weekStart)}`}
+              >
+                Auto-fill
+              </Link>
+            </Button>
+          )}
           {isAdmin && draftCount > 0 && (
             <form action={bulkPublishWeekAction}>
               <input type="hidden" name="weekStart" value={weekStart.toISOString()} />

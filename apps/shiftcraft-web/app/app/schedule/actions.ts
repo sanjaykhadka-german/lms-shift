@@ -77,6 +77,13 @@ const shiftSchema = z
       .min(1, "End time is required")
       .transform((s) => new Date(s)),
     notes: z.string().trim().max(2000).optional().or(z.literal("")),
+    // AUDIT.md #8 — empty string maps to null (no skill required);
+    // a UUID is validated against sc_skills server-side via the FK.
+    requiredSkillId: z
+      .string()
+      .optional()
+      .or(z.literal(""))
+      .transform((v) => (v && v.length > 0 ? v : null)),
   })
   .refine((v) => v.startsAt instanceof Date && !isNaN(v.startsAt.getTime()), {
     path: ["startsAt"],
@@ -107,6 +114,7 @@ export async function createShiftAction(
     startsAt: formData.get("startsAt"),
     endsAt: formData.get("endsAt"),
     notes: formData.get("notes") ?? "",
+    requiredSkillId: formData.get("requiredSkillId") ?? "",
   });
   if (!parsed.success) {
     return {
@@ -140,6 +148,7 @@ export async function createShiftAction(
       startsAt: parsed.data.startsAt,
       endsAt: parsed.data.endsAt,
       notes: parsed.data.notes?.length ? parsed.data.notes : null,
+      requiredSkillId: parsed.data.requiredSkillId,
       createdByUserId: user?.id ?? null,
     }),
   );
@@ -158,6 +167,7 @@ export async function updateShiftAction(
     startsAt: formData.get("startsAt"),
     endsAt: formData.get("endsAt"),
     notes: formData.get("notes") ?? "",
+    requiredSkillId: formData.get("requiredSkillId") ?? "",
   });
   if (!parsed.success) {
     return {
@@ -212,6 +222,7 @@ export async function updateShiftAction(
         startsAt: parsed.data.startsAt,
         endsAt: parsed.data.endsAt,
         notes: parsed.data.notes?.length ? parsed.data.notes : null,
+        requiredSkillId: parsed.data.requiredSkillId,
         updatedAt: new Date(),
       })
       .where(and(eq(scShifts.id, id), eq(scShifts.traceyTenantId, tenant.id))),

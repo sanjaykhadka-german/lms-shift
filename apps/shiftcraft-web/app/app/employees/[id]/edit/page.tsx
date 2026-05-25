@@ -19,8 +19,10 @@ import { SetPinCard } from "./_set_pin_card";
 import { RoleCard } from "./_role_card";
 import { PayrollPiiCard } from "./_payroll_card";
 import { EmployeeAwardProfileCard } from "./_employee_award_card";
+import { SkillsCard } from "./_skills_card";
 import { _parseAwardProfile } from "~/lib/timesheet-classifier";
 import { getTenantAwardProfile } from "~/lib/award-profile";
+import { listActiveSkills, listSkillsForEmployee } from "~/lib/skills";
 
 export const metadata = { title: "Edit employee · ShiftCraft" };
 
@@ -135,6 +137,13 @@ export default async function EditEmployeePage({
     ? await getTenantAwardProfile(tenantId)
     : {};
 
+  // AUDIT.md #8 — skills tagging for the auto-scheduler.
+  const [skillsCatalogue, assignedSkillIds] = await Promise.all([
+    listActiveSkills(tenantId),
+    listSkillsForEmployee(tenantId, row.id),
+  ]);
+  const assignedSet = new Set(assignedSkillIds);
+
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
       <div className="flex items-center justify-between gap-4">
@@ -219,6 +228,13 @@ export default async function EditEmployeePage({
           employeeProfile={_parseAwardProfile(row.awardProfile)}
         />
       ) : null}
+
+      <SkillsCard
+        employeeId={row.id}
+        allSkills={skillsCatalogue.map((s) => ({ id: s.id, name: s.name }))}
+        assignedSkillIds={assignedSet}
+        canEdit={isAtLeastManager(membership.role)}
+      />
 
       <section className="rounded-lg border border-[color:var(--destructive)]/30 bg-card p-5 shadow-sm">
         <h2 className="text-sm font-semibold text-[color:var(--destructive)]">

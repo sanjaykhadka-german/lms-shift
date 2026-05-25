@@ -4,6 +4,7 @@ import { asc, eq } from "drizzle-orm";
 import { forTenant, scLocations, scShiftTemplates } from "@tracey/db";
 import { currentMembership } from "~/lib/auth/current";
 import { Button } from "~/components/ui/button";
+import { listActiveSkills } from "~/lib/skills";
 import { ShiftForm } from "../_form";
 
 export const metadata = { title: "New shift · ShiftCraft" };
@@ -13,7 +14,7 @@ export default async function NewShiftPage() {
   if (!membership) redirect("/app");
 
   const tenantId = membership.tenant.id;
-  const [locations, templates] = await Promise.all([
+  const [locations, templates, skills] = await Promise.all([
     forTenant(tenantId).run((tx) =>
       tx
         .select({ id: scLocations.id, name: scLocations.name })
@@ -37,6 +38,7 @@ export default async function NewShiftPage() {
         .where(eq(scShiftTemplates.traceyTenantId, tenantId))
         .orderBy(asc(scShiftTemplates.name)),
     ),
+    listActiveSkills(tenantId),
   ]);
 
   if (locations.length === 0) {
@@ -72,6 +74,7 @@ export default async function NewShiftPage() {
         <ShiftForm
           mode="create"
           locations={locations}
+          skills={skills}
           templates={templates}
         />
       </section>

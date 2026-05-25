@@ -110,6 +110,12 @@ export const scShifts = pgTable(
     endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
     status: text("status").notNull().default("draft"),
     notes: text("notes"),
+    // AUDIT.md #8 — required skill for the auto-scheduler. Null = no
+    // requirement (any candidate is acceptable; the role text is
+    // descriptive but not enforced). FK to per-tenant sc_skills is
+    // attached in the per-tenant migration; nullable on purpose so
+    // existing shifts back-fill cleanly.
+    requiredSkillId: uuid("required_skill_id"),
     createdByUserId: uuid("created_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
@@ -1193,6 +1199,76 @@ export const scDailySales = pgTable(
   ],
 );
 
+// ─── Skills + employee skills (AUDIT.md #8 auto-scheduler) ──────────
+//
+// Per-tenant skill catalogue. A skill is a free-text label
+// (e.g. "Butchering", "Cashier", "RSA"). Slug derived from name on
+// insert; same pattern as sc_leave_types — admins can rename freely
+// while the slug stays stable.
+//
+// sc_employee_skills is the many-to-many join: an employee can carry
+// any number of skills. The auto-scheduler uses this set to filter
+// candidates against a shift's required_skill_id.
+
+export const scSkills = pgTable(
+  "sc_skills",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    description: text("description"),
+    isArchived: boolean("is_archived").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("sc_skills_tenant_slug_uq").on(t.traceyTenantId, t.slug),
+    uniqueIndex("sc_skills_tenant_name_uq").on(
+      t.traceyTenantId,
+      sql`lower(${t.name})`,
+    ),
+    index("sc_skills_tenant_idx").on(t.traceyTenantId, t.isArchived),
+    check(
+      "sc_skills_slug_chk",
+      sql`${t.slug} ~ '^[a-z][a-z0-9_]*$' and length(${t.slug}) between 2 and 40`,
+    ),
+    check(
+      "sc_skills_name_chk",
+      sql`length(${t.name}) between 1 and 80`,
+    ),
+  ],
+);
+
+export const scEmployeeSkills = pgTable(
+  "sc_employee_skills",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    employeeId: uuid("employee_id").notNull(),
+    skillId: uuid("skill_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("sc_employee_skills_uq").on(
+      t.traceyTenantId,
+      t.employeeId,
+      t.skillId,
+    ),
+    index("sc_employee_skills_employee_idx").on(
+      t.traceyTenantId,
+      t.employeeId,
+    ),
+    index("sc_employee_skills_skill_idx").on(t.traceyTenantId, t.skillId),
+  ],
+);
+
 // ─── Web push subscriptions (AUDIT.md #12) ──────────────────────────
 //
 // One row per (user, browser endpoint). A single user can have many —
@@ -1506,3 +1582,7 @@ export type ScManagerLocation = typeof scManagerLocations.$inferSelect;
 export type NewScManagerLocation = typeof scManagerLocations.$inferInsert;
 export type ScPushSubscription = typeof scPushSubscriptions.$inferSelect;
 export type NewScPushSubscription = typeof scPushSubscriptions.$inferInsert;
+export type ScSkill = typeof scSkills.$inferSelect;
+export type NewScSkill = typeof scSkills.$inferInsert;
+export type ScEmployeeSkill = typeof scEmployeeSkills.$inferSelect;
+export type NewScEmployeeSkill = typeof scEmployeeSkills.$inferInsert;

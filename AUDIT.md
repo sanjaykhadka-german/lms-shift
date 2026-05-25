@@ -97,14 +97,11 @@ Legend: ✅ Implemented · 🟡 Partial · ❌ Missing.
 - iCal export per user (so staff see shifts in their device calendar): `/api/calendar/[tenant]/[user]/[token]`, `lib/ics.ts`
 
 **Missing**
-- **Auto-scheduler** that respects:
-  - Employee availability + approved leave (leave exists; availability JSON exists; algorithm missing)
-  - Required skills / qualifications per shift (no skills tagging exists yet)
-  - Max weekly hours, min rest between shifts, fatigue rules
-  - Wage-budget guardrail per day (no budget column on `sc_locations` or `sc_shifts`)
+- ✅ **Auto-scheduler v1** — greedy CSP shipped 2026-05-25. Respects availability jsonb (existing helper), approved leave overlap, required skill (`sc_shifts.required_skill_id`), max weekly hours (40h cap), min rest (10h, AU general-rule default). Skills tagging via new `sc_skills` + `sc_employee_skills` per-tenant tables; admin CRUD at `/app/admin/skills`. UI at `/app/schedule/auto-fill` proposes assignments + lists unfilled with rejection reasons; accept = bulk-offered assignments.
+- **Wage-budget guardrail per day** (no budget column on `sc_locations` or `sc_shifts`) — deferred.
 - **POS sales-forecast input** to drive staffing levels per hour (deferred for v1 per scope clarification — manual daily sales entry instead)
-- **Publish-time push notification** (push channel missing — see §4)
-- **Change-after-publish alerts** to affected staff (email exists; push/SMS missing)
+- ✅ **Publish-time push notification** — push fan-out from `createNotifications` covers this (audit #12).
+- **Change-after-publish alerts** to affected staff (email + push exist; SMS missing — see #11)
 
 ---
 
@@ -238,7 +235,7 @@ Dependency-ordered so each item unblocks the next. Sizing: S < ~1 day, M ~1-3 da
 5. **Xero payroll adapter** (M) — adapter interface in `packages/payroll-export`, Xero implementation first (MYOB/ADP/Gusto/QuickBooks slot in later). Tenant-level earnings-code mapping. Idempotent draft pay-run. Pull-back gross/net.
 6. **Leave types + accrual + roster-clash guard** (S) — ✅ catalogue + clash guard shipped 2026-05-25; accrual on approved hours + balance UI still deferred (depends on Feature 4 interpreter).
 7. **Geofence + selfie clock-in** (M) — wire the existing `geofence` enum: mobile-web GPS first, `geofence_radius_m` on `sc_locations`, selfie via getUserMedia → object storage. Offline sync deferred until customers ask.
-8. **Auto-scheduler v1** (M-L) — constraint-satisfaction draft: respect availability, leave, skills (introduce `sc_skills` + `sc_employee_skills` here), max hours, min rest, wage budget. POS forecast slot reserved but unused.
+8. **Auto-scheduler v1** (M-L) — ✅ shipped 2026-05-25. Greedy generator + `/app/schedule/auto-fill` UI + `sc_skills` + `sc_employee_skills` per-tenant tables + `required_skill_id` on `sc_shifts`. Constraints respected: availability jsonb, approved leave, required skill, 40h weekly cap, 10h min rest. Wage-budget guardrail + POS forecast slot still deferred; skills-tagging on `sc_shift_templates` also deferred (manager picks the skill when stamping a template onto a date).
 9. **Reporting deepening** (S-M) — ✅ sc_daily_sales + wages-vs-sales + schedule-vs-actual variance + per-location/department rollups + CSV downloads shipped 2026-05-25; per-role rollup + payroll cost read-back (depends on Feature 5) still pending.
 10. **Webhooks** (S) — ✅ shipped 2026-05-25. Three events live (`timesheet.approved` · `employee.created` · `shift.published`); HMAC-SHA256 signing; admin-triggered retry on failure. Background retry-with-backoff still deferred.
 11. **SMS notifications** (S) — carrier choice (Twilio / MessageBird / AWS SNS); add to fan-out in `lib/notifications.ts`.

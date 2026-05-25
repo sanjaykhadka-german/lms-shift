@@ -20,6 +20,7 @@ import {
   getManagedLocationIds,
   isLocationInScope,
 } from "~/lib/manager-scope";
+import { listActiveSkills } from "~/lib/skills";
 import { Button } from "~/components/ui/button";
 import { ShiftForm } from "../../_form";
 import {
@@ -87,6 +88,7 @@ export default async function EditShiftPage({
         endsAt: scShifts.endsAt,
         status: scShifts.status,
         notes: scShifts.notes,
+        requiredSkillId: scShifts.requiredSkillId,
       })
       .from(scShifts)
       .where(
@@ -247,12 +249,14 @@ export default async function EditShiftPage({
           mode="edit"
           shiftId={shiftRow.id}
           locations={locations}
+          skills={await listActiveSkills(membership.tenant.id)}
           defaultValues={{
             locationId: shiftRow.locationId,
             role: shiftRow.role,
             startsAt: toLocalInput(shiftRow.startsAt),
             endsAt: toLocalInput(shiftRow.endsAt),
             notes: shiftRow.notes,
+            requiredSkillId: shiftRow.requiredSkillId,
           }}
         />
       </section>
