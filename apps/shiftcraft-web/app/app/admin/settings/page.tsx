@@ -6,7 +6,9 @@ import {
   HOLIDAY_REGIONS,
   HOLIDAY_REGION_LABELS,
 } from "~/lib/holidays";
+import { getTenantAwardProfile } from "~/lib/award-profile";
 import { HolidayRegionForm } from "./_form";
+import { AwardProfileForm } from "./_award_form";
 
 export const metadata = { title: "Workspace settings · ShiftCraft" };
 export const dynamic = "force-dynamic";
@@ -16,7 +18,10 @@ export default async function WorkspaceSettingsPage() {
   if (!membership) redirect("/app");
   if (!isAtLeastManager(membership.role)) redirect("/app");
 
-  const currentRegion = await getTenantHolidayRegion(membership.tenant.id);
+  const [currentRegion, awardProfile] = await Promise.all([
+    getTenantHolidayRegion(membership.tenant.id),
+    getTenantAwardProfile(membership.tenant.id),
+  ]);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
@@ -45,6 +50,19 @@ export default async function WorkspaceSettingsPage() {
             regions={HOLIDAY_REGIONS}
             labels={HOLIDAY_REGION_LABELS}
           />
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
+        <h2 className="text-sm font-semibold">Award profile</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Override the Modern Award general-rule defaults the classifier
+          uses to compute ordinary / overtime hours and penalty rates.
+          Leave any field blank to use the AU baseline shown as the
+          placeholder. Changes apply to all future timesheet renders.
+        </p>
+        <div className="mt-4">
+          <AwardProfileForm currentProfile={awardProfile} />
         </div>
       </section>
     </div>

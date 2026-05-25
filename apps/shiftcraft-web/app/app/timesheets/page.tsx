@@ -35,8 +35,10 @@ import {
   computeAwardCost,
   countPublicHolidays,
   fmtBreakdown,
+  resolvePenaltyMultipliers,
   roundCents,
 } from "~/lib/timesheet-classifier";
+import { getTenantAwardProfile } from "~/lib/award-profile";
 import { TimesheetRow } from "./_row";
 import { BulkSelectionForm } from "./_bulk_form";
 import { ApprovalButtons } from "./_approval_buttons";
@@ -497,12 +499,16 @@ export default async function TimesheetsPage({
   // weekEnd - 1 day]. Empty when the tenant hasn't picked a region yet
   // (lazy default "national" handled by the helper).
   const lastDayIso = fmtIsoDate(addDays(weekEnd, -1));
-  const weekHolidays = await getHolidaysForTenant(
-    tenantId,
-    fmtIsoDate(weekStart),
-    lastDayIso,
-  );
+  const [weekHolidays, awardProfile] = await Promise.all([
+    getHolidaysForTenant(tenantId, fmtIsoDate(weekStart), lastDayIso),
+    getTenantAwardProfile(tenantId),
+  ]);
   const holidayDates = new Set(weekHolidays.map((h) => h.date));
+  // AUDIT.md Phase 2 #3b.5 — pre-resolve the multipliers + policy once
+  // so the per-row loop doesn't pay the merge cost.
+  const resolvedPenaltyMultipliers = resolvePenaltyMultipliers(
+    awardProfile.penaltyMultipliers,
+  );
 
   const rows: RowTotals[] = memberRows.map((m) => {
     const userEvents = byUser.get(m.userId) ?? [];
@@ -709,17 +715,31 @@ export default async function TimesheetsPage({
 
     // AUDIT.md Phase 2 #3b.3 — classify this employee's worked minutes
     // into ordinary / OT 1.5× / OT 2× + tag each day with its penalty
-    // category. Default thresholds (8h daily, 38h weekly) — per-tenant
-    // overrides will arrive when sc_tenant_config gains an
-    // award_profile column in a later slice.
-    const breakdown = classifyEmployeeWeek(weekStart, perDay, holidayDates);
-    // AUDIT.md Phase 2 #3b.4 — derived cost using OT × penalty under the
-    // default "max" policy. Null when rate isn't set OR no work — the
-    // simple flat `costAud` line uses the same null semantics so both
-    // cost lines either show or are dashes together.
+    // category. Thresholds come from the tenant's award_profile (Phase
+    // 2 #3b.5) with package defaults filling missing fields.
+    const breakdown = classifyEmployeeWeek(
+      weekStart,
+      perDay,
+      holidayDates,
+      awardProfile.thresholds,
+    );
+    // AUDIT.md Phase 2 #3b.4 — derived cost using OT × penalty.
+    // Multipliers + policy come from the tenant's award_profile (Phase
+    // 2 #3b.5) with defaults filling missing fields. Null when rate
+    // isn't set OR no work — the simple flat `costAud` line uses the
+    // same null semantics so both cost lines either show or dash
+    // together.
     const awardCostAud =
       rate != null && totalWork > 0
-        ? roundCents(computeAwardCost(breakdown, rate).totalCost)
+        ? roundCents(
+            computeAwardCost(breakdown, rate, {
+              policy: awardProfile.costPolicy,
+              penaltyMultipliers: resolvedPenaltyMultipliers,
+              overtimeMultiplier: awardProfile.overtimeMultiplier,
+              doubleOvertimeMultiplier:
+                awardProfile.doubleOvertimeMultiplier,
+            }).totalCost,
+          )
         : null;
 
     return {

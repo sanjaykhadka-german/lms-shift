@@ -1032,6 +1032,12 @@ export const scTenantConfig = pgTable(
   {
     traceyTenantId: text("tracey_tenant_id").primaryKey(),
     holidayRegion: text("holiday_region").notNull().default("national"),
+    // Award profile overrides for the @tracey/award classifier (Phase 2
+    // #3b.5). JSONB so partial overrides are cheap and the shape can
+    // evolve without DDL. Null/empty object = use AU general-rule
+    // defaults from @tracey/award. The validated shape lives in
+    // lib/timesheet-classifier.ts (AwardProfileOverrides).
+    awardProfile: jsonb("award_profile"),
     updatedByUserId: uuid("updated_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),

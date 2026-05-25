@@ -8,6 +8,7 @@ import { currentMembership, currentUser } from "~/lib/auth/current";
 import { isAtLeastManager } from "~/lib/roles";
 import { logAuditEvent } from "~/lib/audit";
 import { HOLIDAY_REGIONS } from "~/lib/holidays";
+import { _parseAwardProfile } from "~/lib/timesheet-classifier";
 
 const regionSchema = z.object({
   region: z.enum(HOLIDAY_REGIONS),
@@ -86,4 +87,186 @@ export async function setHolidayRegionAction(
 
   revalidatePath("/app/admin/settings");
   return { status: "ok", message: "Holiday region saved." };
+}
+
+// ─── Award profile (Phase 2 #3b.5) ───────────────────────────────────
+//
+// Parses the form into a partial AwardProfileOverrides JSON, stores it
+// on sc_tenant_config.award_profile (jsonb). Blank fields drop out so
+// the stored profile contains ONLY the overrides — the helper merges
+// with @tracey/award defaults on read. "Reset" submission clears the
+// column entirely.
+
+// Coerce a form text field into a positive number, or null when blank
+// / non-finite. We accept commas + spaces as common typo'd inputs.
+function asPositiveNumber(raw: FormDataEntryValue | null): number | null {
+  if (raw == null) return null;
+  const cleaned = String(raw).replace(/[\s,]/g, "");
+  if (cleaned === "") return null;
+  const n = Number(cleaned);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+const awardProfileSchema = z.object({
+  dailyOrdinaryMinutes: z.number().positive().optional(),
+  dailyOvertimeMinutes: z.number().positive().optional(),
+  weeklyOrdinaryMinutes: z.number().positive().optional(),
+  overtimeMultiplier: z.number().positive().optional(),
+  doubleOvertimeMultiplier: z.number().positive().optional(),
+  penaltyWeekday: z.number().positive().optional(),
+  penaltySaturday: z.number().positive().optional(),
+  penaltySunday: z.number().positive().optional(),
+  penaltyPublicHoliday: z.number().positive().optional(),
+  costPolicy: z.enum(["max", "stack"]).optional(),
+});
+
+export async function setAwardProfileAction(
+  _prev: SettingsFormState,
+  formData: FormData,
+): Promise<SettingsFormState> {
+  const me = await currentUser();
+  const membership = await currentMembership();
+  if (!me || !membership || !isAtLeastManager(membership.role)) {
+    return {
+      status: "error",
+      message: "Only Managers and Admins can change workspace settings.",
+    };
+  }
+  const tenantId = membership.tenant.id;
+
+  // Treat the "reset" intent as a separate branch — when the form is
+  // submitted via the Reset button, every other field is empty and the
+  // intent is to clear the column. Distinguished by a hidden input.
+  const intent = String(formData.get("intent") ?? "save");
+  if (intent === "reset") {
+    await forTenant(tenantId).run((tx) =>
+      tx
+        .update(scTenantConfig)
+        .set({ awardProfile: null, updatedByUserId: me.id, updatedAt: new Date() })
+        .where(eq(scTenantConfig.traceyTenantId, tenantId)),
+    );
+    await logAuditEvent({
+      action: "shiftcraft.tenant.award_profile_reset",
+      targetKind: "tenant",
+      targetId: tenantId,
+      details: null,
+    });
+    revalidatePath("/app/admin/settings");
+    return { status: "ok", message: "Award profile reset to defaults." };
+  }
+
+  const raw = {
+    dailyOrdinaryMinutes: asPositiveNumber(formData.get("dailyOrdinaryMinutes")),
+    dailyOvertimeMinutes: asPositiveNumber(formData.get("dailyOvertimeMinutes")),
+    weeklyOrdinaryMinutes: asPositiveNumber(formData.get("weeklyOrdinaryMinutes")),
+    overtimeMultiplier: asPositiveNumber(formData.get("overtimeMultiplier")),
+    doubleOvertimeMultiplier: asPositiveNumber(
+      formData.get("doubleOvertimeMultiplier"),
+    ),
+    penaltyWeekday: asPositiveNumber(formData.get("penaltyWeekday")),
+    penaltySaturday: asPositiveNumber(formData.get("penaltySaturday")),
+    penaltySunday: asPositiveNumber(formData.get("penaltySunday")),
+    penaltyPublicHoliday: asPositiveNumber(formData.get("penaltyPublicHoliday")),
+    costPolicy:
+      formData.get("costPolicy") === "max" ||
+      formData.get("costPolicy") === "stack"
+        ? (formData.get("costPolicy") as "max" | "stack")
+        : undefined,
+  };
+  // Drop null entries so Zod's optional()s pass cleanly.
+  const filtered = Object.fromEntries(
+    Object.entries(raw).filter(([, v]) => v !== null && v !== undefined),
+  );
+  const parsed = awardProfileSchema.safeParse(filtered);
+  if (!parsed.success) {
+    return {
+      status: "error",
+      message: "Please fix the highlighted fields.",
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  // Sanity invariant: dailyOvertimeMinutes must be ≥ dailyOrdinaryMinutes
+  // when both are set (matches the AwardThresholds invariant the
+  // classifier enforces).
+  if (
+    parsed.data.dailyOrdinaryMinutes != null &&
+    parsed.data.dailyOvertimeMinutes != null &&
+    parsed.data.dailyOvertimeMinutes < parsed.data.dailyOrdinaryMinutes
+  ) {
+    return {
+      status: "error",
+      message:
+        "Daily OT ceiling must be greater than or equal to daily ordinary minutes.",
+      fieldErrors: {
+        dailyOvertimeMinutes: [
+          "Must be ≥ dailyOrdinaryMinutes for the OT 1.5× band to make sense.",
+        ],
+      },
+    };
+  }
+
+  // Re-shape into the AwardProfileOverrides JSON the helper expects.
+  const profile: Record<string, unknown> = {};
+  const thresholds: Record<string, number> = {};
+  if (parsed.data.dailyOrdinaryMinutes != null) {
+    thresholds.dailyOrdinaryMinutes = parsed.data.dailyOrdinaryMinutes;
+  }
+  if (parsed.data.dailyOvertimeMinutes != null) {
+    thresholds.dailyOvertimeMinutes = parsed.data.dailyOvertimeMinutes;
+  }
+  if (parsed.data.weeklyOrdinaryMinutes != null) {
+    thresholds.weeklyOrdinaryMinutes = parsed.data.weeklyOrdinaryMinutes;
+  }
+  if (Object.keys(thresholds).length > 0) profile.thresholds = thresholds;
+  if (parsed.data.overtimeMultiplier != null) {
+    profile.overtimeMultiplier = parsed.data.overtimeMultiplier;
+  }
+  if (parsed.data.doubleOvertimeMultiplier != null) {
+    profile.doubleOvertimeMultiplier = parsed.data.doubleOvertimeMultiplier;
+  }
+  const pms: Record<string, number> = {};
+  if (parsed.data.penaltyWeekday != null) pms.weekday = parsed.data.penaltyWeekday;
+  if (parsed.data.penaltySaturday != null)
+    pms.saturday = parsed.data.penaltySaturday;
+  if (parsed.data.penaltySunday != null) pms.sunday = parsed.data.penaltySunday;
+  if (parsed.data.penaltyPublicHoliday != null) {
+    pms.public_holiday = parsed.data.penaltyPublicHoliday;
+  }
+  if (Object.keys(pms).length > 0) profile.penaltyMultipliers = pms;
+  if (parsed.data.costPolicy) profile.costPolicy = parsed.data.costPolicy;
+
+  // Final sanity-check via the parser the helper uses — if our shape
+  // can't round-trip through it, refuse the save.
+  const sanityCheck = _parseAwardProfile(profile);
+  void sanityCheck;
+
+  await forTenant(tenantId).run((tx) =>
+    tx
+      .insert(scTenantConfig)
+      .values({
+        traceyTenantId: tenantId,
+        // Required column; respect lazy-default semantics.
+        awardProfile: profile,
+        updatedByUserId: me.id,
+      })
+      .onConflictDoUpdate({
+        target: scTenantConfig.traceyTenantId,
+        set: {
+          awardProfile: profile,
+          updatedByUserId: me.id,
+          updatedAt: new Date(),
+        },
+      }),
+  );
+
+  await logAuditEvent({
+    action: "shiftcraft.tenant.award_profile_changed",
+    targetKind: "tenant",
+    targetId: tenantId,
+    details: { profile },
+  });
+
+  revalidatePath("/app/admin/settings");
+  return { status: "ok", message: "Award profile saved." };
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "sc_tenant_config" ADD COLUMN "award_profile" jsonb;

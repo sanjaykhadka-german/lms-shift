@@ -23,12 +23,15 @@ vi.mock("~/lib/clock", () => ({
 }));
 
 import {
+  _parseAwardProfile,
   buildDayInputs,
   classifyEmployeeWeek,
   computeAwardCost,
   countPublicHolidays,
   fmtBreakdown,
   highestPenaltyCategory,
+  resolvePenaltyMultipliers,
+  resolveThresholds,
   roundCents,
 } from "~/lib/timesheet-classifier";
 
@@ -369,5 +372,191 @@ describe("roundCents", () => {
     expect(roundCents(1.234)).toBe(1.23);
     expect(roundCents(1.235)).toBe(1.24);
     expect(roundCents(0)).toBe(0);
+  });
+});
+
+describe("_parseAwardProfile — defensive parsing of stored jsonb", () => {
+  it("returns {} for null / undefined / non-object input", () => {
+    expect(_parseAwardProfile(null)).toEqual({});
+    expect(_parseAwardProfile(undefined)).toEqual({});
+    expect(_parseAwardProfile("oops")).toEqual({});
+    expect(_parseAwardProfile(42)).toEqual({});
+  });
+
+  it("returns {} for an empty object — no overrides set", () => {
+    expect(_parseAwardProfile({})).toEqual({});
+  });
+
+  it("accepts a fully-populated profile and rounds threshold minutes", () => {
+    const out = _parseAwardProfile({
+      thresholds: {
+        dailyOrdinaryMinutes: 456.7,
+        dailyOvertimeMinutes: 600,
+        weeklyOrdinaryMinutes: 2400,
+      },
+      overtimeMultiplier: 1.5,
+      doubleOvertimeMultiplier: 2.0,
+      penaltyMultipliers: {
+        weekday: 1.0,
+        saturday: 1.5,
+        sunday: 1.75,
+        public_holiday: 2.5,
+      },
+      costPolicy: "stack",
+    });
+    expect(out).toEqual({
+      thresholds: {
+        dailyOrdinaryMinutes: 457,
+        dailyOvertimeMinutes: 600,
+        weeklyOrdinaryMinutes: 2400,
+      },
+      overtimeMultiplier: 1.5,
+      doubleOvertimeMultiplier: 2.0,
+      penaltyMultipliers: {
+        weekday: 1.0,
+        saturday: 1.5,
+        sunday: 1.75,
+        public_holiday: 2.5,
+      },
+      costPolicy: "stack",
+    });
+  });
+
+  it("drops zero / negative / NaN numeric values silently", () => {
+    expect(
+      _parseAwardProfile({
+        thresholds: {
+          dailyOrdinaryMinutes: 0,
+          dailyOvertimeMinutes: -5,
+          weeklyOrdinaryMinutes: Number.NaN,
+        },
+        overtimeMultiplier: 0,
+        penaltyMultipliers: { weekday: -1 },
+      }),
+    ).toEqual({});
+  });
+
+  it("drops unknown penalty-multiplier keys", () => {
+    const out = _parseAwardProfile({
+      penaltyMultipliers: {
+        weekday: 1.0,
+        christmas_eve: 3.0,
+        saturday: 1.25,
+      },
+    });
+    expect(out.penaltyMultipliers).toEqual({
+      weekday: 1.0,
+      saturday: 1.25,
+    });
+  });
+
+  it("rejects an unknown costPolicy and drops it", () => {
+    expect(_parseAwardProfile({ costPolicy: "double-stack" })).toEqual({});
+    expect(_parseAwardProfile({ costPolicy: "max" })).toEqual({
+      costPolicy: "max",
+    });
+    expect(_parseAwardProfile({ costPolicy: "stack" })).toEqual({
+      costPolicy: "stack",
+    });
+  });
+
+  it("preserves partial overrides — tenant overrides just costPolicy", () => {
+    expect(_parseAwardProfile({ costPolicy: "stack" })).toEqual({
+      costPolicy: "stack",
+    });
+  });
+
+  it("preserves partial thresholds and drops the empty container", () => {
+    // thresholds object exists but no valid numbers inside → no
+    // thresholds field on the result.
+    const out = _parseAwardProfile({
+      thresholds: { dailyOrdinaryMinutes: "not a number" },
+    });
+    expect(out).toEqual({});
+  });
+});
+
+describe("resolveThresholds — merge override with package defaults", () => {
+  it("returns the AU baseline when no override given", () => {
+    expect(resolveThresholds()).toEqual({
+      dailyOrdinaryMinutes: 480,
+      dailyOvertimeMinutes: 600,
+      weeklyOrdinaryMinutes: 2280,
+    });
+  });
+
+  it("merges a partial override (e.g. just weekly cap)", () => {
+    expect(resolveThresholds({ weeklyOrdinaryMinutes: 2400 })).toEqual({
+      dailyOrdinaryMinutes: 480,
+      dailyOvertimeMinutes: 600,
+      weeklyOrdinaryMinutes: 2400,
+    });
+  });
+
+  it("merges a full override", () => {
+    expect(
+      resolveThresholds({
+        dailyOrdinaryMinutes: 456,
+        dailyOvertimeMinutes: 576,
+        weeklyOrdinaryMinutes: 2400,
+      }),
+    ).toEqual({
+      dailyOrdinaryMinutes: 456,
+      dailyOvertimeMinutes: 576,
+      weeklyOrdinaryMinutes: 2400,
+    });
+  });
+});
+
+describe("resolvePenaltyMultipliers — merge override with package defaults", () => {
+  it("returns the AU baseline when no override given", () => {
+    expect(resolvePenaltyMultipliers()).toEqual({
+      weekday: 1.0,
+      saturday: 1.25,
+      sunday: 1.5,
+      public_holiday: 2.5,
+    });
+  });
+
+  it("overrides just the Sunday rate, leaves the rest at defaults", () => {
+    expect(resolvePenaltyMultipliers({ sunday: 1.75 })).toEqual({
+      weekday: 1.0,
+      saturday: 1.25,
+      sunday: 1.75,
+      public_holiday: 2.5,
+    });
+  });
+});
+
+describe("classifyEmployeeWeek + computeAwardCost — tenant override end-to-end", () => {
+  it("respects a custom weeklyOrdinaryMinutes from a tenant profile (40h instead of 38h)", () => {
+    // Mon-Fri 9h each. Default 38h cap → 38 ord + 7 OT 1.5×.
+    // Tenant raises cap to 40h → 40 ord + 5 OT 1.5× (no cascade beyond 40h).
+    const breakdown = classifyEmployeeWeek(
+      MON,
+      [ms(9), ms(9), ms(9), ms(9), ms(9), 0, 0],
+      new Set(),
+      { weeklyOrdinaryMinutes: 40 * 60 },
+    );
+    expect(breakdown.totals.ordinaryMinutes).toBe(40 * 60);
+    expect(breakdown.totals.overtimeMinutes).toBe(5 * 60);
+  });
+
+  it("respects a custom Sunday penalty multiplier (1.75×) on the cost output", () => {
+    // 6h Sunday @ $30. Default sun = 1.5×; tenant override to 1.75×.
+    //   ord = 6 × 30 × 1.75 = $315
+    const breakdown = classifyEmployeeWeek(MON, [0, 0, 0, 0, 0, 0, ms(6)], new Set());
+    const cost = computeAwardCost(breakdown, 30, {
+      penaltyMultipliers: resolvePenaltyMultipliers({ sunday: 1.75 }),
+    });
+    expect(roundCents(cost.totalCost)).toBe(315);
+  });
+
+  it("switches to 'stack' policy via override and gets the stacked Sun + OT cost", () => {
+    // 9h Sunday @ $30 (default sun=1.5, OT=1.5):
+    //   stack: ord = 8×30×1.5 = $360, ot = 1×30×(1.5×1.5) = $67.50. Total $427.50.
+    const breakdown = classifyEmployeeWeek(MON, [0, 0, 0, 0, 0, 0, ms(9)], new Set());
+    const cost = computeAwardCost(breakdown, 30, { policy: "stack" });
+    expect(roundCents(cost.totalCost)).toBe(427.5);
   });
 });

@@ -9,6 +9,7 @@
 import {
   classifyWeek,
   DEFAULT_PENALTY_MULTIPLIERS,
+  type AwardThresholds,
   type DayBreakdown,
   type DayInput,
   type PenaltyCategory,
@@ -32,14 +33,17 @@ export function buildDayInputs(
 
 // Run the classifier for one employee's week. Pure pass-through — the
 // caller resolves holidays once for the whole page and passes the set
-// here per row.
+// here per row. Optional `thresholds` lets tenants override the
+// package defaults (3b.5).
 export function classifyEmployeeWeek(
   weekStart: Date,
   perDayMs: number[],
   holidayDates: ReadonlySet<string>,
+  thresholds?: Partial<AwardThresholds>,
 ): WeekBreakdown {
   return classifyWeek(buildDayInputs(weekStart, perDayMs), {
     holidayDates,
+    thresholds,
   });
 }
 
@@ -198,3 +202,121 @@ export function computeAwardCost(
 export function roundCents(value: number): number {
   return Math.round(value * 100) / 100;
 }
+
+// ─── Per-tenant award profile (Phase 2 #3b.5) ────────────────────────
+//
+// Tenants can override any subset of the @tracey/award defaults via
+// sc_tenant_config.award_profile (jsonb). Missing fields fall through
+// to the package defaults so callers can call the resolved helpers
+// unconditionally. Bad / typo'd values are dropped during validation
+// (defensive: a stored profile from a future schema version should
+// degrade to defaults rather than crash a server render).
+
+export interface AwardProfileOverrides {
+  thresholds?: Partial<AwardThresholds>;
+  overtimeMultiplier?: number;
+  doubleOvertimeMultiplier?: number;
+  penaltyMultipliers?: Partial<PenaltyMultipliers>;
+  costPolicy?: CostPolicy;
+}
+
+const DEFAULT_THRESHOLDS_LOCAL: AwardThresholds = {
+  dailyOrdinaryMinutes: 8 * 60,
+  dailyOvertimeMinutes: 10 * 60,
+  weeklyOrdinaryMinutes: 38 * 60,
+};
+
+function isFinitePositive(n: unknown): n is number {
+  return typeof n === "number" && Number.isFinite(n) && n > 0;
+}
+
+// Defensive parser: trims any input shape down to known keys with
+// validated types. Anything unrecognised is dropped silently.
+function parseAwardProfile(raw: unknown): AwardProfileOverrides {
+  if (!raw || typeof raw !== "object") return {};
+  const r = raw as Record<string, unknown>;
+  const out: AwardProfileOverrides = {};
+
+  if (r.thresholds && typeof r.thresholds === "object") {
+    const t = r.thresholds as Record<string, unknown>;
+    const thresholds: Partial<AwardThresholds> = {};
+    if (isFinitePositive(t.dailyOrdinaryMinutes)) {
+      thresholds.dailyOrdinaryMinutes = Math.round(t.dailyOrdinaryMinutes);
+    }
+    if (isFinitePositive(t.dailyOvertimeMinutes)) {
+      thresholds.dailyOvertimeMinutes = Math.round(t.dailyOvertimeMinutes);
+    }
+    if (isFinitePositive(t.weeklyOrdinaryMinutes)) {
+      thresholds.weeklyOrdinaryMinutes = Math.round(t.weeklyOrdinaryMinutes);
+    }
+    if (Object.keys(thresholds).length > 0) out.thresholds = thresholds;
+  }
+
+  if (isFinitePositive(r.overtimeMultiplier)) {
+    out.overtimeMultiplier = r.overtimeMultiplier;
+  }
+  if (isFinitePositive(r.doubleOvertimeMultiplier)) {
+    out.doubleOvertimeMultiplier = r.doubleOvertimeMultiplier;
+  }
+
+  if (r.penaltyMultipliers && typeof r.penaltyMultipliers === "object") {
+    const p = r.penaltyMultipliers as Record<string, unknown>;
+    const pms: Partial<PenaltyMultipliers> = {};
+    for (const k of ["weekday", "saturday", "sunday", "public_holiday"] as const) {
+      if (isFinitePositive(p[k])) pms[k] = p[k] as number;
+    }
+    if (Object.keys(pms).length > 0) out.penaltyMultipliers = pms;
+  }
+
+  if (r.costPolicy === "max" || r.costPolicy === "stack") {
+    out.costPolicy = r.costPolicy;
+  }
+
+  return out;
+}
+
+// Merge a partial thresholds override with the AU general-rule defaults.
+export function resolveThresholds(
+  overrides?: Partial<AwardThresholds>,
+): AwardThresholds {
+  return { ...DEFAULT_THRESHOLDS_LOCAL, ...overrides };
+}
+
+// Merge a partial penalty-multipliers override with the AU general-rule
+// defaults. Each missing key falls back to the package default.
+export function resolvePenaltyMultipliers(
+  overrides?: Partial<PenaltyMultipliers>,
+): PenaltyMultipliers {
+  return { ...DEFAULT_PENALTY_MULTIPLIERS, ...overrides };
+}
+
+// Convenience: classify + cost in one call using a tenant profile.
+// Lets page.tsx call a single helper instead of threading three
+// override fields through.
+export function classifyAndCost(
+  weekStart: Date,
+  perDayMs: number[],
+  holidayDates: ReadonlySet<string>,
+  hourlyRate: number | null,
+  profile: AwardProfileOverrides = {},
+): { breakdown: WeekBreakdown; cost: WeekCost | null } {
+  const breakdown = classifyWeek(buildDayInputs(weekStart, perDayMs), {
+    holidayDates,
+    thresholds: profile.thresholds,
+  });
+  const cost =
+    hourlyRate != null
+      ? computeAwardCost(breakdown, hourlyRate, {
+          policy: profile.costPolicy,
+          penaltyMultipliers: resolvePenaltyMultipliers(
+            profile.penaltyMultipliers,
+          ),
+          overtimeMultiplier: profile.overtimeMultiplier,
+          doubleOvertimeMultiplier: profile.doubleOvertimeMultiplier,
+        })
+      : null;
+  return { breakdown, cost };
+}
+
+// Test-only: exposes the parser so spec coverage doesn't need a fake DB.
+export const _parseAwardProfile = parseAwardProfile;
