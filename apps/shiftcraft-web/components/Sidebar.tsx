@@ -31,6 +31,7 @@ import {
   Tag,
   UserPlus,
   Users,
+  Webhook,
   X,
 } from "lucide-react";
 import { cn } from "~/lib/utils";
@@ -101,6 +102,7 @@ const SECTIONS: NavSection[] = [
       { href: "/app/admin/daily-sales", label: "Daily sales", icon: DollarSign },
       { href: "/app/admin/kiosks", label: "Kiosks", icon: Tablet },
       { href: "/app/admin/leave-types", label: "Leave types", icon: Tag },
+      { href: "/app/admin/webhooks", label: "Webhooks", icon: Webhook },
       { href: "/app/admin/settings", label: "Workspace settings", icon: Sliders },
       { href: "/app/audit", label: "Audit log", icon: History },
     ],

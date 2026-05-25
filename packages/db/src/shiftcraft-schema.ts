@@ -1193,6 +1193,130 @@ export const scDailySales = pgTable(
   ],
 );
 
+// ─── Outbound webhook subscriptions (AUDIT.md #10) ──────────────────
+//
+// One row per (tenant, event, target URL). Receivers register a URL +
+// a long random secret; on every matching event we POST the JSON
+// payload with an X-Webhook-Signature: sha256=<hex> header, the hex
+// being HMAC-SHA256(secret, raw body). Standard pattern (GitHub /
+// Stripe / etc.) — receivers verify the header to defend against
+// replay + spoofing.
+//
+// `event` is plain text rather than a Postgres enum so adding a new
+// event in code doesn't require DDL. The set of recognised events is
+// curated in lib/webhooks.ts; rows with unknown event strings simply
+// never fire (the emit helper filters by the lookup at send time).
+//
+// `is_active` is a soft pause — receivers can be temporarily silenced
+// during an integration migration without losing the secret / URL.
+//
+// `last_success_at` / `last_failure_at` are denormalised for the
+// admin page's at-a-glance health column; the canonical history lives
+// in sc_webhook_deliveries.
+
+export const scWebhookSubscriptions = pgTable(
+  "sc_webhook_subscriptions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    event: text("event").notNull(),
+    url: text("url").notNull(),
+    // Secret is stored as-is. Treated as sensitive — never returned
+    // in list queries unless the caller explicitly opts in via a
+    // reveal action that writes an audit event.
+    secret: text("secret").notNull(),
+    label: text("label"),
+    isActive: boolean("is_active").notNull().default(true),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+    lastFailureAt: timestamp("last_failure_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("sc_webhook_subs_tenant_event_idx").on(
+      t.traceyTenantId,
+      t.event,
+      t.isActive,
+    ),
+    check(
+      "sc_webhook_subs_url_chk",
+      sql`${t.url} ~* '^https?://'`,
+    ),
+    check(
+      "sc_webhook_subs_event_chk",
+      sql`length(${t.event}) between 1 and 80`,
+    ),
+    check(
+      "sc_webhook_subs_secret_chk",
+      sql`length(${t.secret}) >= 16`,
+    ),
+  ],
+);
+
+// ─── Outbound webhook deliveries (AUDIT.md #10) ─────────────────────
+//
+// Append-only log of every delivery attempt. One row per (subscription,
+// emit). Status flow: pending -> succeeded | failed. Retries don't
+// insert a new row — they re-fire the existing one and bump
+// attempt_count + last_attempted_at + last_error.
+//
+// `payload` is the JSON body as-sent. Kept verbatim so an operator can
+// re-post the exact same body on retry without re-deriving it from app
+// state (which may have drifted by then).
+//
+// `response_body_excerpt` is truncated to 1000 chars — receivers
+// occasionally dump megabytes of error HTML; storing the lot would
+// bloat the table for little debugging value.
+
+export const scWebhookDeliveries = pgTable(
+  "sc_webhook_deliveries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    subscriptionId: uuid("subscription_id").notNull(),
+    event: text("event").notNull(),
+    payload: jsonb("payload").notNull(),
+    status: text("status").notNull().default("pending"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    requestSentAt: timestamp("request_sent_at", { withTimezone: true }),
+    responseStatus: integer("response_status"),
+    responseBodyExcerpt: text("response_body_excerpt"),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("sc_webhook_deliveries_tenant_idx").on(
+      t.traceyTenantId,
+      t.createdAt,
+    ),
+    index("sc_webhook_deliveries_sub_idx").on(
+      t.subscriptionId,
+      t.createdAt,
+    ),
+    index("sc_webhook_deliveries_status_idx").on(
+      t.traceyTenantId,
+      t.status,
+      t.createdAt,
+    ),
+    check(
+      "sc_webhook_deliveries_status_chk",
+      sql`${t.status} in ('pending','succeeded','failed')`,
+    ),
+  ],
+);
+
 // ─── Inferred types ───
 
 export type ScLocation = typeof scLocations.$inferSelect;
@@ -1280,3 +1404,8 @@ export type NewScDocument = typeof scDocuments.$inferInsert;
 export type ScDocumentScope = "library" | "team";
 export type ScDailySale = typeof scDailySales.$inferSelect;
 export type NewScDailySale = typeof scDailySales.$inferInsert;
+export type ScWebhookSubscription = typeof scWebhookSubscriptions.$inferSelect;
+export type NewScWebhookSubscription = typeof scWebhookSubscriptions.$inferInsert;
+export type ScWebhookDelivery = typeof scWebhookDeliveries.$inferSelect;
+export type NewScWebhookDelivery = typeof scWebhookDeliveries.$inferInsert;
+export type ScWebhookDeliveryStatus = "pending" | "succeeded" | "failed";

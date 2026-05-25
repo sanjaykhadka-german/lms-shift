@@ -221,7 +221,7 @@ Recommended Phase 2 housing: new `packages/award` package with a pure rules engi
 | Multi-tenant isolation | ✅ | Per-tenant Postgres schema + `forTenant(tid).run(tx => …)` (`packages/db/src/client.ts`) + RLS migration written (not yet enabled per memory) |
 | Multi-location | ✅ | `sc_locations` per tenant (tz, accent colour) — schema line 51 |
 | Localisation | ❌ | Hardcoded English. Acceptable for AU-only v1; use `Intl` for date/currency. |
-| Webhooks (outbound) | ❌ | Not present. Need at minimum: `timesheet.approved`, `employee.created`, `shift.published`, `payroll.exported`. |
+| Webhooks (outbound) | ✅ | Per-tenant `sc_webhook_subscriptions` + `sc_webhook_deliveries`. Three events ship today: `timesheet.approved` · `employee.created` · `shift.published`. `payroll.exported` lands when the Xero adapter (Feature 5) does. HMAC-SHA256 signing via `X-Webhook-Signature`. Admin CRUD + delivery log + retry-on-failure at `/app/admin/webhooks`. |
 | PII encryption at rest | ❌ | No envelope-encryption helper. **Blocker for onboarding** completion (TFN / bank / super). |
 | Encryption at rest helper | ❌ | No `pgcrypto` wrapper in `@tracey/db`. Build this first. |
 
@@ -240,7 +240,7 @@ Dependency-ordered so each item unblocks the next. Sizing: S < ~1 day, M ~1-3 da
 7. **Geofence + selfie clock-in** (M) — wire the existing `geofence` enum: mobile-web GPS first, `geofence_radius_m` on `sc_locations`, selfie via getUserMedia → object storage. Offline sync deferred until customers ask.
 8. **Auto-scheduler v1** (M-L) — constraint-satisfaction draft: respect availability, leave, skills (introduce `sc_skills` + `sc_employee_skills` here), max hours, min rest, wage budget. POS forecast slot reserved but unused.
 9. **Reporting deepening** (S-M) — ✅ sc_daily_sales + wages-vs-sales + schedule-vs-actual variance + per-location/department rollups + CSV downloads shipped 2026-05-25; per-role rollup + payroll cost read-back (depends on Feature 5) still pending.
-10. **Webhooks** (S) — outbound delivery with retries + signed payloads; per-tenant subscriptions.
+10. **Webhooks** (S) — ✅ shipped 2026-05-25. Three events live (`timesheet.approved` · `employee.created` · `shift.published`); HMAC-SHA256 signing; admin-triggered retry on failure. Background retry-with-backoff still deferred.
 11. **SMS notifications** (S) — carrier choice (Twilio / MessageBird / AWS SNS); add to fan-out in `lib/notifications.ts`.
 12. **Web push** (S) — service worker + VAPID; reuse notifications fan-out.
 13. **Location-level RBAC tightening** (S) — enforce per-location scope on Manager queries (called out in §4 as 🟡).

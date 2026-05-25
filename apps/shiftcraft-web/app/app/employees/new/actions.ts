@@ -23,6 +23,7 @@ import { generateToken, tokenExpiry } from "~/lib/auth/tokens";
 import { logAuditEvent } from "~/lib/audit";
 import { notifyTenantAdmins } from "~/lib/notifications";
 import { isAtLeastManager } from "~/lib/roles";
+import { emitWebhook } from "~/lib/webhooks";
 
 type TenantTx = Parameters<
   Parameters<ReturnType<typeof forTenant>["run"]>[0]
@@ -229,28 +230,33 @@ export async function createEmployeeAction(
     ? await findAppUserIdByTenantEmail(tenantId, email)
     : null;
 
+  let newEmployeeId: string | null = null;
   try {
     await forTenant(tenantId).run(async (tx) => {
       const departmentId = await resolveDepartmentId(tx, tenantId, department);
-      await tx.insert(scEmployees).values({
-        traceyTenantId: tenantId,
-        fullName: parsed.data.fullName,
-        email,
-        mobile,
-        departmentId,
-        availability,
-        employmentType: parsed.data.employmentType,
-        hourlyRate,
-        notes,
-        appUserId: linkedAppUserId,
-        createdByUserId: me?.id ?? null,
-        preferredName: emptyToNull(parsed.data.preferredName),
-        gender: emptyToNull(parsed.data.gender),
-        dateOfBirth: emptyToNull(parsed.data.dateOfBirth),
-        addressLine: emptyToNull(parsed.data.addressLine),
-        emergencyContactName: emptyToNull(parsed.data.emergencyContactName),
-        emergencyContactPhone: emptyToNull(parsed.data.emergencyContactPhone),
-      });
+      const [inserted] = await tx
+        .insert(scEmployees)
+        .values({
+          traceyTenantId: tenantId,
+          fullName: parsed.data.fullName,
+          email,
+          mobile,
+          departmentId,
+          availability,
+          employmentType: parsed.data.employmentType,
+          hourlyRate,
+          notes,
+          appUserId: linkedAppUserId,
+          createdByUserId: me?.id ?? null,
+          preferredName: emptyToNull(parsed.data.preferredName),
+          gender: emptyToNull(parsed.data.gender),
+          dateOfBirth: emptyToNull(parsed.data.dateOfBirth),
+          addressLine: emptyToNull(parsed.data.addressLine),
+          emergencyContactName: emptyToNull(parsed.data.emergencyContactName),
+          emergencyContactPhone: emptyToNull(parsed.data.emergencyContactPhone),
+        })
+        .returning({ id: scEmployees.id });
+      newEmployeeId = inserted?.id ?? null;
     });
   } catch (err) {
     // Catches the rare race against the unique index (two creates same email
@@ -346,6 +352,20 @@ export async function createEmployeeAction(
         await db.delete(invitations).where(eq(invitations.token, token));
       }
     }
+  }
+
+  // AUDIT.md #10 — outbound webhook for the new hire. Skipped if the
+  // RETURNING clause came back empty (defensive — shouldn't happen on
+  // a successful insert).
+  if (newEmployeeId) {
+    await emitWebhook(tenantId, "employee.created", {
+      employeeId: newEmployeeId,
+      fullName: parsed.data.fullName,
+      email,
+      employmentType: parsed.data.employmentType,
+      department,
+      createdByUserId: me?.id ?? null,
+    });
   }
 
   revalidatePath("/app/employees");

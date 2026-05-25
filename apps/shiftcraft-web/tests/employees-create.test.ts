@@ -191,6 +191,9 @@ vi.mock("~/lib/notifications", () => ({
   ),
 }));
 
+vi.mock("~/lib/webhooks", () => ({
+  emitWebhook: vi.fn(async () => undefined),
+}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => ({
   redirect: vi.fn((url: string) => {

@@ -94,6 +94,10 @@ vi.mock("~/lib/auth/current", () => ({
   })),
 }));
 
+vi.mock("~/lib/webhooks", () => ({
+  emitWebhook: vi.fn(async () => undefined),
+}));
+
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 async function load() {

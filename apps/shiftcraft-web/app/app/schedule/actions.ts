@@ -22,6 +22,7 @@ import {
   findApprovedLeaveOverlap,
   findUsersWithLeaveConflict,
 } from "~/lib/time-off-impact";
+import { emitWebhook } from "~/lib/webhooks";
 
 // Format a leave conflict for the assign-action error message. The
 // caller already knows the user; this just renders the leave window
@@ -176,12 +177,36 @@ export async function bulkPublishWeekAction(formData: FormData): Promise<void> {
   ];
   if (locationId) conditions.push(eq(scShifts.locationId, locationId));
 
-  await forTenant(membership.tenant.id).run((tx) =>
+  // Capture the IDs of the shifts that will flip so we can fan out
+  // webhooks afterwards. RETURNING on the same UPDATE keeps the round
+  // trip count at one.
+  const published = await forTenant(membership.tenant.id).run((tx) =>
     tx
       .update(scShifts)
       .set({ status: "published", updatedAt: new Date() })
-      .where(and(...conditions)),
+      .where(and(...conditions))
+      .returning({
+        id: scShifts.id,
+        locationId: scShifts.locationId,
+        role: scShifts.role,
+        startsAt: scShifts.startsAt,
+        endsAt: scShifts.endsAt,
+      }),
   );
+
+  // AUDIT.md #10 — one webhook per shift. emitWebhook short-circuits
+  // when there are no subscriptions, so the N round-trips are
+  // typically just N table peeks against an empty result set.
+  for (const s of published) {
+    await emitWebhook(membership.tenant.id, "shift.published", {
+      shiftId: s.id,
+      locationId: s.locationId,
+      role: s.role,
+      startsAt: s.startsAt.toISOString(),
+      endsAt: s.endsAt.toISOString(),
+      bulk: true,
+    });
+  }
 
   revalidatePath("/app/schedule");
   revalidatePath("/app/coverage-gaps");
@@ -370,6 +395,34 @@ export async function publishShiftAction(formData: FormData): Promise<void> {
   const id = String(formData.get("id") ?? "");
   if (!id) return;
   await setShiftStatus(id, "published");
+
+  // AUDIT.md #10 — fetch the shift details for the webhook payload.
+  // Pulled after the status flip so receivers see the published row.
+  const tenant = await requireTenant();
+  const [shift] = await forTenant(tenant.id).run((tx) =>
+    tx
+      .select({
+        id: scShifts.id,
+        locationId: scShifts.locationId,
+        role: scShifts.role,
+        startsAt: scShifts.startsAt,
+        endsAt: scShifts.endsAt,
+      })
+      .from(scShifts)
+      .where(
+        and(eq(scShifts.id, id), eq(scShifts.traceyTenantId, tenant.id)),
+      )
+      .limit(1),
+  );
+  if (shift) {
+    await emitWebhook(tenant.id, "shift.published", {
+      shiftId: shift.id,
+      locationId: shift.locationId,
+      role: shift.role,
+      startsAt: shift.startsAt.toISOString(),
+      endsAt: shift.endsAt.toISOString(),
+    });
+  }
 }
 
 export async function cancelShiftAction(formData: FormData): Promise<void> {

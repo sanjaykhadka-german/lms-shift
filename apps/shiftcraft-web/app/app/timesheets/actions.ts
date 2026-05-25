@@ -7,6 +7,7 @@ import { currentMembership, currentUser } from "~/lib/auth/current";
 import { logAuditEvent } from "~/lib/audit";
 import { fmtIsoDate, parseIsoDate, startOfWeek } from "~/lib/clock";
 import { isAtLeastManager } from "~/lib/roles";
+import { emitWebhook } from "~/lib/webhooks";
 
 // The actions below are bound straight to <form action={...}>, so they
 // must return Promise<void>. Errors are logged server-side and the page
@@ -133,6 +134,15 @@ export async function approveTimesheetAction(
     },
   });
 
+  // AUDIT.md #10 — outbound webhook. Fire-and-forget; emit swallows
+  // receiver failures so a broken integration doesn't block approval.
+  await emitWebhook(g.tenantId, "timesheet.approved", {
+    weekStart: weekStartIso,
+    employeeUserId: g.payload.employeeUserId,
+    approvedByUserId: g.me,
+    notes,
+  });
+
   revalidatePath("/app/timesheets");
 }
 
@@ -254,6 +264,18 @@ export async function bulkApproveAction(formData: FormData): Promise<void> {
       targetKind: "sc_timesheet_approval",
       targetId: `${userId}:${weekStartIso}`,
       details: { weekStart: weekStartIso, employeeUserId: userId, bulk: true },
+    });
+  }
+
+  // Webhook fan-out for each approval. Receivers see N events with
+  // the same weekStart but distinct employeeUserIds, mirroring the
+  // single-approve action's contract.
+  for (const userId of g.employeeUserIds) {
+    await emitWebhook(g.tenantId, "timesheet.approved", {
+      weekStart: weekStartIso,
+      employeeUserId: userId,
+      approvedByUserId: g.me,
+      bulk: true,
     });
   }
 
