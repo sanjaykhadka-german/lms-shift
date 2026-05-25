@@ -10,12 +10,14 @@ import {
   type EmailKind,
 } from "~/lib/email-prefs";
 import { signFeedToken } from "~/lib/ics";
+import { getVapidPublicKey, isWebPushConfigured } from "~/lib/web-push";
 import { Button } from "~/components/ui/button";
 import { toggleEmailPrefAction } from "./actions";
 import { AvatarForm } from "./_avatar-form";
 import { CalendarSubscription } from "./_calendar-subscription";
 import { PasswordForm } from "./_password-form";
 import { ProfileForm } from "./_profile-form";
+import { PushSubscribeButton } from "./_push-subscribe";
 
 export const metadata = { title: "Settings · ShiftCraft" };
 
@@ -96,6 +98,19 @@ export default async function SettingsPage() {
             email.
           </p>
           {await renderEmailPrefs(me.id, membership.tenant.id)}
+        </section>
+      )}
+
+      {membership && isWebPushConfigured() && (
+        <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
+          <h2 className="text-base font-semibold">Push notifications</h2>
+          <p className="mt-1 mb-4 text-xs text-muted-foreground">
+            Get a notification on this device whenever something needs
+            your attention — shift offers, swap requests, time-off
+            decisions, announcements. Independent of email; turn either
+            on or off without affecting the other.
+          </p>
+          <PushSubscribeButton vapidPublicKey={getVapidPublicKey()!} />
         </section>
       )}
 

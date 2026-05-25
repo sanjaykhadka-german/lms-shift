@@ -1193,6 +1193,53 @@ export const scDailySales = pgTable(
   ],
 );
 
+// ─── Web push subscriptions (AUDIT.md #12) ──────────────────────────
+//
+// One row per (user, browser endpoint). A single user can have many —
+// laptop browser, mobile browser, etc. The endpoint URL is the
+// service-provider's unique handle for that browser instance; we
+// upsert on (tenant, user, endpoint) so re-subscribing from the same
+// browser replaces the keys rather than stacking duplicates.
+//
+// p256dh + auth are the ECDH public key + auth secret from the
+// browser's PushSubscription. Stored as the URL-safe base64 strings
+// the web-push library expects on the wire (matches how the browser
+// exports them via subscription.toJSON()).
+//
+// When a delivery returns 410 Gone / 404 (the browser revoked its
+// subscription), the helper at lib/web-push.ts deletes the matching
+// row so the next fan-out skips it.
+
+export const scPushSubscriptions = pgTable(
+  "sc_push_subscriptions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    appUserId: uuid("app_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    endpoint: text("endpoint").notNull(),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    userAgent: text("user_agent"),
+    lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("sc_push_subs_tenant_user_endpoint_uq").on(
+      t.traceyTenantId,
+      t.appUserId,
+      t.endpoint,
+    ),
+    index("sc_push_subs_user_idx").on(t.traceyTenantId, t.appUserId),
+  ],
+);
+
 // ─── Manager location scopes (AUDIT.md #13) ─────────────────────────
 //
 // Per-tenant assignment of an admin (role='admin' on the tenant
@@ -1457,3 +1504,5 @@ export type NewScWebhookDelivery = typeof scWebhookDeliveries.$inferInsert;
 export type ScWebhookDeliveryStatus = "pending" | "succeeded" | "failed";
 export type ScManagerLocation = typeof scManagerLocations.$inferSelect;
 export type NewScManagerLocation = typeof scManagerLocations.$inferInsert;
+export type ScPushSubscription = typeof scPushSubscriptions.$inferSelect;
+export type NewScPushSubscription = typeof scPushSubscriptions.$inferInsert;

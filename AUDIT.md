@@ -217,7 +217,7 @@ Recommended Phase 2 housing: new `packages/award` package with a pure rules engi
 | Email notifications | ✅ | Resend; `lib/email.ts` degrades to no-op when key missing — **confirm desired in prod** |
 | Email unsubscribe / prefs | ✅ | `sc_email_unsubscribes` (schema line 530), `lib/email-prefs.ts`, test `tests/email-prefs.test.ts` |
 | SMS notifications | ❌ | Not present. Magic-link invite + shift-change alerts need SMS. Carrier choice pending (Twilio / MessageBird / AWS SNS). |
-| Push notifications | ❌ | Not present. Web-push minimum; native mobile path TBD. |
+| Push notifications | ✅ | Web push (VAPID + `web-push` lib) wired into `createNotifications` so every in-app notification fans out a push too. Per-(user, browser) `sc_push_subscriptions` rows; 410 Gone / 404 auto-prune. Opt-in toggle at `/app/settings`; service worker at `public/sw.js`. Native mobile path still TBD. |
 | Multi-tenant isolation | ✅ | Per-tenant Postgres schema + `forTenant(tid).run(tx => …)` (`packages/db/src/client.ts`) + RLS migration written (not yet enabled per memory) |
 | Multi-location | ✅ | `sc_locations` per tenant (tz, accent colour) — schema line 51 |
 | Localisation | ❌ | Hardcoded English. Acceptable for AU-only v1; use `Intl` for date/currency. |
@@ -242,7 +242,7 @@ Dependency-ordered so each item unblocks the next. Sizing: S < ~1 day, M ~1-3 da
 9. **Reporting deepening** (S-M) — ✅ sc_daily_sales + wages-vs-sales + schedule-vs-actual variance + per-location/department rollups + CSV downloads shipped 2026-05-25; per-role rollup + payroll cost read-back (depends on Feature 5) still pending.
 10. **Webhooks** (S) — ✅ shipped 2026-05-25. Three events live (`timesheet.approved` · `employee.created` · `shift.published`); HMAC-SHA256 signing; admin-triggered retry on failure. Background retry-with-backoff still deferred.
 11. **SMS notifications** (S) — carrier choice (Twilio / MessageBird / AWS SNS); add to fan-out in `lib/notifications.ts`.
-12. **Web push** (S) — service worker + VAPID; reuse notifications fan-out.
+12. **Web push** (S) — ✅ shipped 2026-05-25. VAPID + `web-push` library, per-(user, browser) subscriptions with 410-Gone auto-prune. Fans out from `createNotifications` so existing in-app notifications also light up the browser. Native mobile path remains TBD.
 13. **Location-level RBAC tightening** (S) — ✅ shipped 2026-05-25. `sc_manager_locations` per-tenant table + owner-only `/app/admin/manager-scopes` UI; `/app/schedule` + edit-shift + `/app/coverage-gaps` filter by scope, and create/update actions reject cross-scope writes. Timesheets + reports remain tenant-wide aggregates (intentional).
 
 ---

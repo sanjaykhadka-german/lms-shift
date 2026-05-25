@@ -1,6 +1,7 @@
 import "server-only";
 import { and, eq, inArray } from "drizzle-orm";
 import { db, forTenant, members, notifications } from "@tracey/db";
+import { sendPushToUser } from "./web-push";
 
 // In-app notification writer for ShiftCraft. Mirrors the lms-web helper shape
 // (apps/lms-web/lib/lms/notifications.ts) so the row format stays consistent
@@ -38,7 +39,25 @@ export async function createNotifications(
     );
   } catch (err) {
     console.error("[shiftcraft/notifications] insert failed:", inputs.length, err);
+    // In-app fan-out failed — don't try to push either (the user
+    // would see a push without a corresponding bell entry).
+    return;
   }
+
+  // AUDIT.md #12 — best-effort web push for the same recipients.
+  // sendPushToUser swallows individual failures and silently returns
+  // zeros when VAPID isn't configured. Run after the insert commit
+  // so an out-of-band push can't precede the in-app notification.
+  await Promise.allSettled(
+    inputs.map((i) =>
+      sendPushToUser(tenantId, i.recipientUserId, {
+        title: i.title,
+        body: i.body ?? undefined,
+        actionUrl: i.actionUrl ?? undefined,
+        tag: i.kind,
+      }),
+    ),
+  );
 }
 
 // Fan-out helper: write one notification to every owner/admin in the tenant.
