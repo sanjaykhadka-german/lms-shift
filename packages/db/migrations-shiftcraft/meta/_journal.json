@@ -162,6 +162,13 @@
       "when": 1779676200098,
       "tag": "0022_fearless_albert_cleary",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1779677744809,
+      "tag": "0023_dashing_wendigo",
+      "breakpoints": true
     }
   ]
 }

@@ -7,9 +7,17 @@ const state = {
         id: string;
         status: string;
         startsAt: Date;
+        endsAt: Date;
         role: string;
         acceptedCount: number;
       },
+  /** Approved-leave rows returned by findApprovedLeaveOverlap (AUDIT.md #6). */
+  leaveRows: [] as Array<{
+    requestId: string;
+    startDate: string;
+    endDate: string;
+    leaveTypeName: string | null;
+  }>,
   inserted: [] as Array<Record<string, unknown>>,
   auditCalls: [] as Array<Record<string, unknown>>,
   notifyCalls: [] as Array<{
@@ -17,22 +25,33 @@ const state = {
     input: Record<string, unknown>;
     options?: Record<string, unknown>;
   }>,
+  /**
+   * Sequence of forTenant().run() invocations. claimShiftAction does:
+   *   1. shift lookup (inside its outer run callback)
+   *   2. findApprovedLeaveOverlap (a separate run with one select)
+   * Track which one we're serving so the harness returns the right rows.
+   */
+  txSeq: 0,
 };
 
 const currentUserMock = vi.fn();
 const currentMembershipMock = vi.fn();
 
 function reset() {
+  const startsAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // tomorrow
   state.shift = {
     id: "shift-1",
     status: "published",
-    startsAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // tomorrow
+    startsAt,
+    endsAt: new Date(startsAt.getTime() + 8 * 60 * 60 * 1000),
     role: "Butcher",
     acceptedCount: 0,
   };
+  state.leaveRows = [];
   state.inserted = [];
   state.auditCalls = [];
   state.notifyCalls = [];
+  state.txSeq = 0;
 }
 
 vi.mock("@tracey/db", () => ({
@@ -41,6 +60,7 @@ vi.mock("@tracey/db", () => ({
     traceyTenantId: { __field: "traceyTenantId" },
     status: { __field: "status" },
     startsAt: { __field: "startsAt" },
+    endsAt: { __field: "endsAt" },
     role: { __field: "role" },
   },
   scShiftAssignments: {
@@ -48,17 +68,49 @@ vi.mock("@tracey/db", () => ({
     userId: { __field: "userId" },
     status: { __field: "status" },
   },
+  scLeaveTypes: { id: { __field: "id" }, name: { __field: "name" } },
+  scTimeOffRequests: {
+    id: { __field: "id" },
+    traceyTenantId: { __field: "traceyTenantId" },
+    userId: { __field: "userId" },
+    startDate: { __field: "startDate" },
+    endDate: { __field: "endDate" },
+    status: { __field: "status" },
+    leaveTypeId: { __field: "leaveTypeId" },
+  },
   forTenant: (tid: string) => ({
     tenantId: tid,
     async run(fn: (tx: unknown) => Promise<unknown>) {
+      const txIndex = state.txSeq;
+      state.txSeq += 1;
       const tx = {
-        select: () => ({
-          from: () => ({
-            where: () => ({
-              limit: async () => (state.shift ? [state.shift] : []),
+        select: () => {
+          // tx #0 = shift lookup; tx #1 = leave overlap; later txs (e.g.
+          // re-claim attempts) wrap back around but each test resets.
+          const rows: unknown[] =
+            txIndex === 0
+              ? state.shift
+                ? [state.shift]
+                : []
+              : state.leaveRows;
+          const whereChain = {
+            limit: async () => rows,
+            then(
+              onF: (v: unknown[]) => unknown,
+              onR?: (e: unknown) => unknown,
+            ) {
+              return Promise.resolve(rows).then(onF, onR);
+            },
+          };
+          return {
+            from: () => ({
+              leftJoin: () => ({
+                where: () => whereChain,
+              }),
+              where: () => whereChain,
             }),
-          }),
-        }),
+          };
+        },
         insert: () => ({
           values: (v: Record<string, unknown>) => ({
             onConflictDoNothing: async () => {
@@ -178,6 +230,27 @@ describe("claimShiftAction", () => {
     const { claimShiftAction } = await load();
     await claimShiftAction(fd({ shiftId: "shift-1" }));
     expect(state.inserted).toHaveLength(0);
+  });
+
+  it("refuses to claim when the caller has approved leave overlapping the shift (AUDIT.md #6)", async () => {
+    const dayIso = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    };
+    state.leaveRows = [
+      {
+        requestId: "leave-1",
+        startDate: dayIso(state.shift!.startsAt),
+        endDate: dayIso(state.shift!.endsAt),
+        leaveTypeName: "Annual leave",
+      },
+    ];
+    const { claimShiftAction } = await load();
+    await claimShiftAction(fd({ shiftId: "shift-1" }));
+    expect(state.inserted).toHaveLength(0);
+    expect(state.notifyCalls).toHaveLength(0);
   });
 
   it("notifies admins with the role + start time", async () => {

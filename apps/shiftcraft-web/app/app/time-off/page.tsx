@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { and, desc, eq } from "drizzle-orm";
-import { forTenant, scTimeOffRequests, users } from "@tracey/db";
+import { forTenant, scLeaveTypes, scTimeOffRequests, users } from "@tracey/db";
 import { currentMembership, requireUser } from "~/lib/auth/current";
 import { findAffectedShiftsForRequests } from "~/lib/time-off-impact";
 import { getHolidaysForTenant, type HolidayRow } from "~/lib/holidays";
+import { listActiveLeaveTypes } from "~/lib/leave-types";
 import { Button } from "~/components/ui/button";
 import { InfoPopover } from "~/components/InfoPopover";
 import { TimeOffForm } from "./_form";
@@ -25,6 +26,27 @@ const STATUS_BADGE: Record<string, string> = {
   denied: "bg-rose-600 text-white",
   cancelled: "bg-slate-500 text-white line-through",
 };
+
+// Saturated solid backgrounds for the leave-type chip — per the
+// tailwind-v4-contrast feedback, the bg-X-100/text-X-800 combo washes
+// out under this theme. Slugs are stable for seeded defaults; custom
+// admin-defined types fall through to the neutral default.
+function leaveTypeBadge(slug: string | null): string {
+  switch (slug) {
+    case "annual":
+      return "bg-sky-600";
+    case "personal_sick":
+      return "bg-rose-600";
+    case "unpaid":
+      return "bg-slate-600";
+    case "long_service":
+      return "bg-violet-600";
+    case "other":
+      return "bg-amber-600";
+    default:
+      return "bg-zinc-600";
+  }
+}
 
 function fmtDate(iso: string): string {
   return new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, {
@@ -51,32 +73,41 @@ export default async function TimeOffPage({
 
   const isAdmin = membership.role === "admin" || membership.role === "owner";
 
-  const rows = await forTenant(membership.tenant.id).run((tx) => {
-    const q = tx
-      .select({
-        id: scTimeOffRequests.id,
-        userId: scTimeOffRequests.userId,
-        startDate: scTimeOffRequests.startDate,
-        endDate: scTimeOffRequests.endDate,
-        reason: scTimeOffRequests.reason,
-        status: scTimeOffRequests.status,
-        createdAt: scTimeOffRequests.createdAt,
-        userName: users.name,
-        userEmail: users.email,
-      })
-      .from(scTimeOffRequests)
-      .leftJoin(users, eq(users.id, scTimeOffRequests.userId))
-      .where(
-        filter === "all"
-          ? eq(scTimeOffRequests.traceyTenantId, membership.tenant.id)
-          : and(
-              eq(scTimeOffRequests.traceyTenantId, membership.tenant.id),
-              eq(scTimeOffRequests.status, filter),
-            ),
-      )
-      .orderBy(desc(scTimeOffRequests.createdAt));
-    return q;
-  });
+  const [rows, leaveTypes] = await Promise.all([
+    forTenant(membership.tenant.id).run((tx) =>
+      tx
+        .select({
+          id: scTimeOffRequests.id,
+          userId: scTimeOffRequests.userId,
+          startDate: scTimeOffRequests.startDate,
+          endDate: scTimeOffRequests.endDate,
+          reason: scTimeOffRequests.reason,
+          status: scTimeOffRequests.status,
+          createdAt: scTimeOffRequests.createdAt,
+          userName: users.name,
+          userEmail: users.email,
+          leaveTypeId: scTimeOffRequests.leaveTypeId,
+          leaveTypeName: scLeaveTypes.name,
+          leaveTypeSlug: scLeaveTypes.slug,
+        })
+        .from(scTimeOffRequests)
+        .leftJoin(users, eq(users.id, scTimeOffRequests.userId))
+        .leftJoin(
+          scLeaveTypes,
+          eq(scLeaveTypes.id, scTimeOffRequests.leaveTypeId),
+        )
+        .where(
+          filter === "all"
+            ? eq(scTimeOffRequests.traceyTenantId, membership.tenant.id)
+            : and(
+                eq(scTimeOffRequests.traceyTenantId, membership.tenant.id),
+                eq(scTimeOffRequests.status, filter),
+              ),
+        )
+        .orderBy(desc(scTimeOffRequests.createdAt)),
+    ),
+    listActiveLeaveTypes(membership.tenant.id),
+  ]);
 
   // For admins, surface which published shifts each pending request
   // would affect — accepted shifts are the obvious fallout, offered
@@ -139,7 +170,9 @@ export default async function TimeOffPage({
             ? "Admins can also submit on behalf of themselves."
             : "Your manager will review and approve or deny."}
         </p>
-        <TimeOffForm />
+        <TimeOffForm
+          leaveTypes={leaveTypes.map((lt) => ({ id: lt.id, name: lt.name }))}
+        />
       </section>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -191,8 +224,17 @@ export default async function TimeOffPage({
                           </span>
                         )}
                       </div>
-                      <div className="mt-0.5 text-sm">
-                        {fmtDate(r.startDate)} → {fmtDate(r.endDate)}
+                      <div className="mt-0.5 flex flex-wrap items-center gap-2 text-sm">
+                        <span>
+                          {fmtDate(r.startDate)} → {fmtDate(r.endDate)}
+                        </span>
+                        {r.leaveTypeName && (
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white ${leaveTypeBadge(r.leaveTypeSlug)}`}
+                          >
+                            {r.leaveTypeName}
+                          </span>
+                        )}
                       </div>
                       {r.reason && (
                         <div className="mt-1 text-xs text-muted-foreground">

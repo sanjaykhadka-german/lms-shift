@@ -18,6 +18,23 @@ import { currentMembership, currentUser, requireUser } from "~/lib/auth/current"
 import { logAuditEvent } from "~/lib/audit";
 import { notifyShiftOffered } from "~/lib/email";
 import { getUnsubscribedUserIds } from "~/lib/email-prefs";
+import {
+  findApprovedLeaveOverlap,
+  findUsersWithLeaveConflict,
+} from "~/lib/time-off-impact";
+
+// Format a leave conflict for the assign-action error message. The
+// caller already knows the user; this just renders the leave window
+// + type so the admin can see why the assignment failed.
+function fmtConflict(c: {
+  startDate: string;
+  endDate: string;
+  leaveTypeName: string | null;
+}): string {
+  const type = c.leaveTypeName ?? "approved leave";
+  if (c.startDate === c.endDate) return `${type} on ${c.startDate}`;
+  return `${type} ${c.startDate} → ${c.endDate}`;
+}
 
 export type FormState =
   | { status: "idle" }
@@ -449,6 +466,46 @@ export async function assignEmployeeAction(
   }
 
   const membership = await requireAdminMembership();
+
+  // Fetch the shift up-front: needed for the leave-clash guard AND the
+  // post-commit email payload. One query covers both.
+  const [shiftRow] = await forTenant(membership.tenant.id).run((tx) =>
+    tx
+      .select({
+        startsAt: scShifts.startsAt,
+        endsAt: scShifts.endsAt,
+        role: scShifts.role,
+        locationName: scLocations.name,
+      })
+      .from(scShifts)
+      .leftJoin(scLocations, eq(scLocations.id, scShifts.locationId))
+      .where(
+        and(
+          eq(scShifts.id, parsed.data.shiftId),
+          eq(scShifts.traceyTenantId, membership.tenant.id),
+        ),
+      )
+      .limit(1),
+  );
+  if (!shiftRow) {
+    return { status: "error", message: "Shift not found." };
+  }
+
+  // Roster-clash guard (AUDIT.md #6): if the worker has an approved
+  // time-off request overlapping the shift window, refuse the assign.
+  const conflicts = await findApprovedLeaveOverlap(
+    membership.tenant.id,
+    parsed.data.userId,
+    shiftRow.startsAt,
+    shiftRow.endsAt,
+  );
+  if (conflicts.length > 0) {
+    return {
+      status: "error",
+      message: `Can't assign — that employee is on ${fmtConflict(conflicts[0]!)}.`,
+    };
+  }
+
   try {
     await forTenant(membership.tenant.id).run((tx) =>
       tx.insert(scShiftAssignments).values({
@@ -467,31 +524,16 @@ export async function assignEmployeeAction(
     throw err;
   }
 
-  // Email after commit. Both lookups are best-effort — if either fails or
-  // the user has no email, the offer still exists in the DB and the
-  // employee will see it next time they open /app/my-shifts.
+  // Email after commit. Best-effort — if the user has no email, the
+  // offer still exists in the DB and the employee will see it next
+  // time they open /app/my-shifts.
   const [recipientRow] = await db
     .select({ email: users.email, name: users.name })
     .from(users)
     .where(eq(users.id, parsed.data.userId))
     .limit(1);
   if (recipientRow) {
-    const [shiftRow] = await forTenant(membership.tenant.id).run((tx) =>
-      tx
-        .select({
-          startsAt: scShifts.startsAt,
-          endsAt: scShifts.endsAt,
-          role: scShifts.role,
-          locationName: scLocations.name,
-        })
-        .from(scShifts)
-        .leftJoin(scLocations, eq(scLocations.id, scShifts.locationId))
-        .where(eq(scShifts.id, parsed.data.shiftId))
-        .limit(1),
-    );
-    if (shiftRow) {
-      await notifyShiftOffered({ to: recipientRow, shift: shiftRow });
-    }
+    await notifyShiftOffered({ to: recipientRow, shift: shiftRow });
   }
 
   revalidatePath(`/app/schedule/${parsed.data.shiftId}/edit`);
@@ -577,13 +619,28 @@ export async function bulkOfferShiftAction(formData: FormData): Promise<void> {
         ),
       ),
   );
-  const candidateIds = Array.from(
+  const rawCandidateIds = Array.from(
     new Set(
       candidateRows
         .map((r) => r.appUserId)
         .filter((v): v is string => !!v),
     ),
   );
+
+  // Roster-clash guard (AUDIT.md #6): drop candidates with overlapping
+  // approved leave. They surface in the action's `skipped` counter so
+  // the admin sees that workers were excluded for a reason.
+  const conflictingCandidates = await findUsersWithLeaveConflict(
+    tenantId,
+    rawCandidateIds,
+    shift.startsAt,
+    shift.endsAt,
+  );
+  const candidateIds = rawCandidateIds.filter(
+    (uid) => !conflictingCandidates.has(uid),
+  );
+  const skippedDueToLeave = conflictingCandidates.size;
+
   if (candidateIds.length === 0) {
     await logAuditEvent({
       action: "shiftcraft.shift.bulk_offered",
@@ -593,11 +650,14 @@ export async function bulkOfferShiftAction(formData: FormData): Promise<void> {
         departmentId: deptId || null,
         offered: 0,
         skipped: 0,
-        candidates: 0,
+        skippedDueToLeave,
+        candidates: rawCandidateIds.length,
       },
     });
     revalidatePath(`/app/schedule/${shift.id}/edit`);
-    redirect(`/app/schedule/${shift.id}/edit?offered=0&skipped=0`);
+    redirect(
+      `/app/schedule/${shift.id}/edit?offered=0&skipped=${skippedDueToLeave}&leave=${skippedDueToLeave}`,
+    );
   }
 
   // Insert one row per candidate with onConflictDoNothing so re-offers
@@ -664,7 +724,8 @@ export async function bulkOfferShiftAction(formData: FormData): Promise<void> {
       departmentId: deptId || null,
       offered,
       skipped,
-      candidates: candidateIds.length,
+      skippedDueToLeave,
+      candidates: rawCandidateIds.length,
     },
   });
 
@@ -672,7 +733,7 @@ export async function bulkOfferShiftAction(formData: FormData): Promise<void> {
   revalidatePath("/app/schedule");
   revalidatePath("/app/my-shifts");
   redirect(
-    `/app/schedule/${shift.id}/edit?offered=${offered}&skipped=${skipped}`,
+    `/app/schedule/${shift.id}/edit?offered=${offered}&skipped=${skipped}&leave=${skippedDueToLeave}`,
   );
 }
 

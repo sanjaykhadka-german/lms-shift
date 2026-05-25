@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { forTenant, scTimeOffRequests } from "@tracey/db";
+import { forTenant, scLeaveTypes, scTimeOffRequests } from "@tracey/db";
 import { currentMembership, requireUser } from "~/lib/auth/current";
 
 export type FormState =
@@ -14,6 +14,7 @@ export type FormState =
 
 const submitSchema = z
   .object({
+    leaveTypeId: z.string().uuid("Choose a leave type"),
     startDate: z.string().min(1, "Start date is required"),
     endDate: z.string().min(1, "End date is required"),
     reason: z.string().trim().max(2000).optional().or(z.literal("")),
@@ -43,6 +44,7 @@ export async function submitTimeOffAction(
   formData: FormData,
 ): Promise<FormState> {
   const parsed = submitSchema.safeParse({
+    leaveTypeId: formData.get("leaveTypeId"),
     startDate: formData.get("startDate"),
     endDate: formData.get("endDate"),
     reason: formData.get("reason") ?? "",
@@ -57,10 +59,38 @@ export async function submitTimeOffAction(
 
   const membership = await requireAnyMembership();
   const user = await requireUser();
+
+  // Cross-tenant guard: leaveTypeId must belong to this tenant AND not
+  // be archived. Validating here (rather than relying solely on the FK)
+  // gives a friendlier error than a Postgres constraint violation.
+  const [leaveType] = await forTenant(membership.tenant.id).run((tx) =>
+    tx
+      .select({
+        id: scLeaveTypes.id,
+        isArchived: scLeaveTypes.isArchived,
+      })
+      .from(scLeaveTypes)
+      .where(
+        and(
+          eq(scLeaveTypes.id, parsed.data.leaveTypeId),
+          eq(scLeaveTypes.traceyTenantId, membership.tenant.id),
+        ),
+      )
+      .limit(1),
+  );
+  if (!leaveType || leaveType.isArchived) {
+    return {
+      status: "error",
+      message: "That leave type isn't available — pick another.",
+      fieldErrors: { leaveTypeId: ["Pick an active leave type"] },
+    };
+  }
+
   await forTenant(membership.tenant.id).run((tx) =>
     tx.insert(scTimeOffRequests).values({
       traceyTenantId: membership.tenant.id,
       userId: user.id,
+      leaveTypeId: parsed.data.leaveTypeId,
       startDate: parsed.data.startDate,
       endDate: parsed.data.endDate,
       reason: parsed.data.reason?.length ? parsed.data.reason : null,

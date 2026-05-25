@@ -6,6 +6,7 @@ import { forTenant, scShiftAssignments, scShifts } from "@tracey/db";
 import { currentMembership, currentUser } from "~/lib/auth/current";
 import { logAuditEvent } from "~/lib/audit";
 import { notifyTenantAdmins } from "~/lib/notifications";
+import { findApprovedLeaveOverlap } from "~/lib/time-off-impact";
 
 /**
  * Claim an open shift. Validates that the shift is published, hasn't
@@ -42,6 +43,7 @@ export async function claimShiftAction(formData: FormData): Promise<void> {
         id: scShifts.id,
         status: scShifts.status,
         startsAt: scShifts.startsAt,
+        endsAt: scShifts.endsAt,
         role: scShifts.role,
         // Accepted count via correlated subquery — same shape as the
         // open-shifts page query, which keeps the two consistent.
@@ -63,6 +65,18 @@ export async function claimShiftAction(formData: FormData): Promise<void> {
     if (shift.status !== "published") return;
     if (shift.startsAt.getTime() <= Date.now()) return;
     if (shift.acceptedCount > 0) return;
+
+    // Roster-clash guard (AUDIT.md #6): refuse if the worker is on
+    // approved leave overlapping this shift. The open-shifts page
+    // SHOULD already filter these out, but a stale-cache claim or a
+    // direct POST should still no-op rather than create a contradiction.
+    const conflicts = await findApprovedLeaveOverlap(
+      tenantId,
+      user.id,
+      shift.startsAt,
+      shift.endsAt,
+    );
+    if (conflicts.length > 0) return;
 
     // Insert + tolerate the unique-index hit if the same user already
     // claimed (e.g. double-click). onConflictDoNothing keeps the action

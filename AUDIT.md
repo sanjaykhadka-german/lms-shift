@@ -170,18 +170,20 @@ Recommended Phase 2 housing: new `packages/award` package with a pure rules engi
 ### Feature 6 — Leave management · 🟡
 
 **Implemented**
-- Request → approve / deny lifecycle: `app/app/time-off/*`, schema `sc_time_off_requests` (line 142)
+- Request → approve / deny lifecycle: `app/app/time-off/*`, schema `sc_time_off_requests`
 - Reviewer + reviewed-at tracked
 - Status enum: `pending` | `approved` | `denied` | `cancelled`
 - Email + in-app notification on state changes (`lib/email.ts`, `lib/notifications.ts`)
 - Audit log on every transition
+- ✅ **Leave-type catalogue** — `sc_leave_types` (per-tenant), seeded with `annual` · `personal_sick` · `unpaid` · `long_service` · `other`. Admin CRUD at `/app/admin/leave-types`; rename + archive + add-custom + delete-if-unused. FK on `sc_time_off_requests.leave_type_id` (ON DELETE RESTRICT). Slug-derived stable keys keep seeded rows referenceable from code even when admins rename them.
+- ✅ **Roster-clash guard** — schedule actions (`assignEmployeeAction`, `bulkOfferShiftAction`, `claimShiftAction` in open-shifts) refuse to roster a worker whose APPROVED leave overlaps the shift window. Bulk-offer surfaces a separate `Skipped N on approved leave` counter in the success banner.
+- ✅ **Public-holiday overlap warning** on time-off requests (informational chip; doesn't change accrual yet)
 
 **Missing**
-- **Leave-type catalogue**: annual, personal/sick, unpaid, public-holiday, long-service, custom — currently a free-text `kind` (per schema comment)
 - **AU accrual rules** per employment type, accruing on approved hours (depends on Feature 4 interpreter)
 - **Balance display** per leave type
-- **Roster-clash guard** — scheduler today doesn't block creating a shift overlapping approved leave (verify in Phase 2 then close)
 - **Calendar view** of leave alongside roster (single combined month view)
+- **Auto-decline of overlapping offered/accepted assignments** when a leave request is approved post-offer (today the admin sees the impact list and decides manually)
 
 ---
 
@@ -232,7 +234,7 @@ Dependency-ordered so each item unblocks the next. Sizing: S < ~1 day, M ~1-3 da
 3. **AU public-holiday calendar + rate interpreter** (M) — new `packages/award`, pure functions, unit-test heavy. Per-region holiday table. Unblocks #4, #6 accrual, #9 variance.
 4. **Timesheet derivation upgrade** (S) — wire interpreter into existing approval flow, display derived OT/penalty/allowance lines, lock approved timesheets behind audit-tracked reopen.
 5. **Xero payroll adapter** (M) — adapter interface in `packages/payroll-export`, Xero implementation first (MYOB/ADP/Gusto/QuickBooks slot in later). Tenant-level earnings-code mapping. Idempotent draft pay-run. Pull-back gross/net.
-6. **Leave types + accrual + roster-clash guard** (S) — leave-type catalogue, accrual on approved hours, balance UI, scheduler blocks overlap with approved leave.
+6. **Leave types + accrual + roster-clash guard** (S) — ✅ catalogue + clash guard shipped 2026-05-25; accrual on approved hours + balance UI still deferred (depends on Feature 4 interpreter).
 7. **Geofence + selfie clock-in** (M) — wire the existing `geofence` enum: mobile-web GPS first, `geofence_radius_m` on `sc_locations`, selfie via getUserMedia → object storage. Offline sync deferred until customers ask.
 8. **Auto-scheduler v1** (M-L) — constraint-satisfaction draft: respect availability, leave, skills (introduce `sc_skills` + `sc_employee_skills` here), max hours, min rest, wage budget. POS forecast slot reserved but unused.
 9. **Reporting deepening** (S-M) — `sc_daily_sales` manual entry, wages-vs-sales card, schedule-vs-actual variance, per-role/location hour rollups, CSV downloads, payroll cost read-back.

@@ -52,12 +52,17 @@ export default async function EditShiftPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ offered?: string; skipped?: string }>;
+  searchParams: Promise<{ offered?: string; skipped?: string; leave?: string }>;
 }) {
   const { id } = await params;
-  const { offered: offeredRaw, skipped: skippedRaw } = await searchParams;
+  const {
+    offered: offeredRaw,
+    skipped: skippedRaw,
+    leave: leaveRaw,
+  } = await searchParams;
   const offeredCount = Number.parseInt(offeredRaw ?? "", 10);
   const skippedCount = Number.parseInt(skippedRaw ?? "", 10);
+  const leaveSkippedCount = Number.parseInt(leaveRaw ?? "", 10);
   const showOfferFlash =
     Number.isFinite(offeredCount) && offeredRaw !== undefined;
   const membership = await currentMembership();
@@ -245,6 +250,11 @@ export default async function EditShiftPage({
             : "No new offers — every candidate already had an assignment."}
           {skippedCount > 0 &&
             ` Skipped ${skippedCount} who already had one.`}
+          {Number.isFinite(leaveSkippedCount) && leaveSkippedCount > 0 && (
+            <span>
+              {" "}Skipped {leaveSkippedCount} on approved leave.
+            </span>
+          )}
         </div>
       )}
 

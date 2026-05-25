@@ -20,6 +20,8 @@ const state = {
   candidates: [] as Candidate[],
   /** ids of users who already have ANY assignment row on this shift */
   preAssigned: new Set<string>(),
+  /** ids of users with approved leave overlapping the shift window */
+  leaveConflicts: new Set<string>(),
   inserts: [] as Array<{ shiftId: string; userId: string }>,
   emailSends: [] as Array<{ email: string; name: string | null }>,
   unsubscribed: new Set<string>(),
@@ -43,6 +45,7 @@ function reset() {
   };
   state.candidates = [];
   state.preAssigned = new Set();
+  state.leaveConflicts = new Set();
   state.inserts = [];
   state.emailSends = [];
   state.unsubscribed = new Set();
@@ -52,10 +55,16 @@ function reset() {
 }
 
 // Tracks which forTenant().run() select is being served — bulkOffer
-// makes three sequential select calls inside forTenant: (1) shift, (2)
-// candidates, (3) re-derive newly-offered. The fourth+ are inside the
-// per-row insert loop (we don't intercept those here).
-const TENANT_SELECTS = ["shift", "candidates", "newly"] as const;
+// makes four sequential select calls inside forTenant: (1) shift, (2)
+// candidates, (3) leaveConflicts (AUDIT.md #6), (4) re-derive
+// newly-offered. The fifth+ are inside the per-row insert loop (we
+// don't intercept those here).
+const TENANT_SELECTS = [
+  "shift",
+  "candidates",
+  "leaveConflicts",
+  "newly",
+] as const;
 
 vi.mock("@tracey/db", () => {
   const cols = (fields: string[]) =>
@@ -86,6 +95,16 @@ vi.mock("@tracey/db", () => {
       "userId",
       "status",
     ]),
+    scLeaveTypes: cols(["id", "traceyTenantId", "name", "slug"]),
+    scTimeOffRequests: cols([
+      "id",
+      "traceyTenantId",
+      "userId",
+      "leaveTypeId",
+      "startDate",
+      "endDate",
+      "status",
+    ]),
     users: cols(["id", "name", "email"]),
     members: cols(["id"]),
     db: {
@@ -110,6 +129,10 @@ vi.mock("@tracey/db", () => {
             const resolveRows = (): unknown[] => {
               if (which === "shift") return state.shift ? [state.shift] : [];
               if (which === "candidates") return state.candidates;
+              if (which === "leaveConflicts")
+                return Array.from(state.leaveConflicts).map((uid) => ({
+                  userId: uid,
+                }));
               if (which === "newly")
                 return state.inserts.map((i) => ({ userId: i.userId }));
               return [];
@@ -309,5 +332,37 @@ describe("bulkOfferShiftAction", () => {
     );
     expect(state.inserts).toHaveLength(0);
     expect(state.auditCalls).toHaveLength(0);
+  });
+
+  it("skips candidates with approved leave overlapping the shift (AUDIT.md #6)", async () => {
+    addCandidate("u-lena", "lena@example.com", "Lena");
+    addCandidate("u-tomas", "tomas@example.com", "Tomas");
+    state.leaveConflicts = new Set(["u-tomas"]);
+    const { bulkOfferShiftAction } = await load();
+    await expect(
+      bulkOfferShiftAction(fd({ shiftId: SHIFT_ID, departmentId: "" })),
+    ).rejects.toThrow(/NEXT_REDIRECT/);
+    expect(state.inserts.map((i) => i.userId)).toEqual(["u-lena"]);
+    expect(state.auditCalls[0]?.details).toMatchObject({
+      offered: 1,
+      skippedDueToLeave: 1,
+      candidates: 2,
+    });
+  });
+
+  it("no-ops when every candidate is on approved leave (AUDIT.md #6)", async () => {
+    addCandidate("u-lena", "lena@example.com", "Lena");
+    addCandidate("u-tomas", "tomas@example.com", "Tomas");
+    state.leaveConflicts = new Set(["u-lena", "u-tomas"]);
+    const { bulkOfferShiftAction } = await load();
+    await expect(
+      bulkOfferShiftAction(fd({ shiftId: SHIFT_ID, departmentId: "" })),
+    ).rejects.toThrow(/leave=2/);
+    expect(state.inserts).toHaveLength(0);
+    expect(state.auditCalls[0]?.details).toMatchObject({
+      offered: 0,
+      skippedDueToLeave: 2,
+      candidates: 2,
+    });
   });
 });

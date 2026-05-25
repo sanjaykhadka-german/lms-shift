@@ -1,10 +1,12 @@
 import "server-only";
-import { and, asc, eq, gte, lt, ne, or } from "drizzle-orm";
+import { and, asc, eq, gte, lt, lte, ne, or, sql } from "drizzle-orm";
 import {
   forTenant,
+  scLeaveTypes,
   scLocations,
   scShiftAssignments,
   scShifts,
+  scTimeOffRequests,
 } from "@tracey/db";
 
 // ─── Pure date math ──────────────────────────────────────────────────────
@@ -86,6 +88,115 @@ export async function findAffectedShifts(
       .orderBy(asc(scShifts.startsAt)),
   );
   return rows as AffectedShift[];
+}
+
+// ─── Roster-clash guard (AUDIT.md #6) ────────────────────────────────────
+//
+// Reverse direction of findAffectedShifts: given a shift [startsAt, endsAt]
+// window, list APPROVED time-off requests for a user that overlap. Used
+// by the schedule action layer to block assigning / offering / claiming
+// shifts to workers who are on approved leave.
+//
+// Why approved-only: a pending request is informational — the admin can
+// still legitimately reject it, and rejecting after the shift has been
+// assigned is the workflow we want. Approved is the bright-line state
+// where rostering would create a contradiction.
+//
+// Returns the leave-type name + the date window so callers can show a
+// useful error message ("On Annual leave 3 Jun → 7 Jun") rather than
+// just a 422.
+
+export interface LeaveConflict {
+  requestId: string;
+  startDate: string;
+  endDate: string;
+  leaveTypeName: string | null;
+}
+
+export async function findApprovedLeaveOverlap(
+  tenantId: string,
+  userId: string,
+  shiftStartsAt: Date,
+  shiftEndsAt: Date,
+): Promise<LeaveConflict[]> {
+  // Convert the shift's timestamptz window into ISO date strings for
+  // comparison against the leave's start_date/end_date columns. Use
+  // the shift's *local* calendar day boundaries — a shift starting at
+  // 23:30 on Jun 3 conflicts with leave starting Jun 3, not just leave
+  // that includes Jun 4. JS toISOString() emits UTC; the previous slice's
+  // time-off-impact path handles this asymmetry by converting in JS, and
+  // we follow that convention so semantics stay consistent.
+  const shiftStartIso = isoDate(shiftStartsAt);
+  const shiftEndIso = isoDate(shiftEndsAt);
+
+  const rows = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({
+        requestId: scTimeOffRequests.id,
+        startDate: scTimeOffRequests.startDate,
+        endDate: scTimeOffRequests.endDate,
+        leaveTypeName: scLeaveTypes.name,
+      })
+      .from(scTimeOffRequests)
+      .leftJoin(
+        scLeaveTypes,
+        eq(scLeaveTypes.id, scTimeOffRequests.leaveTypeId),
+      )
+      .where(
+        and(
+          eq(scTimeOffRequests.traceyTenantId, tenantId),
+          eq(scTimeOffRequests.userId, userId),
+          eq(scTimeOffRequests.status, "approved"),
+          // Overlap: leave.start <= shift.end AND leave.end >= shift.start.
+          lte(scTimeOffRequests.startDate, shiftEndIso),
+          gte(scTimeOffRequests.endDate, shiftStartIso),
+        ),
+      ),
+  );
+  return rows as LeaveConflict[];
+}
+
+function isoDate(d: Date): string {
+  // YYYY-MM-DD in local time. Matches the form-input semantics for the
+  // date columns (no tz applied).
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+// Batch variant for bulk-offer: given a candidate user list and a
+// single shift window, returns the subset of userIds with a conflict.
+// One round-trip; the IN(...) lookup is cheap and lets the caller
+// partition candidates into "offerable" and "skipped-due-to-leave"
+// without N queries.
+
+export async function findUsersWithLeaveConflict(
+  tenantId: string,
+  userIds: string[],
+  shiftStartsAt: Date,
+  shiftEndsAt: Date,
+): Promise<Set<string>> {
+  if (userIds.length === 0) return new Set();
+  const shiftStartIso = isoDate(shiftStartsAt);
+  const shiftEndIso = isoDate(shiftEndsAt);
+  const rows = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({ userId: scTimeOffRequests.userId })
+      .from(scTimeOffRequests)
+      .where(
+        and(
+          eq(scTimeOffRequests.traceyTenantId, tenantId),
+          eq(scTimeOffRequests.status, "approved"),
+          sql`${scTimeOffRequests.userId} = ANY(${userIds})`,
+          lte(scTimeOffRequests.startDate, shiftEndIso),
+          gte(scTimeOffRequests.endDate, shiftStartIso),
+        ),
+      ),
+  );
+  const conflicting = new Set<string>();
+  for (const r of rows) conflicting.add(r.userId);
+  return conflicting;
 }
 
 // ─── Batch helper ────────────────────────────────────────────────────────

@@ -158,6 +158,61 @@ export const scShiftAssignments = pgTable(
   ],
 );
 
+// ─── Leave types (AUDIT.md Phase 2 #6) ───
+//
+// Per-tenant catalogue of leave categories that a time-off request can
+// belong to. Replaces the previous free-text `reason` discriminator on
+// sc_time_off_requests with a typed FK so reports and accrual logic
+// (later slice) have a stable grouping.
+//
+// `slug` is the stable machine key used by the seeded defaults
+// ('annual', 'personal_sick', 'unpaid', 'long_service', 'other') so app
+// code can look up "the tenant's annual-leave type" without hard-coding
+// a UUID. Admins can rename `name` freely; `slug` is immutable for
+// seeded rows (UI hides the slug field on those). Custom types created
+// via the admin page get a slug derived from the name on insert.
+//
+// `is_archived` is a soft-delete — leaving the row in place keeps
+// historical sc_time_off_requests rows pointing at a valid catalogue
+// entry. The admin UI filters archived rows out of the request form
+// dropdown but still surfaces them on the management page so admins
+// can un-archive.
+
+export const scLeaveTypes = pgTable(
+  "sc_leave_types",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    description: text("description"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    isArchived: boolean("is_archived").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("sc_leave_types_tenant_slug_uq").on(t.traceyTenantId, t.slug),
+    uniqueIndex("sc_leave_types_tenant_name_uq").on(
+      t.traceyTenantId,
+      sql`lower(${t.name})`,
+    ),
+    index("sc_leave_types_tenant_idx").on(t.traceyTenantId, t.isArchived),
+    check(
+      "sc_leave_types_slug_chk",
+      sql`${t.slug} ~ '^[a-z][a-z0-9_]*$' and length(${t.slug}) between 2 and 40`,
+    ),
+    check(
+      "sc_leave_types_name_chk",
+      sql`length(${t.name}) between 1 and 80`,
+    ),
+  ],
+);
+
 // ─── Time-off requests ───
 
 export const scTimeOffRequests = pgTable(
@@ -168,6 +223,14 @@ export const scTimeOffRequests = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // FK to sc_leave_types (AUDIT.md #6). Per the schema-wide pattern
+    // for FKs between sc_* tables, the per-tenant migration re-attaches
+    // this constraint pointing at the per-tenant copy of sc_leave_types
+    // — the public-template version is declared via Drizzle so codegen
+    // emits the column, but the runtime constraint is owned by SQL.
+    leaveTypeId: uuid("leave_type_id").references(() => scLeaveTypes.id, {
+      onDelete: "restrict",
+    }),
     startDate: date("start_date").notNull(),
     endDate: date("end_date").notNull(),
     reason: text("reason"),
@@ -181,6 +244,7 @@ export const scTimeOffRequests = pgTable(
   (t) => [
     index("sc_time_off_tenant_idx").on(t.traceyTenantId, t.startDate),
     index("sc_time_off_user_idx").on(t.userId, t.startDate),
+    index("sc_time_off_leave_type_idx").on(t.leaveTypeId),
     check(
       "sc_time_off_status_chk",
       sql`${t.status} in ('pending','approved','denied','cancelled')`,
@@ -1082,6 +1146,18 @@ export type ScShift = typeof scShifts.$inferSelect;
 export type NewScShift = typeof scShifts.$inferInsert;
 export type ScShiftAssignment = typeof scShiftAssignments.$inferSelect;
 export type NewScShiftAssignment = typeof scShiftAssignments.$inferInsert;
+export type ScLeaveType = typeof scLeaveTypes.$inferSelect;
+export type NewScLeaveType = typeof scLeaveTypes.$inferInsert;
+// Stable machine keys for the seeded defaults. Custom types created via
+// the admin page get derived slugs that are *not* in this union — code
+// should treat this as a string with these well-known values, not as a
+// closed set.
+export type ScSeededLeaveSlug =
+  | "annual"
+  | "personal_sick"
+  | "unpaid"
+  | "long_service"
+  | "other";
 export type ScTimeOffRequest = typeof scTimeOffRequests.$inferSelect;
 export type NewScTimeOffRequest = typeof scTimeOffRequests.$inferInsert;
 export type ScShiftSwapRequest = typeof scShiftSwapRequests.$inferSelect;
