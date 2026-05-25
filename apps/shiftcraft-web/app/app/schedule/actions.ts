@@ -23,6 +23,28 @@ import {
   findUsersWithLeaveConflict,
 } from "~/lib/time-off-impact";
 import { emitWebhook } from "~/lib/webhooks";
+import {
+  getManagedLocationIds,
+  isLocationInScope,
+} from "~/lib/manager-scope";
+
+// AUDIT.md #13 — verify the caller's scope covers the given
+// locationId. Returns null on success or an error FormState on
+// rejection (scoped managers can't touch locations they don't
+// manage). Owners + unscoped admins always pass.
+async function guardLocationScope(
+  tenantId: string,
+  userId: string,
+  role: string,
+  locationId: string | null | undefined,
+): Promise<{ status: "error"; message: string } | null> {
+  const scope = await getManagedLocationIds(tenantId, userId, role);
+  if (isLocationInScope(scope, locationId)) return null;
+  return {
+    status: "error",
+    message: "That location isn't in your management scope.",
+  };
+}
 
 // Format a leave conflict for the assign-action error message. The
 // caller already knows the user; this just renders the leave window
@@ -96,6 +118,20 @@ export async function createShiftAction(
 
   const tenant = await requireTenant();
   const user = await currentUser();
+  // AUDIT.md #13 — refuse to create a shift at a location the
+  // manager isn't scoped to. Owners + unscoped admins pass through.
+  if (user) {
+    const membership = await currentMembership();
+    if (membership) {
+      const scopeErr = await guardLocationScope(
+        tenant.id,
+        user.id,
+        membership.role,
+        parsed.data.locationId,
+      );
+      if (scopeErr) return scopeErr;
+    }
+  }
   await forTenant(tenant.id).run((tx) =>
     tx.insert(scShifts).values({
       traceyTenantId: tenant.id,
@@ -132,6 +168,41 @@ export async function updateShiftAction(
   }
 
   const tenant = await requireTenant();
+  // AUDIT.md #13 — scope check on both the destination location AND
+  // the shift's current location (a scoped manager mustn't be able to
+  // move a shift OUT of their scope nor INTO their scope without
+  // rights to the source).
+  const user = await currentUser();
+  if (user) {
+    const membership = await currentMembership();
+    if (membership) {
+      const [existing] = await forTenant(tenant.id).run((tx) =>
+        tx
+          .select({ locationId: scShifts.locationId })
+          .from(scShifts)
+          .where(
+            and(eq(scShifts.id, id), eq(scShifts.traceyTenantId, tenant.id)),
+          )
+          .limit(1),
+      );
+      const scopeErr =
+        (await guardLocationScope(
+          tenant.id,
+          user.id,
+          membership.role,
+          parsed.data.locationId,
+        )) ??
+        (existing
+          ? await guardLocationScope(
+              tenant.id,
+              user.id,
+              membership.role,
+              existing.locationId,
+            )
+          : null);
+      if (scopeErr) return scopeErr;
+    }
+  }
   await forTenant(tenant.id).run((tx) =>
     tx
       .update(scShifts)

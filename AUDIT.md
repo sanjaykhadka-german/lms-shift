@@ -211,7 +211,7 @@ Recommended Phase 2 housing: new `packages/award` package with a pure rules engi
 | Capability | Status | Where / why |
 |---|---|---|
 | RBAC (Owner/Manager/Employee) | ✅ | `apps/shiftcraft-web/lib/roles.ts` maps ShiftCraft roles to Tracey `owner/admin/member` |
-| Row-level access by location | 🟡 | Tenant isolation is solid; **location-level scoping is not enforced** (a Manager at Location A can today see shifts at Location B). Tighten in Phase 2. |
+| Row-level access by location | ✅ | Per-tenant `sc_manager_locations` maps admins to location sets. Owners + unscoped admins keep full access; admins with 1+ rows are scoped on `/app/schedule`, `/app/schedule/[id]/edit`, `/app/coverage-gaps`, and the create/update shift actions. Owner-only admin page at `/app/admin/manager-scopes`. Timesheets/reports stay tenant-wide for v1 (cross-location aggregates by design). |
 | Audit log on sensitive writes | ✅ | `apps/shiftcraft-web/lib/audit.ts` → shared `app.audit_events` table; **extend, do not parallel** |
 | In-app notifications | ✅ | `lib/notifications.ts` (`createNotifications`, `notifyTenantAdmins`) → shared `app.notifications` |
 | Email notifications | ✅ | Resend; `lib/email.ts` degrades to no-op when key missing — **confirm desired in prod** |
@@ -243,7 +243,7 @@ Dependency-ordered so each item unblocks the next. Sizing: S < ~1 day, M ~1-3 da
 10. **Webhooks** (S) — ✅ shipped 2026-05-25. Three events live (`timesheet.approved` · `employee.created` · `shift.published`); HMAC-SHA256 signing; admin-triggered retry on failure. Background retry-with-backoff still deferred.
 11. **SMS notifications** (S) — carrier choice (Twilio / MessageBird / AWS SNS); add to fan-out in `lib/notifications.ts`.
 12. **Web push** (S) — service worker + VAPID; reuse notifications fan-out.
-13. **Location-level RBAC tightening** (S) — enforce per-location scope on Manager queries (called out in §4 as 🟡).
+13. **Location-level RBAC tightening** (S) — ✅ shipped 2026-05-25. `sc_manager_locations` per-tenant table + owner-only `/app/admin/manager-scopes` UI; `/app/schedule` + edit-shift + `/app/coverage-gaps` filter by scope, and create/update actions reject cross-scope writes. Timesheets + reports remain tenant-wide aggregates (intentional).
 
 ---
 

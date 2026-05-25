@@ -11,8 +11,9 @@ import {
   scTimeOffRequests,
   users,
 } from "@tracey/db";
-import { currentMembership } from "~/lib/auth/current";
+import { currentMembership, requireUser } from "~/lib/auth/current";
 import { forecastWeek } from "~/lib/labour-forecast";
+import { getManagedLocationIds, scopeArray } from "~/lib/manager-scope";
 import { Button } from "~/components/ui/button";
 import { WeeklyLabourForecast } from "~/components/WeeklyLabourForecast";
 import { AreaScheduleView, type AreaShift } from "./_area-view";
@@ -78,6 +79,18 @@ export default async function SchedulePage({
 }) {
   const membership = await currentMembership();
   if (!membership) redirect("/app");
+  const me = await requireUser();
+  // AUDIT.md #13 — scope manager visibility to assigned locations.
+  // Owners + unscoped admins get the full set; scoped admins only
+  // see shifts at their assigned locations. We narrow the location
+  // dropdown to the scope too, so the chooser can't be used to peek
+  // outside (server-side filter is what enforces; UI just matches).
+  const scope = await getManagedLocationIds(
+    membership.tenant.id,
+    me.id,
+    membership.role,
+  );
+  const scopeIds = scopeArray(scope);
 
   const {
     week,
@@ -164,6 +177,9 @@ export default async function SchedulePage({
             eq(scShifts.traceyTenantId, membership.tenant.id),
             between(scShifts.startsAt, weekStart, weekEnd),
             locationFilter ? eq(scShifts.locationId, locationFilter) : undefined,
+            scopeIds
+              ? sql`${scShifts.locationId} = ANY(${scopeIds})`
+              : undefined,
           ),
         )
         .orderBy(asc(scShifts.startsAt)),
@@ -176,6 +192,14 @@ export default async function SchedulePage({
           color: scLocations.color,
         })
         .from(scLocations)
+        .where(
+          and(
+            eq(scLocations.traceyTenantId, membership.tenant.id),
+            scopeIds
+              ? sql`${scLocations.id} = ANY(${scopeIds})`
+              : undefined,
+          ),
+        )
         .orderBy(asc(scLocations.name)),
     ),
     view === "area" || view === "employee"

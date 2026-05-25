@@ -1193,6 +1193,52 @@ export const scDailySales = pgTable(
   ],
 );
 
+// ─── Manager location scopes (AUDIT.md #13) ─────────────────────────
+//
+// Per-tenant assignment of an admin (role='admin' on the tenant
+// membership) to one or more specific locations. Owners always see
+// every location, no rows needed. Admins WITHOUT any rows here keep
+// full cross-location access — backwards-compat for tenants that
+// don't need location partitioning. Admins WITH 1+ rows are scoped
+// to exactly that subset; queries on schedule / timesheets /
+// coverage-gaps filter by locationId IN (scope).
+//
+// Rationale for choosing a side table over a column on `members`:
+// the membership row lives in the shared `app` schema and is reused
+// by other apps (LMS, planning), so encoding ShiftCraft-specific
+// location semantics there would leak ShiftCraft concepts upstream.
+// A per-tenant sc_* table keeps the scoping local + RLS-isolated.
+
+export const scManagerLocations = pgTable(
+  "sc_manager_locations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    appUserId: uuid("app_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    locationId: uuid("location_id").notNull(),
+    grantedByUserId: uuid("granted_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("sc_manager_locations_user_loc_uq").on(
+      t.traceyTenantId,
+      t.appUserId,
+      t.locationId,
+    ),
+    index("sc_manager_locations_user_idx").on(t.traceyTenantId, t.appUserId),
+    index("sc_manager_locations_location_idx").on(
+      t.traceyTenantId,
+      t.locationId,
+    ),
+  ],
+);
+
 // ─── Outbound webhook subscriptions (AUDIT.md #10) ──────────────────
 //
 // One row per (tenant, event, target URL). Receivers register a URL +
@@ -1409,3 +1455,5 @@ export type NewScWebhookSubscription = typeof scWebhookSubscriptions.$inferInser
 export type ScWebhookDelivery = typeof scWebhookDeliveries.$inferSelect;
 export type NewScWebhookDelivery = typeof scWebhookDeliveries.$inferInsert;
 export type ScWebhookDeliveryStatus = "pending" | "succeeded" | "failed";
+export type ScManagerLocation = typeof scManagerLocations.$inferSelect;
+export type NewScManagerLocation = typeof scManagerLocations.$inferInsert;

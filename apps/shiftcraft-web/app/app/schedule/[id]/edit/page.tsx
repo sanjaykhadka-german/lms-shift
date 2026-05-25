@@ -16,6 +16,10 @@ import {
 import { currentMembership, currentUser } from "~/lib/auth/current";
 import { checkAvailability } from "~/lib/availability-check";
 import { findConflictedUserIds } from "~/lib/shift-conflicts";
+import {
+  getManagedLocationIds,
+  isLocationInScope,
+} from "~/lib/manager-scope";
 import { Button } from "~/components/ui/button";
 import { ShiftForm } from "../../_form";
 import {
@@ -92,6 +96,16 @@ export default async function EditShiftPage({
   );
 
   if (!shiftRow) notFound();
+
+  // AUDIT.md #13 — scoped managers can't view a shift outside their
+  // location set. Returning notFound rather than 403 mirrors how
+  // tenant-isolation hides cross-tenant rows.
+  const scope = await getManagedLocationIds(
+    membership.tenant.id,
+    me.id,
+    membership.role,
+  );
+  if (!isLocationInScope(scope, shiftRow.locationId)) notFound();
 
   const [locations, assignments, tenantMembers, departments, commentRows] =
     await Promise.all([

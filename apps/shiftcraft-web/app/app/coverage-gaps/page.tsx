@@ -7,9 +7,10 @@ import {
   scShiftAssignments,
   scShifts,
 } from "@tracey/db";
-import { currentMembership } from "~/lib/auth/current";
+import { currentMembership, requireUser } from "~/lib/auth/current";
 import { ALERT_TONE } from "~/lib/badges";
 import { Button } from "~/components/ui/button";
+import { getManagedLocationIds, scopeArray } from "~/lib/manager-scope";
 
 export const metadata = { title: "Coverage gaps · ShiftCraft" };
 
@@ -37,8 +38,19 @@ function fmtDayKey(d: Date): string {
 export default async function CoveragePage() {
   const membership = await currentMembership();
   if (!membership) redirect("/app");
+  const me = await requireUser();
 
   const now = new Date();
+
+  // AUDIT.md #13 — location-scope filter for managers. Owners + unscoped
+  // admins get the full tenant view; scoped admins only see gaps at
+  // their assigned locations.
+  const scope = await getManagedLocationIds(
+    membership.tenant.id,
+    me.id,
+    membership.role,
+  );
+  const scopeIds = scopeArray(scope);
 
   // Future published shifts with no accepted assignment. The "no accepted"
   // condition uses a NOT EXISTS subquery for clarity; outstanding "offered"
@@ -64,6 +76,9 @@ export default async function CoveragePage() {
           eq(scShifts.traceyTenantId, membership.tenant.id),
           eq(scShifts.status, "published"),
           gte(scShifts.startsAt, now),
+          scopeIds
+            ? sql`${scShifts.locationId} = ANY(${scopeIds})`
+            : undefined,
           sql`NOT EXISTS (
             SELECT 1 FROM ${scShiftAssignments}
             WHERE ${scShiftAssignments.shiftId} = ${scShifts.id}
