@@ -1,17 +1,50 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   forTenant,
   scClockEvents,
+  scTimesheetApprovals,
   type ScClockEventType,
 } from "@tracey/db";
 import { currentMembership, currentUser } from "~/lib/auth/current";
 import { isAtLeastManager } from "~/lib/roles";
-import { validateTransition } from "~/lib/clock";
+import { fmtIsoDate, startOfWeek, validateTransition } from "~/lib/clock";
 import { logAuditEvent } from "~/lib/audit";
+
+// AUDIT.md #4 — lock clock-event mutations on weeks whose timesheet
+// has been approved. Returns null when the week is unlocked, otherwise
+// a human-readable refusal reason. Caller is responsible for emitting
+// the warning + early return; we deliberately don't throw so the form
+// action's Promise<void> contract stays intact.
+//
+// Pure check — no audit event, no side effects.
+async function assertWeekUnlocked(
+  tenantId: string,
+  appUserId: string,
+  occurredAt: Date,
+): Promise<string | null> {
+  const weekStartIso = fmtIsoDate(startOfWeek(occurredAt));
+  const [row] = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({ status: scTimesheetApprovals.status })
+      .from(scTimesheetApprovals)
+      .where(
+        and(
+          eq(scTimesheetApprovals.traceyTenantId, tenantId),
+          eq(scTimesheetApprovals.employeeUserId, appUserId),
+          sql`${scTimesheetApprovals.weekStart} = ${weekStartIso}::date`,
+        ),
+      )
+      .limit(1),
+  );
+  if (row?.status === "approved") {
+    return "Timesheet for this week is approved — reopen it first to edit clock events.";
+  }
+  return null;
+}
 
 // Three admin-only actions for in-app correction of clock events. All
 // preserve audit semantics: edits void the original row + insert a new
@@ -133,6 +166,16 @@ export async function addClockEventAction(formData: FormData): Promise<void> {
     return;
   }
 
+  const lockErr = await assertWeekUnlocked(
+    g.tenantId,
+    parsed.data.appUserId,
+    occurredAt,
+  );
+  if (lockErr) {
+    console.warn("[addClockEventAction] locked:", lockErr);
+    return;
+  }
+
   const stateErr = await validateInsertion(
     g.tenantId,
     parsed.data.appUserId,
@@ -227,6 +270,20 @@ export async function editClockEventAction(formData: FormData): Promise<void> {
     return;
   }
 
+  // Lock check covers BOTH the new occurredAt (target week) and — when
+  // the edit moves the punch across a week boundary — implicitly the
+  // source week too via the void+insert flow below. We check the
+  // target week here since that's where the inserted row lands.
+  const lockErr = await assertWeekUnlocked(
+    g.tenantId,
+    original.appUserId,
+    occurredAt,
+  );
+  if (lockErr) {
+    console.warn("[editClockEventAction] locked:", lockErr);
+    return;
+  }
+
   const stateErr = await validateInsertion(
     g.tenantId,
     original.appUserId,
@@ -301,6 +358,38 @@ export async function voidClockEventAction(formData: FormData): Promise<void> {
       "[voidClockEventAction] invalid:",
       parsed.error.flatten().fieldErrors,
     );
+    return;
+  }
+
+  // Look up the event's owner + timing so we can lock-check before the
+  // mutating UPDATE. Skip if already voided or not in this tenant.
+  const [existing] = await forTenant(g.tenantId).run((tx) =>
+    tx
+      .select({
+        appUserId: scClockEvents.appUserId,
+        occurredAt: scClockEvents.occurredAt,
+        voidedAt: scClockEvents.voidedAt,
+      })
+      .from(scClockEvents)
+      .where(
+        and(
+          eq(scClockEvents.id, parsed.data.eventId),
+          eq(scClockEvents.traceyTenantId, g.tenantId),
+        ),
+      )
+      .limit(1),
+  );
+  if (!existing || existing.voidedAt) {
+    console.warn("[voidClockEventAction] not found or already voided");
+    return;
+  }
+  const lockErr = await assertWeekUnlocked(
+    g.tenantId,
+    existing.appUserId,
+    existing.occurredAt,
+  );
+  if (lockErr) {
+    console.warn("[voidClockEventAction] locked:", lockErr);
     return;
   }
 

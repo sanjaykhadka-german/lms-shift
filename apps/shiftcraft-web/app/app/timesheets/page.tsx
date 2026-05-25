@@ -1187,7 +1187,15 @@ function ApprovalCell({
     "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider";
   const badge =
     status === "approved" ? (
-      <span className={`${chipBase} bg-emerald-600 text-white`}>Approved</span>
+      // Audit #4 — approved week is read-only. The "Locked" wording +
+      // the gated edit affordances in TimesheetRow communicate the
+      // state at both glance and interaction levels.
+      <span
+        className={`${chipBase} bg-emerald-600 text-white`}
+        title="Approved — clock-event edits are locked. Use Reopen to unlock."
+      >
+        Approved · Locked
+      </span>
     ) : status === "disputed" ? (
       <span className={`${chipBase} bg-amber-500 text-white`}>Disputed</span>
     ) : hasActivity ? (

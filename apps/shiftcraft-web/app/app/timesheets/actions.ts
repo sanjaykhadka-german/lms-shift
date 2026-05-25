@@ -311,6 +311,32 @@ export async function clearTimesheetApprovalAction(
     return;
   }
   const weekStartIso = fmtIsoDate(g.payload.weekStart);
+  const reason = String(formData.get("reason") ?? "").trim();
+
+  // AUDIT.md #4 — when the existing state is "approved", treat this as
+  // a REOPEN: require a non-empty reason and write a distinct audit
+  // event. For "disputed" (or no row) we keep the old reset semantics
+  // — no reason required.
+  const [existing] = await forTenant(g.tenantId).run((tx) =>
+    tx
+      .select({ status: scTimesheetApprovals.status })
+      .from(scTimesheetApprovals)
+      .where(
+        and(
+          eq(scTimesheetApprovals.traceyTenantId, g.tenantId),
+          eq(scTimesheetApprovals.employeeUserId, g.payload.employeeUserId),
+          sql`${scTimesheetApprovals.weekStart} = ${weekStartIso}::date`,
+        ),
+      )
+      .limit(1),
+  );
+  const wasApproved = existing?.status === "approved";
+  if (wasApproved && reason.length === 0) {
+    console.warn(
+      "[clearTimesheetApprovalAction] reopen of approved week requires a reason",
+    );
+    return;
+  }
 
   await forTenant(g.tenantId).run((tx) =>
     tx
@@ -324,6 +350,20 @@ export async function clearTimesheetApprovalAction(
         ),
       ),
   );
+
+  await logAuditEvent({
+    action: wasApproved
+      ? "shiftcraft.timesheet.reopened"
+      : "shiftcraft.timesheet.dispute_cleared",
+    targetKind: "sc_timesheet_approval",
+    targetId: g.payload.employeeUserId,
+    details: {
+      employeeUserId: g.payload.employeeUserId,
+      weekStart: weekStartIso,
+      previousStatus: existing?.status ?? null,
+      reason: wasApproved ? reason : null,
+    },
+  });
 
   revalidatePath("/app/timesheets");
 }

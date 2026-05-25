@@ -167,6 +167,10 @@ export function TimesheetRow({
   const [modalCtx, setModalCtx] = useState<ModalContext | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const canExpand = perDayDetail.length > 0;
+  // AUDIT.md #4 — when the week is approved, hide every clock-event
+  // mutation affordance. The Reopen button on the approval cell is the
+  // sole path back to editable state.
+  const isLocked = approvalStatus === "approved";
 
   return (
     <>
@@ -321,7 +325,7 @@ export function TimesheetRow({
                         · {d.deltaLabel}
                       </span>
                     ) : null}
-                    {isAdmin ? (
+                    {isAdmin && !isLocked ? (
                       <button
                         type="button"
                         onClick={() =>
@@ -371,7 +375,7 @@ export function TimesheetRow({
                               · {s.locationName}
                             </span>
                           ) : null}
-                          {isAdmin ? (
+                          {isAdmin && !isLocked ? (
                             <button
                               type="button"
                               aria-label="Edit this punch"

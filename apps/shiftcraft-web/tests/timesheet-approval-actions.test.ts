@@ -4,6 +4,16 @@ const state = {
   inserts: [] as Array<{ values: Record<string, unknown>; conflictPatch?: Record<string, unknown> }>,
   deletes: 0,
   lastTenantId: undefined as string | undefined,
+  // AUDIT.md #4 — the new clearTimesheetApprovalAction reads the
+  // previous status before deciding which audit event to emit + whether
+  // to require a reason. Tests set this to drive that branch.
+  existingStatus: null as "approved" | "disputed" | null,
+  audits: [] as Array<{
+    action: string;
+    targetKind?: string | null;
+    targetId?: string | null;
+    details?: Record<string, unknown> | null;
+  }>,
 };
 
 const currentMembershipMock = vi.fn();
@@ -12,6 +22,8 @@ function reset() {
   state.inserts = [];
   state.deletes = 0;
   state.lastTenantId = undefined;
+  state.existingStatus = null;
+  state.audits = [];
 }
 
 vi.mock("@tracey/db", () => ({
@@ -27,6 +39,17 @@ vi.mock("@tracey/db", () => ({
     async run(fn: (tx: unknown) => Promise<unknown>) {
       state.lastTenantId = tid;
       const tx = {
+        select: () => ({
+          from: () => ({
+            where: () => ({
+              async limit() {
+                return state.existingStatus
+                  ? [{ status: state.existingStatus }]
+                  : [];
+              },
+            }),
+          }),
+        }),
         insert: () => ({
           values: (v: Record<string, unknown>) => ({
             onConflictDoUpdate: async ({
@@ -52,6 +75,12 @@ vi.mock("@tracey/db", () => ({
       };
       return fn(tx);
     },
+  }),
+}));
+
+vi.mock("~/lib/audit", () => ({
+  logAuditEvent: vi.fn(async (input) => {
+    state.audits.push(input);
   }),
 }));
 
@@ -164,24 +193,101 @@ describe("disputeTimesheetAction", () => {
 });
 
 describe("clearTimesheetApprovalAction", () => {
-  it("deletes the approval row for the given (user, week)", async () => {
+  it("deletes a disputed row without requiring a reason + audits dispute_cleared", async () => {
+    state.existingStatus = "disputed";
     const { clearTimesheetApprovalAction } = await load();
     await clearTimesheetApprovalAction(
       fd({ employeeUserId: "emp-1", weekStart: "2026-05-11" }),
     );
     expect(state.deletes).toBe(1);
     expect(state.lastTenantId).toBe("tenant-A");
+    const audit = state.audits.find(
+      (a) => a.action === "shiftcraft.timesheet.dispute_cleared",
+    );
+    expect(audit).toBeDefined();
+    expect(audit!.details).toMatchObject({
+      previousStatus: "disputed",
+      reason: null,
+    });
   });
 
-  it("is a no-op for a non-manager", async () => {
+  it("deletes when no existing row + audits dispute_cleared with previousStatus null", async () => {
+    // state.existingStatus stays null — simulates Reset being clicked
+    // on a row that has no approval row at all (defensive UI path).
+    const { clearTimesheetApprovalAction } = await load();
+    await clearTimesheetApprovalAction(
+      fd({ employeeUserId: "emp-1", weekStart: "2026-05-11" }),
+    );
+    expect(state.deletes).toBe(1);
+    const audit = state.audits.find(
+      (a) => a.action === "shiftcraft.timesheet.dispute_cleared",
+    );
+    expect(audit!.details).toMatchObject({ previousStatus: null });
+  });
+
+  it("REOPENS an approved row when a reason is supplied + audits reopened with reason", async () => {
+    state.existingStatus = "approved";
+    const { clearTimesheetApprovalAction } = await load();
+    await clearTimesheetApprovalAction(
+      fd({
+        employeeUserId: "emp-1",
+        weekStart: "2026-05-11",
+        reason: "Missed lunch break needs adjusting",
+      }),
+    );
+    expect(state.deletes).toBe(1);
+    const audit = state.audits.find(
+      (a) => a.action === "shiftcraft.timesheet.reopened",
+    );
+    expect(audit).toBeDefined();
+    expect(audit!.details).toMatchObject({
+      employeeUserId: "emp-1",
+      weekStart: "2026-05-11",
+      previousStatus: "approved",
+      reason: "Missed lunch break needs adjusting",
+    });
+  });
+
+  it("REFUSES to reopen an approved row when reason is missing", async () => {
+    state.existingStatus = "approved";
+    const { clearTimesheetApprovalAction } = await load();
+    await clearTimesheetApprovalAction(
+      fd({ employeeUserId: "emp-1", weekStart: "2026-05-11" }),
+    );
+    expect(state.deletes).toBe(0);
+    expect(
+      state.audits.some((a) => a.action === "shiftcraft.timesheet.reopened"),
+    ).toBe(false);
+  });
+
+  it("REFUSES to reopen an approved row when reason is whitespace-only", async () => {
+    state.existingStatus = "approved";
+    const { clearTimesheetApprovalAction } = await load();
+    await clearTimesheetApprovalAction(
+      fd({
+        employeeUserId: "emp-1",
+        weekStart: "2026-05-11",
+        reason: "   ",
+      }),
+    );
+    expect(state.deletes).toBe(0);
+  });
+
+  it("is a no-op for a non-manager regardless of existing status", async () => {
+    state.existingStatus = "approved";
     currentMembershipMock.mockResolvedValueOnce({
       tenant: { id: "tenant-A", name: "Tenant A" },
       role: "member",
     });
     const { clearTimesheetApprovalAction } = await load();
     await clearTimesheetApprovalAction(
-      fd({ employeeUserId: "emp-1", weekStart: "2026-05-11" }),
+      fd({
+        employeeUserId: "emp-1",
+        weekStart: "2026-05-11",
+        reason: "reopen please",
+      }),
     );
     expect(state.deletes).toBe(0);
+    expect(state.audits).toHaveLength(0);
   });
 });

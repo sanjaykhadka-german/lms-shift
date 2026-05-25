@@ -76,14 +76,39 @@ export function ApprovalButtons({
           Dispute
         </button>
       ) : null}
-      {status != null ? (
+      {status === "approved" ? (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => {
+            // AUDIT.md #4 — reopening an approved timesheet writes an
+            // audit event with a reason. Prompt keeps the slice tight;
+            // upgrade to a proper modal in a follow-up if managers
+            // start typing a lot here.
+            const reason = window.prompt(
+              "Reopen this approved timesheet?\n\nType a reason — it's saved to the audit log.",
+              "",
+            );
+            if (reason == null) return;
+            const trimmed = reason.trim();
+            if (trimmed.length === 0) {
+              window.alert("A reason is required to reopen.");
+              return;
+            }
+            submit(clearTimesheetApprovalAction, { reason: trimmed });
+          }}
+          className="rounded-md border border-rose-600 bg-rose-600/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-rose-600 transition-colors hover:bg-rose-600/20 disabled:opacity-50"
+        >
+          Reopen
+        </button>
+      ) : status === "disputed" ? (
         <button
           type="button"
           disabled={pending}
           onClick={() => submit(clearTimesheetApprovalAction)}
           className="rounded-md border border-border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
         >
-          Reset
+          Clear dispute
         </button>
       ) : null}
     </div>
