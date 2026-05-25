@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useState } from "react";
 import { Button } from "~/components/ui/button";
+import { SelfieCapture } from "~/components/SelfieCapture";
 import {
   breakEndAction,
   breakStartAction,
@@ -89,6 +90,17 @@ export function ClockPanel({
   >({ kind: "idle" });
   const gpsAvailable =
     typeof navigator !== "undefined" && "geolocation" in navigator;
+
+  // AUDIT.md #7b — optional selfie capture. dataUrl held in state +
+  // threaded into each PunchForm's hidden "selfie" input. The "skip"
+  // sentinel tells the server to write a denied-status photo row so
+  // the timesheet audit pane reflects the user's choice.
+  const [selfieDataUrl, setSelfieDataUrl] = useState<string | null>(null);
+  const [showSelfie, setShowSelfie] = useState(false);
+  const cameraAvailable =
+    typeof navigator !== "undefined" &&
+    typeof navigator.mediaDevices !== "undefined" &&
+    typeof navigator.mediaDevices.getUserMedia === "function";
 
   function useMyLocation() {
     if (!gpsAvailable) return;
@@ -217,8 +229,55 @@ export function ClockPanel({
               )}
             </div>
           ) : null}
+
+          {cameraAvailable && (status === "clocked_out" || status === "working") ? (
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setShowSelfie(true)}
+              >
+                {selfieDataUrl && selfieDataUrl !== "skip"
+                  ? "Retake selfie"
+                  : "Add selfie"}
+              </Button>
+              {selfieDataUrl && selfieDataUrl !== "skip" ? (
+                <>
+                  <span className="text-emerald-700 dark:text-emerald-400">
+                    Selfie attached. Submitted with the next punch.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSelfieDataUrl(null)}
+                    className="text-muted-foreground hover:text-foreground hover:underline"
+                  >
+                    Clear
+                  </button>
+                </>
+              ) : selfieDataUrl === "skip" ? (
+                <span className="text-amber-700 dark:text-amber-400">
+                  Skipped — the punch will record selfie as denied.
+                </span>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       )}
+
+      {showSelfie ? (
+        <SelfieCapture
+          onCapture={(dataUrl) => {
+            setSelfieDataUrl(dataUrl);
+            setShowSelfie(false);
+          }}
+          onSkip={() => {
+            setSelfieDataUrl("skip");
+            setShowSelfie(false);
+          }}
+          onCancel={() => setShowSelfie(false)}
+        />
+      ) : null}
 
       <div className="mt-6 flex flex-wrap gap-2">
         {status === "clocked_out" && (
@@ -227,6 +286,7 @@ export function ClockPanel({
             label="Clock in"
             locationId={selectedLocationId}
             gpsCoords={gpsCoords}
+            selfieDataUrl={selfieDataUrl}
             variant="primary"
           />
         )}
@@ -237,6 +297,7 @@ export function ClockPanel({
               label="Start break"
               locationId={selectedLocationId}
               gpsCoords={gpsCoords}
+              selfieDataUrl={selfieDataUrl}
               variant="secondary"
             />
             <PunchForm
@@ -244,6 +305,7 @@ export function ClockPanel({
               label="Clock out"
               locationId={selectedLocationId}
               gpsCoords={gpsCoords}
+              selfieDataUrl={selfieDataUrl}
               variant="destructive"
             />
           </>
@@ -255,6 +317,7 @@ export function ClockPanel({
               label="Resume work"
               locationId={selectedLocationId}
               gpsCoords={gpsCoords}
+              selfieDataUrl={selfieDataUrl}
               variant="primary"
             />
             <PunchForm
@@ -262,6 +325,7 @@ export function ClockPanel({
               label="Clock out"
               locationId={selectedLocationId}
               gpsCoords={gpsCoords}
+              selfieDataUrl={selfieDataUrl}
               variant="destructive"
             />
           </>
@@ -276,6 +340,7 @@ function PunchForm({
   label,
   locationId,
   gpsCoords,
+  selfieDataUrl,
   variant,
 }: {
   action: (
@@ -285,6 +350,11 @@ function PunchForm({
   label: string;
   locationId: string;
   gpsCoords: { lat: number; lng: number; accuracyM: number; at: number } | null;
+  /** Either a "data:image/jpeg;base64,..." dataUrl, the literal "skip"
+   *  sentinel (user opened then dismissed the selfie modal), or null
+   *  (no selfie attempted — server tags selfie_status='unavailable'
+   *  for in/out punches and skips the photo row for breaks). */
+  selfieDataUrl: string | null;
   variant: "primary" | "secondary" | "destructive";
 }) {
   const [state, formAction, pending] = useActionState<
@@ -311,6 +381,9 @@ function PunchForm({
           <input type="hidden" name="lat" value={gpsCoords.lat.toString()} />
           <input type="hidden" name="lng" value={gpsCoords.lng.toString()} />
         </>
+      ) : null}
+      {selfieDataUrl ? (
+        <input type="hidden" name="selfie" value={selfieDataUrl} />
       ) : null}
       <Button
         type="submit"

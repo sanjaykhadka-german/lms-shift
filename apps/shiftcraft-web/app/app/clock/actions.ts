@@ -4,14 +4,39 @@ import { revalidatePath } from "next/cache";
 import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import {
   forTenant,
+  scClockEventPhotos,
   scClockEvents,
   scLocations,
   type ScClockEventSource,
   type ScClockEventType,
+  type ScSelfieStatus,
 } from "@tracey/db";
 import { currentMembership, currentUser } from "~/lib/auth/current";
 import { validateTransition } from "~/lib/clock";
 import { findNearestWithinRadius, type GeofenceCandidate } from "~/lib/geofence";
+
+// AUDIT.md #7b — mobile selfie capture. Mirrors the kiosk's defense in
+// apps/shiftcraft-web/app/kiosk/actions.ts so a tampered client can't
+// post a 10 MB blob to bloat the DB. Allowed input:
+//   data:image/jpeg;base64,<base64>   with decoded size ≤ MAX_SELFIE_BYTES
+const MAX_SELFIE_BYTES = 50 * 1024;
+const DATA_URL_RE = /^data:image\/jpeg;base64,(.+)$/i;
+
+function decodeSelfie(raw: string): { buffer: Buffer } | null {
+  const m = DATA_URL_RE.exec(raw);
+  if (!m) return null;
+  let buf: Buffer;
+  try {
+    buf = Buffer.from(m[1]!, "base64");
+  } catch {
+    return null;
+  }
+  if (buf.length === 0 || buf.length > MAX_SELFIE_BYTES) return null;
+  // JPEG magic bytes: FF D8 FF. Reject anything that doesn't start with
+  // them so a renamed PNG / arbitrary blob can't slip through.
+  if (buf[0] !== 0xff || buf[1] !== 0xd8 || buf[2] !== 0xff) return null;
+  return { buffer: buf };
+}
 
 export type PunchResult =
   | { status: "ok" }
@@ -118,16 +143,58 @@ async function recordPunch(
     return { status: "error", message: transitionError };
   }
 
-  await forTenant(tenantId).run((tx) =>
-    tx.insert(scClockEvents).values({
-      traceyTenantId: tenantId,
-      appUserId: user.id,
-      locationId,
-      eventType,
-      notes,
-      source,
-    }),
-  );
+  // AUDIT.md #7b — mobile selfie capture. Only in/out punches carry
+  // selfies (breaks are quick taps; low fraud signal). Three states
+  // mirror the kiosk's sc_clock_event_photos.selfie_status enum:
+  //   captured     — image present + validates
+  //   denied       — user closed the modal with Skip OR client blob
+  //                  failed validation (size/mime check)
+  //   unavailable  — punch didn't go through the selfie flow at all
+  let selfieStatus: ScSelfieStatus = "unavailable";
+  let selfieBuffer: Buffer | null = null;
+  if (eventType === "in" || eventType === "out") {
+    const raw = String(formData.get("selfie") ?? "");
+    if (raw === "skip") {
+      selfieStatus = "denied";
+    } else if (raw.length > 0) {
+      const decoded = decodeSelfie(raw);
+      if (decoded) {
+        selfieStatus = "captured";
+        selfieBuffer = decoded.buffer;
+      } else {
+        // Client sent something we couldn't trust. Tag denied + drop
+        // the blob rather than blocking the punch — manager sees the
+        // chip on the timesheet audit pane.
+        selfieStatus = "denied";
+      }
+    }
+  }
+
+  await forTenant(tenantId).run(async (tx) => {
+    const [inserted] = await tx
+      .insert(scClockEvents)
+      .values({
+        traceyTenantId: tenantId,
+        appUserId: user.id,
+        locationId,
+        eventType,
+        notes,
+        source,
+      })
+      .returning({ id: scClockEvents.id });
+
+    // Skip the photo row entirely on breaks (unavailable + no buffer
+    // would emit a null-image row; not worth the extra write).
+    if (selfieStatus !== "unavailable") {
+      await tx.insert(scClockEventPhotos).values({
+        traceyTenantId: tenantId,
+        clockEventId: inserted!.id,
+        image: selfieBuffer ?? undefined,
+        mimeType: selfieBuffer ? "image/jpeg" : undefined,
+        selfieStatus,
+      });
+    }
+  });
 
   revalidatePath("/app/clock");
   revalidatePath("/app/timesheets");
