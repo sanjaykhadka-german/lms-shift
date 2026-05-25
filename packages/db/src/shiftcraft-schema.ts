@@ -1138,6 +1138,61 @@ export const scTenantConfig = pgTable(
   ],
 );
 
+// ─── Daily sales (AUDIT.md Phase 2 #9) ─────────────────────────────
+//
+// One row per (location, business date). Manually entered by admins
+// at /app/admin/daily-sales; the wages-vs-sales card on /app/reports
+// joins these against the award-classifier-derived labour cost for
+// the same week.
+//
+// `gross_sales` is the tenant-currency revenue total for the day —
+// before tax handling decisions; the report shows it as-entered and
+// notes "as keyed in" so admins know we don't reconcile against a
+// POS feed. POS integration is explicitly deferred (per AUDIT.md
+// scope clarification: v1 uses manual daily sales entry).
+//
+// Unique on (tenant, location, business_date) — re-saving the same
+// day overwrites the prior row instead of stacking.
+
+export const scDailySales = pgTable(
+  "sc_daily_sales",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    locationId: uuid("location_id").notNull(),
+    businessDate: date("business_date").notNull(),
+    // 12 digits / 2 decimals supports up to $99 999 999 999.99 — well
+    // beyond any single-day-per-location reasonable cap. Stored in
+    // tenant currency (assumed AUD per Phase 2 scope).
+    grossSales: numeric("gross_sales", { precision: 12, scale: 2 }).notNull(),
+    notes: text("notes"),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    updatedByUserId: uuid("updated_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("sc_daily_sales_tenant_loc_date_uq").on(
+      t.traceyTenantId,
+      t.locationId,
+      t.businessDate,
+    ),
+    index("sc_daily_sales_tenant_date_idx").on(
+      t.traceyTenantId,
+      t.businessDate,
+    ),
+    check("sc_daily_sales_gross_chk", sql`${t.grossSales} >= 0`),
+  ],
+);
+
 // ─── Inferred types ───
 
 export type ScLocation = typeof scLocations.$inferSelect;
@@ -1223,3 +1278,5 @@ export type ScOnboardingTaskStatus = "pending" | "done";
 export type ScDocument = typeof scDocuments.$inferSelect;
 export type NewScDocument = typeof scDocuments.$inferInsert;
 export type ScDocumentScope = "library" | "team";
+export type ScDailySale = typeof scDailySales.$inferSelect;
+export type NewScDailySale = typeof scDailySales.$inferInsert;

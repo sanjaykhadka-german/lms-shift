@@ -190,17 +190,19 @@ Recommended Phase 2 housing: new `packages/award` package with a pure rules engi
 ### Feature 7 — Reporting / labour-cost analytics · 🟡
 
 **Implemented**
-- Dashboard at `/app/reports` (~25KB page component): hours, headcount, basic cost lines
+- Dashboard at `/app/reports`: hours, headcount, basic cost lines
 - Audit viewer at `/app/audit`
 - Notifications feed at `/app/notifications`
+- ✅ **Hours by employee / department / location** rollups with week navigation + department filter
+- ✅ **CSV export** of the per-week report
+- ✅ **Wages vs sales** — `sc_daily_sales` per-tenant table + manual entry at `/app/admin/daily-sales` (week grid by location, inline edit, soft-archive via Clear); `/app/reports` shows gross sales / actual wage cost / labour-cost % with week-over-week comparison (lower = greener)
+- ✅ **Schedule cost vs actual cost variance** — sums accepted+published shifts × employee rate, compares against actual clocked-hour cost; surfaces +/- $ and % over/under scheduled
 
 **Missing**
-- **Wages vs sales** per day / per hour — no sales table; brief defers POS; minimum needed is a manual `sc_daily_sales` table per tenant
-- **Schedule cost vs actual cost variance** (needs Feature 4 interpreter)
-- **Hours by employee / role / location** rollups with date range
 - **Attendance scoreboard**: lateness, no-shows, unapproved overtime
-- **CSV export** of any report (only timesheets + schedule have it today)
+- **Per-role hour rollups** (per-location + per-department already exist)
 - **Read-back of finalised payroll gross/net** (depends on Feature 5)
+- **Award-derived wages-vs-sales variant** — current card uses base rate × hours; the OT/penalty-aware variant would reuse the classifier shipped in #3b
 
 ---
 
@@ -237,7 +239,7 @@ Dependency-ordered so each item unblocks the next. Sizing: S < ~1 day, M ~1-3 da
 6. **Leave types + accrual + roster-clash guard** (S) — ✅ catalogue + clash guard shipped 2026-05-25; accrual on approved hours + balance UI still deferred (depends on Feature 4 interpreter).
 7. **Geofence + selfie clock-in** (M) — wire the existing `geofence` enum: mobile-web GPS first, `geofence_radius_m` on `sc_locations`, selfie via getUserMedia → object storage. Offline sync deferred until customers ask.
 8. **Auto-scheduler v1** (M-L) — constraint-satisfaction draft: respect availability, leave, skills (introduce `sc_skills` + `sc_employee_skills` here), max hours, min rest, wage budget. POS forecast slot reserved but unused.
-9. **Reporting deepening** (S-M) — `sc_daily_sales` manual entry, wages-vs-sales card, schedule-vs-actual variance, per-role/location hour rollups, CSV downloads, payroll cost read-back.
+9. **Reporting deepening** (S-M) — ✅ sc_daily_sales + wages-vs-sales + schedule-vs-actual variance + per-location/department rollups + CSV downloads shipped 2026-05-25; per-role rollup + payroll cost read-back (depends on Feature 5) still pending.
 10. **Webhooks** (S) — outbound delivery with retries + signed payloads; per-tenant subscriptions.
 11. **SMS notifications** (S) — carrier choice (Twilio / MessageBird / AWS SNS); add to fan-out in `lib/notifications.ts`.
 12. **Web push** (S) — service worker + VAPID; reuse notifications fan-out.

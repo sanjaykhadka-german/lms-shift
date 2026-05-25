@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { and, asc, eq, isNotNull } from "drizzle-orm";
+import { and, asc, eq, gte, isNotNull, lt, sql } from "drizzle-orm";
 import {
   db,
   forTenant,
@@ -8,6 +8,8 @@ import {
   scDepartments,
   scEmployees,
   scLocations,
+  scShiftAssignments,
+  scShifts,
   users as appUsers,
 } from "@tracey/db";
 import { currentMembership } from "~/lib/auth/current";
@@ -22,6 +24,7 @@ import {
   splitSegmentByDay,
   startOfWeek,
 } from "~/lib/clock";
+import { listDailySales, sumGrossSales } from "~/lib/daily-sales";
 
 export const metadata = { title: "Reports · ShiftCraft" };
 
@@ -166,6 +169,63 @@ export default async function ReportsPage({
       .where(eq(scDepartments.traceyTenantId, tenantId))
       .orderBy(asc(scDepartments.name)),
   );
+
+  // AUDIT.md #9 — daily sales for this + prev week, and scheduled
+  // assignments for the variance card. Department filter doesn't apply
+  // to either (sales are tenant/location-level, schedule cost is a
+  // cross-department figure).
+  const thisStartIso = fmtIsoDate(thisWeekStart);
+  const thisEndIso = fmtIsoDate(thisWeekEnd);
+  const prevStartIso = fmtIsoDate(prevWeekStart);
+  const prevEndIso = fmtIsoDate(prevWeekEnd);
+  const [thisSales, prevSales, scheduledAssignments] = await Promise.all([
+    listDailySales(tenantId, thisStartIso, thisEndIso),
+    listDailySales(tenantId, prevStartIso, prevEndIso),
+    // Scheduled (accepted) assignments overlapping this week. Joined to
+    // sc_shifts for the window, status filter, and to project
+    // (startsAt, endsAt) once. Drafts excluded — they're not committed
+    // labour and shouldn't show up in a cost forecast.
+    forTenant(tenantId).run((tx) =>
+      tx
+        .select({
+          userId: scShiftAssignments.userId,
+          startsAt: scShifts.startsAt,
+          endsAt: scShifts.endsAt,
+        })
+        .from(scShiftAssignments)
+        .innerJoin(scShifts, eq(scShifts.id, scShiftAssignments.shiftId))
+        .where(
+          and(
+            eq(scShifts.traceyTenantId, tenantId),
+            eq(scShifts.status, "published"),
+            eq(scShiftAssignments.status, "accepted"),
+            sql`${scShifts.startsAt} >= ${thisWeekStart.toISOString()}::timestamptz`,
+            sql`${scShifts.startsAt} < ${thisWeekEnd.toISOString()}::timestamptz`,
+          ),
+        ),
+    ),
+  ]);
+
+  const totalSalesThis = sumGrossSales(thisSales);
+  const totalSalesPrev = sumGrossSales(prevSales);
+
+  // Scheduled cost: sum of (shift duration × employee rate) for
+  // every accepted+published shift this week. Skip rows where the
+  // employee has no rate so the figure isn't artificially low.
+  let scheduledCostThis = 0;
+  let scheduledHoursMsThis = 0;
+  let scheduledMissingRate = 0;
+  for (const a of scheduledAssignments) {
+    const ms = a.endsAt.getTime() - a.startsAt.getTime();
+    if (ms <= 0) continue;
+    scheduledHoursMsThis += ms;
+    const rate = rateByUser.get(a.userId);
+    if (rate == null) {
+      scheduledMissingRate += 1;
+      continue;
+    }
+    scheduledCostThis += (ms / 3_600_000) * rate;
+  }
 
   // If a department filter is active, narrow the user pool *before*
   // aggregating. Users without a department row are excluded — they
@@ -562,6 +622,103 @@ export default async function ReportsPage({
         </div>
       </section>
 
+      {/* AUDIT.md #9 — wages vs sales + schedule-vs-actual variance */}
+      <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <h2 className="text-base font-semibold">Wages vs sales</h2>
+          <Button asChild size="sm" variant="outline">
+            <Link href={`/app/admin/daily-sales?week=${fmtIsoDate(thisWeekStart)}`}>
+              Enter daily sales
+            </Link>
+          </Button>
+        </div>
+        {totalSalesThis === 0 && totalSalesPrev === 0 ? (
+          <div className="px-5 py-6 text-sm text-muted-foreground">
+            <p>
+              No daily-sales entries for this period. Enter revenue per
+              location/day on the Daily sales admin page to surface
+              labour-cost-as-percentage-of-revenue here.
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-4 p-5 sm:grid-cols-3">
+            <WagesSalesStat
+              label="Gross sales"
+              value={fmtMoney(totalSalesThis)}
+              previousValue={totalSalesPrev}
+              currentValue={totalSalesThis}
+              fmtDelta={(d) => fmtMoney(Math.abs(d))}
+            />
+            <WagesSalesStat
+              label="Actual wage cost"
+              value={fmtMoney(totalWageCostThis)}
+              previousValue={totalWageCostPrev}
+              currentValue={totalWageCostThis}
+              fmtDelta={(d) => fmtMoney(Math.abs(d))}
+              note={
+                peopleWithoutRate > 0
+                  ? `${peopleWithoutRate} without rate`
+                  : undefined
+              }
+            />
+            <LabourCostRatio
+              wage={totalWageCostThis}
+              sales={totalSalesThis}
+              prevWage={totalWageCostPrev}
+              prevSales={totalSalesPrev}
+            />
+          </div>
+        )}
+        <div className="border-t border-border bg-muted/30 px-5 py-2 text-[10px] uppercase tracking-wider text-muted-foreground">
+          Cost uses base rate × hours from clock activity. For
+          award-derived totals (OT + penalty rates), see Timesheets.
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <h2 className="text-base font-semibold">
+            Schedule vs actual variance
+          </h2>
+          <span className="text-xs text-muted-foreground">
+            Accepted shifts this week
+          </span>
+        </div>
+        {scheduledAssignments.length === 0 ? (
+          <div className="px-5 py-6 text-sm text-muted-foreground">
+            <p>
+              No accepted shifts in this week — nothing to compare.
+              Schedule + assign people to shifts to surface forecast vs
+              actual labour cost here.
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-4 p-5 sm:grid-cols-3">
+            <VarianceStat
+              label="Scheduled hours"
+              value={fmtHours(scheduledHoursMsThis)}
+              actual={fmtHours(totalThis)}
+              actualLabel="actual"
+            />
+            <VarianceStat
+              label="Scheduled cost"
+              value={fmtMoney(scheduledCostThis)}
+              actual={fmtMoney(totalWageCostThis)}
+              actualLabel="actual"
+              note={
+                scheduledMissingRate > 0
+                  ? `${scheduledMissingRate} without rate`
+                  : undefined
+              }
+            />
+            <CostVariance
+              scheduled={scheduledCostThis}
+              actual={totalWageCostThis}
+            />
+          </div>
+        )}
+      </section>
+
       <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
           <h2 className="text-base font-semibold">Hours by employee</h2>
@@ -760,6 +917,178 @@ function WageKpi({
         <div className="mt-1 text-[10px] text-muted-foreground">
           {missingCount} {missingCount === 1 ? "person" : "people"} excluded
           (no rate set)
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WagesSalesStat({
+  label,
+  value,
+  previousValue,
+  currentValue,
+  fmtDelta,
+  note,
+}: {
+  label: string;
+  value: string;
+  previousValue: number;
+  currentValue: number;
+  fmtDelta: (delta: number) => string;
+  note?: string;
+}) {
+  const diff = currentValue - previousValue;
+  const cls =
+    diff > 0
+      ? "text-emerald-600 dark:text-emerald-400"
+      : diff < 0
+        ? "text-[color:var(--destructive)]"
+        : "text-muted-foreground";
+  const sign = diff === 0 ? "±" : diff > 0 ? "+" : "−";
+  return (
+    <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
+      <div className="text-xs uppercase tracking-wider text-muted-foreground">
+        {label}
+      </div>
+      <div className="mt-2 text-2xl font-semibold tabular-nums">{value}</div>
+      <div className={`mt-1 text-xs font-medium ${cls}`}>
+        {sign}
+        {fmtDelta(diff)} vs last week
+      </div>
+      {note && (
+        <div className="mt-1 text-[10px] text-muted-foreground">{note}</div>
+      )}
+    </div>
+  );
+}
+
+function LabourCostRatio({
+  wage,
+  sales,
+  prevWage,
+  prevSales,
+}: {
+  wage: number;
+  sales: number;
+  prevWage: number;
+  prevSales: number;
+}) {
+  if (sales <= 0) {
+    return (
+      <div className="rounded-lg border border-border bg-muted/40 p-4 shadow-sm">
+        <div className="text-xs uppercase tracking-wider text-muted-foreground">
+          Labour cost %
+        </div>
+        <div className="mt-2 text-2xl font-semibold tabular-nums text-muted-foreground">
+          —
+        </div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          Enter sales to compute
+        </div>
+      </div>
+    );
+  }
+  const ratio = (wage / sales) * 100;
+  const prevRatio = prevSales > 0 ? (prevWage / prevSales) * 100 : null;
+  const diff = prevRatio == null ? null : ratio - prevRatio;
+  // Lower labour-cost-% is generally favourable for the business —
+  // invert the colour: green = went down, red = went up.
+  const cls =
+    diff == null || diff === 0
+      ? "text-muted-foreground"
+      : diff < 0
+        ? "text-emerald-600 dark:text-emerald-400"
+        : "text-[color:var(--destructive)]";
+  const sign = diff == null ? "" : diff === 0 ? "±" : diff > 0 ? "+" : "−";
+  return (
+    <div className="rounded-lg border-2 border-primary/40 bg-card p-4 shadow-sm">
+      <div className="text-xs uppercase tracking-wider text-muted-foreground">
+        Labour cost %
+      </div>
+      <div className="mt-2 text-2xl font-semibold tabular-nums">
+        {ratio.toFixed(1)}%
+      </div>
+      {diff != null && (
+        <div className={`mt-1 text-xs font-medium ${cls}`}>
+          {sign}
+          {Math.abs(diff).toFixed(1)} pts vs last week
+        </div>
+      )}
+      {diff == null && (
+        <div className="mt-1 text-xs text-muted-foreground">
+          No prior-week comparison
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VarianceStat({
+  label,
+  value,
+  actual,
+  actualLabel,
+  note,
+}: {
+  label: string;
+  value: string;
+  actual: string;
+  actualLabel: string;
+  note?: string;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
+      <div className="text-xs uppercase tracking-wider text-muted-foreground">
+        {label}
+      </div>
+      <div className="mt-2 text-2xl font-semibold tabular-nums">{value}</div>
+      <div className="mt-1 text-xs text-muted-foreground">
+        <span className="font-medium tabular-nums">{actual}</span>{" "}
+        {actualLabel}
+      </div>
+      {note && (
+        <div className="mt-1 text-[10px] text-muted-foreground">{note}</div>
+      )}
+    </div>
+  );
+}
+
+function CostVariance({
+  scheduled,
+  actual,
+}: {
+  scheduled: number;
+  actual: number;
+}) {
+  // Variance = actual − scheduled. Positive = over budget (red);
+  // negative = under budget (green). Match the operator's mental
+  // model: "did we overspend on labour relative to the roster?"
+  const diff = actual - scheduled;
+  const cls =
+    diff > 0
+      ? "text-[color:var(--destructive)]"
+      : diff < 0
+        ? "text-emerald-600 dark:text-emerald-400"
+        : "text-muted-foreground";
+  const sign = diff === 0 ? "±" : diff > 0 ? "+" : "−";
+  const pct = scheduled > 0 ? (diff / scheduled) * 100 : null;
+  return (
+    <div className="rounded-lg border-2 border-primary/40 bg-card p-4 shadow-sm">
+      <div className="text-xs uppercase tracking-wider text-muted-foreground">
+        Variance
+      </div>
+      <div className={`mt-2 text-2xl font-semibold tabular-nums ${cls}`}>
+        {sign}
+        {fmtMoney(Math.abs(diff))}
+      </div>
+      {pct != null && (
+        <div className={`mt-1 text-xs font-medium ${cls}`}>
+          {sign}
+          {Math.abs(pct).toFixed(1)}%{" "}
+          <span className="text-muted-foreground">
+            {diff >= 0 ? "over scheduled" : "under scheduled"}
+          </span>
         </div>
       )}
     </div>

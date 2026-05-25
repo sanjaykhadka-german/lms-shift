@@ -169,6 +169,13 @@
       "when": 1779677744809,
       "tag": "0023_dashing_wendigo",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1779679406815,
+      "tag": "0024_exotic_starfox",
+      "breakpoints": true
     }
   ]
 }
