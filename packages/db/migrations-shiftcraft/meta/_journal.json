@@ -155,6 +155,13 @@
       "when": 1779671596317,
       "tag": "0021_conscious_chameleon",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1779676200098,
+      "tag": "0022_fearless_albert_cleary",
+      "breakpoints": true
     }
   ]
 }

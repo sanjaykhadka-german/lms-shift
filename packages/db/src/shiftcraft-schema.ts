@@ -31,6 +31,7 @@ import {
   check,
   customType,
   date,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -69,6 +70,17 @@ export const scLocations = pgTable(
     // shorthand) so the UI doesn't need a parser — checked in the DB so
     // bad data can't sneak in via direct SQL either.
     color: text("color"),
+    // Geofence config (Phase 2 #7a). All three are optional; setting a
+    // radius without lat/lng — or vice versa — silently disables
+    // geofence for this location. The mobile clock surface walks the
+    // tenant's locations, computes Haversine distance to each that has
+    // all three set, and picks the nearest one within its radius.
+    // Range checks (-90..90, -180..180, radius positive) enforced in
+    // the admin save action; we don't add a CHECK so future global
+    // tooling can write rows without the form layer.
+    lat: doublePrecision("lat"),
+    lng: doublePrecision("lng"),
+    geofenceRadiusM: integer("geofence_radius_m"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

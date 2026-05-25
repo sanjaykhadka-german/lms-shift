@@ -32,6 +32,9 @@ interface Props {
     timezone: string;
     address: string | null;
     color: string | null;
+    lat: number | null;
+    lng: number | null;
+    geofenceRadiusM: number | null;
   };
 }
 
@@ -121,6 +124,78 @@ export function LocationForm({ mode, locationId, defaultValues }: Props) {
           </p>
         )}
       </div>
+
+      <fieldset className="sm:col-span-2 space-y-3 rounded-md border border-border p-4">
+        <legend className="px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Geofence (Phase 2 #7a)
+        </legend>
+        <p className="text-xs text-muted-foreground">
+          Set lat/lng + radius to let employees clock in from a phone
+          when they&rsquo;re physically near this site. Leave any field
+          blank to disable geofence for this location. Quickest way to
+          grab coordinates: open Google Maps, right-click the site
+          pin, copy the first two numbers.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="lat">Latitude</Label>
+            <Input
+              id="lat"
+              name="lat"
+              type="number"
+              inputMode="decimal"
+              step="0.0000001"
+              min={-90}
+              max={90}
+              defaultValue={defaultValues?.lat?.toString() ?? ""}
+              placeholder="-37.7660"
+            />
+            {state.status === "error" && state.fieldErrors?.lat && (
+              <p className="text-xs text-[color:var(--destructive)]">
+                {state.fieldErrors.lat[0]}
+              </p>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="lng">Longitude</Label>
+            <Input
+              id="lng"
+              name="lng"
+              type="number"
+              inputMode="decimal"
+              step="0.0000001"
+              min={-180}
+              max={180}
+              defaultValue={defaultValues?.lng?.toString() ?? ""}
+              placeholder="144.9620"
+            />
+            {state.status === "error" && state.fieldErrors?.lng && (
+              <p className="text-xs text-[color:var(--destructive)]">
+                {state.fieldErrors.lng[0]}
+              </p>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="geofenceRadiusM">Radius (m)</Label>
+            <Input
+              id="geofenceRadiusM"
+              name="geofenceRadiusM"
+              type="number"
+              inputMode="numeric"
+              step={1}
+              min={1}
+              max={5000}
+              defaultValue={defaultValues?.geofenceRadiusM?.toString() ?? ""}
+              placeholder="100"
+            />
+            {state.status === "error" && state.fieldErrors?.geofenceRadiusM && (
+              <p className="text-xs text-[color:var(--destructive)]">
+                {state.fieldErrors.geofenceRadiusM[0]}
+              </p>
+            )}
+          </div>
+        </div>
+      </fieldset>
 
       <div className="sm:col-span-2 flex items-center gap-3">
         <Button type="submit" disabled={pending}>

@@ -1,14 +1,32 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, desc, eq, isNull } from "drizzle-orm";
-import { forTenant, scClockEvents, type ScClockEventType } from "@tracey/db";
+import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
+import {
+  forTenant,
+  scClockEvents,
+  scLocations,
+  type ScClockEventSource,
+  type ScClockEventType,
+} from "@tracey/db";
 import { currentMembership, currentUser } from "~/lib/auth/current";
 import { validateTransition } from "~/lib/clock";
+import { findNearestWithinRadius, type GeofenceCandidate } from "~/lib/geofence";
 
 export type PunchResult =
   | { status: "ok" }
   | { status: "error"; message: string };
+
+// Parse a coordinate from a form field. Accepts blank → null; otherwise
+// returns a finite number or null on bad input. Tighter than parseFloat
+// (which would treat "abc" as NaN and propagate).
+function parseCoord(raw: FormDataEntryValue | null): number | null {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (s === "") return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
 
 async function recordPunch(
   eventType: ScClockEventType,
@@ -21,10 +39,59 @@ async function recordPunch(
     return { status: "error", message: "No workspace selected." };
   }
 
+  const tenantId = membership.tenant.id;
   const locationIdRaw = String(formData.get("locationId") ?? "").trim();
-  const locationId = locationIdRaw.length > 0 ? locationIdRaw : null;
+  let locationId = locationIdRaw.length > 0 ? locationIdRaw : null;
+  let source: ScClockEventSource = "manual";
   const notesRaw = String(formData.get("notes") ?? "").trim();
   const notes = notesRaw.length > 0 ? notesRaw : null;
+
+  // AUDIT.md #7a — when the client sends a GPS reading, resolve to a
+  // location server-side and tag the punch with source='geofence'.
+  // The client also pre-fills the locationId in the dropdown for UX,
+  // but we re-derive here so a tampered client can't claim a bogus
+  // location. If no geofenced location matches the GPS, fall back to
+  // whatever the dropdown said (source stays 'manual').
+  const lat = parseCoord(formData.get("lat"));
+  const lng = parseCoord(formData.get("lng"));
+  if (lat != null && lng != null) {
+    const candidateRows = await forTenant(tenantId).run((tx) =>
+      tx
+        .select({
+          id: scLocations.id,
+          name: scLocations.name,
+          lat: scLocations.lat,
+          lng: scLocations.lng,
+          radiusM: scLocations.geofenceRadiusM,
+        })
+        .from(scLocations)
+        .where(
+          and(
+            eq(scLocations.traceyTenantId, tenantId),
+            isNotNull(scLocations.lat),
+            isNotNull(scLocations.lng),
+            isNotNull(scLocations.geofenceRadiusM),
+          ),
+        ),
+    );
+    const candidates: GeofenceCandidate[] = candidateRows
+      .filter(
+        (r): r is { id: string; name: string; lat: number; lng: number; radiusM: number } =>
+          r.lat != null && r.lng != null && r.radiusM != null,
+      )
+      .map((r) => ({
+        locationId: r.id,
+        name: r.name,
+        lat: r.lat,
+        lng: r.lng,
+        radiusM: r.radiusM,
+      }));
+    const match = findNearestWithinRadius(lat, lng, candidates);
+    if (match) {
+      locationId = match.locationId;
+      source = "geofence";
+    }
+  }
 
   // Enforce a valid state transition based on the most recent event. The DB
   // can't enforce this with a CHECK (it's stream-state, not row-state) so
@@ -32,7 +99,6 @@ async function recordPunch(
   // events back-to-back — `deriveClockState` ignores the second so the
   // downstream timesheet aggregation is still correct, but blocking up
   // front gives a friendlier error.
-  const tenantId = membership.tenant.id;
   const last = await forTenant(tenantId).run((tx) =>
     tx
       .select({ eventType: scClockEvents.eventType })
@@ -59,7 +125,7 @@ async function recordPunch(
       locationId,
       eventType,
       notes,
-      source: "manual",
+      source,
     }),
   );
 

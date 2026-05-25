@@ -12,6 +12,37 @@ export type FormState =
   | { status: "ok"; message: string }
   | { status: "error"; message: string; fieldErrors?: Record<string, string[]> };
 
+// Geofence input coerce: blank → null, otherwise a finite number in
+// the valid range; out-of-range fails the schema and the form shows
+// a field error.
+const geofenceLatField = z
+  .union([
+    z.literal(""),
+    z.coerce.number().refine(
+      (n) => Number.isFinite(n) && n >= -90 && n <= 90,
+      "Latitude must be between -90 and 90",
+    ),
+  ])
+  .optional();
+const geofenceLngField = z
+  .union([
+    z.literal(""),
+    z.coerce.number().refine(
+      (n) => Number.isFinite(n) && n >= -180 && n <= 180,
+      "Longitude must be between -180 and 180",
+    ),
+  ])
+  .optional();
+const geofenceRadiusField = z
+  .union([
+    z.literal(""),
+    z.coerce.number().int().refine(
+      (n) => Number.isFinite(n) && n >= 1 && n <= 5000,
+      "Radius must be between 1 and 5000 metres",
+    ),
+  ])
+  .optional();
+
 const locationSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(120, "Too long"),
   timezone: z.string().trim().min(1, "Timezone is required").max(64),
@@ -25,7 +56,14 @@ const locationSchema = z.object({
         .regex(/^#[0-9a-f]{6}$/i, "Use a #RRGGBB hex value like #7C1F1F"),
     ])
     .optional(),
+  lat: geofenceLatField,
+  lng: geofenceLngField,
+  geofenceRadiusM: geofenceRadiusField,
 });
+
+function coerceCoord(v: number | "" | undefined): number | null {
+  return typeof v === "number" ? v : null;
+}
 
 function emptyToNull(v: string | undefined | null): string | null {
   if (!v) return null;
@@ -48,6 +86,9 @@ export async function createLocationAction(
     timezone: formData.get("timezone"),
     address: formData.get("address") ?? "",
     color: formData.get("color") ?? "",
+    lat: formData.get("lat") ?? "",
+    lng: formData.get("lng") ?? "",
+    geofenceRadiusM: formData.get("geofenceRadiusM") ?? "",
   });
   if (!parsed.success) {
     return {
@@ -64,6 +105,9 @@ export async function createLocationAction(
       timezone: parsed.data.timezone,
       address: emptyToNull(parsed.data.address),
       color: emptyToNull(parsed.data.color)?.toLowerCase() ?? null,
+      lat: coerceCoord(parsed.data.lat),
+      lng: coerceCoord(parsed.data.lng),
+      geofenceRadiusM: coerceCoord(parsed.data.geofenceRadiusM),
       traceyTenantId: tenant.id,
     }),
   );
@@ -81,6 +125,9 @@ export async function updateLocationAction(
     timezone: formData.get("timezone"),
     address: formData.get("address") ?? "",
     color: formData.get("color") ?? "",
+    lat: formData.get("lat") ?? "",
+    lng: formData.get("lng") ?? "",
+    geofenceRadiusM: formData.get("geofenceRadiusM") ?? "",
   });
   if (!parsed.success) {
     return {
@@ -99,6 +146,9 @@ export async function updateLocationAction(
         timezone: parsed.data.timezone,
         address: emptyToNull(parsed.data.address),
         color: emptyToNull(parsed.data.color)?.toLowerCase() ?? null,
+        lat: coerceCoord(parsed.data.lat),
+        lng: coerceCoord(parsed.data.lng),
+        geofenceRadiusM: coerceCoord(parsed.data.geofenceRadiusM),
       })
       .where(and(eq(scLocations.id, id), eq(scLocations.traceyTenantId, tenant.id))),
   );
