@@ -4,7 +4,9 @@ import { and, desc, eq } from "drizzle-orm";
 import { forTenant, scTimeOffRequests, users } from "@tracey/db";
 import { currentMembership, requireUser } from "~/lib/auth/current";
 import { findAffectedShiftsForRequests } from "~/lib/time-off-impact";
+import { getHolidaysForTenant, type HolidayRow } from "~/lib/holidays";
 import { Button } from "~/components/ui/button";
+import { InfoPopover } from "~/components/InfoPopover";
 import { TimeOffForm } from "./_form";
 import {
   approveTimeOffAction,
@@ -94,6 +96,31 @@ export default async function TimeOffPage({
     })),
   );
 
+  // AUDIT.md #6 — fetch public holidays that fall inside the spanning
+  // window of visible leave requests, once. Per-request filtering is a
+  // cheap JS pass over what's typically a small array (~10 holidays
+  // for any reasonable date range).
+  const holidaysByRequest = new Map<string, HolidayRow[]>();
+  if (rows.length > 0) {
+    let minStart = rows[0]!.startDate;
+    let maxEnd = rows[0]!.endDate;
+    for (const r of rows) {
+      if (r.startDate < minStart) minStart = r.startDate;
+      if (r.endDate > maxEnd) maxEnd = r.endDate;
+    }
+    const windowHolidays = await getHolidaysForTenant(
+      membership.tenant.id,
+      minStart,
+      maxEnd,
+    );
+    for (const r of rows) {
+      const overlap = windowHolidays.filter(
+        (h) => h.date >= r.startDate && h.date <= r.endDate,
+      );
+      if (overlap.length > 0) holidaysByRequest.set(r.id, overlap);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-10">
       <div>
@@ -148,6 +175,10 @@ export default async function TimeOffPage({
               const offeredAffected = affected.filter(
                 (a) => a.status === "offered",
               ).length;
+              // AUDIT.md #6 — public holidays overlapping this request.
+              // Visible to both admin and employee; the chip is purely
+              // informational ("FYI this leave spans a holiday").
+              const holidayOverlap = holidaysByRequest.get(r.id) ?? [];
               return (
                 <li key={r.id} className="px-5 py-4">
                   <div className="flex items-start justify-between gap-3">
@@ -233,6 +264,62 @@ export default async function TimeOffPage({
                       No published shifts assigned to this person in the
                       requested window.
                     </p>
+                  )}
+
+                  {holidayOverlap.length > 0 && (
+                    <details className="mt-3 rounded-md border border-purple-500/40 bg-purple-50/60 px-3 py-2 text-xs dark:border-purple-500/30 dark:bg-purple-950/20">
+                      <summary className="cursor-pointer font-medium text-purple-900 dark:text-purple-200">
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="inline-flex items-center rounded-full bg-purple-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
+                            {holidayOverlap.length === 1
+                              ? "1 public holiday"
+                              : `${holidayOverlap.length} public holidays`}
+                          </span>
+                          <span className="font-normal text-muted-foreground">
+                            during this leave — click for dates
+                          </span>
+                          <InfoPopover
+                            label="About this notice"
+                            align="right"
+                          >
+                            <p className="font-semibold">Heads up</p>
+                            <p className="mt-1">
+                              This leave range overlaps one or more
+                              gazetted public holidays for your tenant
+                              region. Depending on your award profile,
+                              you may not need to deduct annual leave
+                              for those days, or they may attract a
+                              public-holiday penalty rate in the cost
+                              calc.
+                            </p>
+                            <p className="mt-1">
+                              Accrual logic isn&rsquo;t enforced yet
+                              (deferred to a later slice) — this notice
+                              is informational so you can make the call
+                              while approving.
+                            </p>
+                          </InfoPopover>
+                        </span>
+                      </summary>
+                      <ul className="mt-2 space-y-1 text-purple-900 dark:text-purple-200">
+                        {holidayOverlap.map((h) => (
+                          <li
+                            key={`${h.date}-${h.name}`}
+                            className="flex items-center justify-between gap-3"
+                          >
+                            <span className="font-medium">{h.name}</span>
+                            <span className="font-mono tabular-nums text-muted-foreground">
+                              {fmtDate(h.date)}
+                              {!h.isNational ? (
+                                <span className="ml-1 inline-flex items-center rounded-full bg-purple-600/20 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-purple-900 dark:text-purple-200">
+                                  {h.region}
+                                </span>
+                              ) : null}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
                   )}
 
                   {(canReview || canCancel) && (
