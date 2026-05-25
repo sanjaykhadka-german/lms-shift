@@ -1199,6 +1199,169 @@ export const scDailySales = pgTable(
   ],
 );
 
+// ─── Xero payroll integration (AUDIT.md #5) ─────────────────────────
+//
+// Four tables, one Xero org per tenant. Pattern mirrors Deputy's
+// integration:
+//
+//   sc_xero_connections        — OAuth tokens (AES-256-GCM at rest)
+//   sc_xero_earnings_mapping   — internal category → Xero earnings rate
+//   sc_xero_employee_links     — sc_employees.id → Xero employee uuid
+//   sc_xero_pay_runs           — export ledger: one row per (tenant,
+//                                 week) submission; idempotent via the
+//                                 unique index.
+//
+// Tokens never leave the server. Refresh happens in lib/payroll/xero.ts
+// at request time; the access token is short-lived (30min) and
+// re-issued via the long-lived refresh token. Hard rule from AUDIT.md:
+// ShiftCraft NEVER calculates tax/super/payslips — Xero owns that.
+
+export const scXeroConnections = pgTable(
+  "sc_xero_connections",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    // The Xero tenant id (org uuid Xero uses to scope API calls).
+    // Distinct from `tracey_tenant_id`. Returned by Xero's
+    // `/connections` endpoint after consent.
+    xeroTenantId: text("xero_tenant_id").notNull(),
+    xeroTenantName: text("xero_tenant_name"),
+    // PII-encrypted tokens. Use @tracey/db/pii encrypt/decrypt at
+    // read/write time. Never select on a list endpoint.
+    accessTokenEnc: text("access_token_enc").notNull(),
+    refreshTokenEnc: text("refresh_token_enc").notNull(),
+    accessTokenExpiresAt: timestamp("access_token_expires_at", {
+      withTimezone: true,
+    }).notNull(),
+    scopes: text("scopes"),
+    connectedByUserId: uuid("connected_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    connectedAt: timestamp("connected_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // One Xero connection per tenant. Re-connecting overwrites the
+    // existing row rather than stacking; the upsert is keyed on the
+    // tenant_id alone (Xero org id can change if the user reconnects
+    // to a different org).
+    uniqueIndex("sc_xero_connections_tenant_uq").on(t.traceyTenantId),
+  ],
+);
+
+// Category vocabulary the timesheet classifier emits:
+//   ordinary       — base hours at base rate
+//   overtime       — 1.5x or 2x band
+//   penalty_sat    — Saturday penalty rate
+//   penalty_sun    — Sunday penalty rate
+//   penalty_ph     — Public holiday penalty rate
+//   penalty_night  — Late-night / early-morning penalty
+//   allowance      — flat allowances (per-shift or per-hour)
+//
+// Tenants map each to a Xero EarningsRate id. If an export needs a
+// category the tenant hasn't mapped, the action returns an error
+// listing the missing categories — same friendly error shape as the
+// earnings-rate config UI.
+
+export const scXeroEarningsMapping = pgTable(
+  "sc_xero_earnings_mapping",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    category: text("category").notNull(),
+    xeroEarningsRateId: text("xero_earnings_rate_id").notNull(),
+    // Denormalised for the UI — saves a Xero round-trip just to
+    // render the mapping table.
+    xeroEarningsRateName: text("xero_earnings_rate_name"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("sc_xero_earnings_mapping_tenant_cat_uq").on(
+      t.traceyTenantId,
+      t.category,
+    ),
+    check(
+      "sc_xero_earnings_mapping_category_chk",
+      sql`${t.category} in ('ordinary','overtime','penalty_sat','penalty_sun','penalty_ph','penalty_night','allowance')`,
+    ),
+  ],
+);
+
+export const scXeroEmployeeLinks = pgTable(
+  "sc_xero_employee_links",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    scEmployeeId: uuid("sc_employee_id").notNull(),
+    xeroEmployeeId: text("xero_employee_id").notNull(),
+    // Denormalised name at link time for the admin UI; refreshed on
+    // next list operation.
+    xeroEmployeeName: text("xero_employee_name"),
+    linkedAt: timestamp("linked_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("sc_xero_employee_links_emp_uq").on(
+      t.traceyTenantId,
+      t.scEmployeeId,
+    ),
+    uniqueIndex("sc_xero_employee_links_xero_uq").on(
+      t.traceyTenantId,
+      t.xeroEmployeeId,
+    ),
+  ],
+);
+
+// Pay-run export ledger. One row per (tenant, week) submission. The
+// xeroPayRunId is null until Xero accepts the draft POST; on read-back
+// the summary jsonb fills with per-employee gross/net pulled from the
+// finalised pay run.
+//
+// Idempotent on (tenant, week_start) — re-export of an already-submitted
+// week is a no-op + reuses the existing xeroPayRunId for read-back.
+
+export const scXeroPayRuns = pgTable(
+  "sc_xero_pay_runs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    weekStart: date("week_start").notNull(),
+    status: text("status").notNull().default("draft"),
+    xeroPayRunId: text("xero_pay_run_id"),
+    summary: jsonb("summary"),
+    submittedByUserId: uuid("submitted_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    submittedAt: timestamp("submitted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    finalisedAt: timestamp("finalised_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("sc_xero_pay_runs_tenant_week_uq").on(
+      t.traceyTenantId,
+      t.weekStart,
+    ),
+    index("sc_xero_pay_runs_tenant_idx").on(t.traceyTenantId, t.submittedAt),
+    check(
+      "sc_xero_pay_runs_status_chk",
+      sql`${t.status} in ('draft','submitted','finalised','failed')`,
+    ),
+  ],
+);
+
 // ─── Skills + employee skills (AUDIT.md #8 auto-scheduler) ──────────
 //
 // Per-tenant skill catalogue. A skill is a free-text label
@@ -1586,3 +1749,20 @@ export type ScSkill = typeof scSkills.$inferSelect;
 export type NewScSkill = typeof scSkills.$inferInsert;
 export type ScEmployeeSkill = typeof scEmployeeSkills.$inferSelect;
 export type NewScEmployeeSkill = typeof scEmployeeSkills.$inferInsert;
+export type ScXeroConnection = typeof scXeroConnections.$inferSelect;
+export type NewScXeroConnection = typeof scXeroConnections.$inferInsert;
+export type ScXeroEarningsMapping = typeof scXeroEarningsMapping.$inferSelect;
+export type NewScXeroEarningsMapping = typeof scXeroEarningsMapping.$inferInsert;
+export type ScXeroEmployeeLink = typeof scXeroEmployeeLinks.$inferSelect;
+export type NewScXeroEmployeeLink = typeof scXeroEmployeeLinks.$inferInsert;
+export type ScXeroPayRun = typeof scXeroPayRuns.$inferSelect;
+export type NewScXeroPayRun = typeof scXeroPayRuns.$inferInsert;
+export type ScXeroPayRunStatus = "draft" | "submitted" | "finalised" | "failed";
+export type ScPayrollCategory =
+  | "ordinary"
+  | "overtime"
+  | "penalty_sat"
+  | "penalty_sun"
+  | "penalty_ph"
+  | "penalty_night"
+  | "allowance";

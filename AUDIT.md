@@ -146,21 +146,23 @@ Recommended Phase 2 housing: new `packages/award` package with a pure rules engi
 
 ---
 
-### Feature 5 — Payroll export · ❌
+### Feature 5 — Payroll export · 🟡
 
 **Implemented**
-- Nothing payroll-provider-specific
-- CSV export at `app/api/timesheets/export/route.ts` (useful as a fallback / sanity check, not a substitute)
+- ✅ **Xero adapter shipped** 2026-05-25 — `xero-node` SDK, per-tenant OAuth 2.0 connection (one Xero org per workspace) with encrypted access/refresh tokens (AES-256-GCM via `@tracey/db/pii`), auto-refresh on every call.
+- ✅ **Earnings-code mapping** — `sc_xero_earnings_mapping` per-tenant table; admin UI at `/app/admin/payroll` lets owner map each ShiftCraft category (`ordinary` · `overtime` · `penalty_sat` · `penalty_sun` · `penalty_ph` · `penalty_night` · `allowance`) to a Xero `EarningsRate` ID. Pre-export validation lists every category the week actually uses against the mapping, fails fast if any are unmapped.
+- ✅ **Employee linking** — `sc_xero_employee_links` per-tenant table; admin maps each `sc_employees.id` to a Xero `EmployeeID`. Unlinked employees are skipped on export with a friendly warning (one failed link doesn't block the rest).
+- ✅ **Draft pay-run creation** — `/app/admin/payroll` "Send timesheets to Xero" form classifies the week via the existing award classifier, builds per-(employee, week) Xero Timesheets with per-day unit arrays, pushes via `payrollAUApi.createTimesheet` at status `APPROVED`. The Xero admin finalises the pay run in Xero.
+- ✅ **Idempotency** — `sc_xero_pay_runs` ledger unique on (tenant, week_start). Re-export upserts the same row with a fresh idempotency key. CSV export at `app/api/timesheets/export/route.ts` remains as a fallback.
+- ✅ **Post-finalisation pull-back** — admin pastes the Xero `PayRunID` into the read-back form; `payrollAUApi.getPayRun` totals (gross / net / tax / super) persist into `sc_xero_pay_runs.summary` for the Reports page.
 
-**Missing**
-- Adapter interface (`packages/payroll-export` with one module per provider; Xero ships first per scope clarification)
-- Tenant-level **earnings-code mapping** (ordinary / OT / penalty / allowance → provider code)
-- **Draft pay-run creation** in the provider; manager finalises there
-- **Idempotency** — re-running export does not duplicate
-- **Per-employee export status** visible in `/app/timesheets`
-- **Post-finalisation pull-back** of gross/net summary so `/app/reports` shows actual wage cost (read-only)
+**Missing / deferred**
+- **Per-employee export status** in `/app/timesheets` — the export ledger row exists but the row-level UI surfacing it is a v2 polish.
+- **Multi-org chooser** — current flow grabs the first Xero org returned by `/connections`; multi-org admins get whichever Xero defaulted to.
+- **Overtime-on-a-penalty-day at a separate rate** — v1 semantics: on Sat/Sun/PH days, all worked minutes (including OT) flow into the day's penalty bucket. Splitting OT-on-penalty needs the classifier to emit a combo category — explicit follow-up.
+- **MYOB / ADP / Gusto / QuickBooks adapters** — interface is provider-shaped (`lib/payroll/*`) so they can slot in; not implemented yet.
 
-**Hard rule for Phase 2:** ShiftCraft never calculates tax / super / payslips. Hours + interpreted pay categories handed off to Xero; Xero finalises and ShiftCraft reads back.
+**Hard rule reaffirmed:** ShiftCraft never calculates tax / super / payslips. Hours + interpreted pay categories handed off to Xero; Xero finalises and ShiftCraft reads back.
 
 ---
 
@@ -232,7 +234,7 @@ Dependency-ordered so each item unblocks the next. Sizing: S < ~1 day, M ~1-3 da
 2. **Onboarding completion** (M) — magic-link signup (email-first; SMS deferred to #11), profile-completion form (DOB / address / emergency contact / TFN / super / bank — encrypted), document upload (cross-reference `packages/storage` from planning lineage), e-sign PDF + IP/UA/timestamp audit trail. Skills tagging deferred to #8.
 3. **AU public-holiday calendar + rate interpreter** (M) — new `packages/award`, pure functions, unit-test heavy. Per-region holiday table. Unblocks #4, #6 accrual, #9 variance.
 4. **Timesheet derivation upgrade** (S) — wire interpreter into existing approval flow, display derived OT/penalty/allowance lines, lock approved timesheets behind audit-tracked reopen.
-5. **Xero payroll adapter** (M) — adapter interface in `packages/payroll-export`, Xero implementation first (MYOB/ADP/Gusto/QuickBooks slot in later). Tenant-level earnings-code mapping. Idempotent draft pay-run. Pull-back gross/net.
+5. **Xero payroll adapter** (M) — ✅ shipped 2026-05-25. `xero-node` + OAuth + 4 per-tenant tables (connections, earnings mapping, employee links, pay-run ledger) + admin UI + draft pay-run export from approved week's classifier output + read-back of finalised totals. Prod needs three env vars (`XERO_CLIENT_ID`, `XERO_CLIENT_SECRET`, `XERO_REDIRECT_URI`) from a developer.xero.com app registration. MYOB/ADP/Gusto/QuickBooks adapters slot in later via the same interface shape.
 6. **Leave types + accrual + roster-clash guard** (S) — ✅ catalogue + clash guard shipped 2026-05-25; accrual on approved hours + balance UI still deferred (depends on Feature 4 interpreter).
 7. **Geofence + selfie clock-in** (M) — wire the existing `geofence` enum: mobile-web GPS first, `geofence_radius_m` on `sc_locations`, selfie via getUserMedia → object storage. Offline sync deferred until customers ask.
 8. **Auto-scheduler v1** (M-L) — ✅ shipped 2026-05-25. Greedy generator + `/app/schedule/auto-fill` UI + `sc_skills` + `sc_employee_skills` per-tenant tables + `required_skill_id` on `sc_shifts`. Constraints respected: availability jsonb, approved leave, required skill, 40h weekly cap, 10h min rest. Wage-budget guardrail + POS forecast slot still deferred; skills-tagging on `sc_shift_templates` also deferred (manager picks the skill when stamping a template onto a date).
