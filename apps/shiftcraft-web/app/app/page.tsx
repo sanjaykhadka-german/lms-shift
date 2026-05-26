@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { and, asc, count, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import {
   db,
@@ -122,6 +123,30 @@ export default async function DashboardPage({
 
   const isAdmin = membership.role === "admin" || membership.role === "owner";
   const tenantId = membership.tenant.id;
+
+  // AUDIT.md #2 polish — worker-side onboarding redirect. If the
+  // signed-in user has a sc_employees row whose onboarding_status is
+  // still 'pending' (never opened the welcome page), redirect there
+  // so they finish before seeing the dashboard. Admins and rosterless
+  // users skip — only workers attached to a roster row get the
+  // forcing function.
+  const [selfEmployee] = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({
+        onboardingStatus: scEmployees.onboardingStatus,
+      })
+      .from(scEmployees)
+      .where(
+        and(
+          eq(scEmployees.traceyTenantId, tenantId),
+          eq(scEmployees.appUserId, user.id),
+        ),
+      )
+      .limit(1),
+  );
+  if (selfEmployee && selfEmployee.onboardingStatus === "pending") {
+    redirect("/app/welcome");
+  }
   const sp = await searchParams;
   const requestedWeek = sp.week ? new Date(sp.week) : null;
   const baseDay =

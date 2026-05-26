@@ -1,0 +1,425 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { and, eq, sql } from "drizzle-orm";
+import { z } from "zod";
+import {
+  forTenant,
+  scDocuments,
+  scEmployees,
+  scEmployeeOnboardingTasks,
+} from "@tracey/db";
+import { encryptPii } from "@tracey/db/pii";
+import { currentMembership, requireUser } from "~/lib/auth/current";
+import { logAuditEvent } from "~/lib/audit";
+
+// ─── Worker-side onboarding actions (AUDIT.md #2 polish) ────────────
+//
+// Each action below MUST resolve the caller's OWN sc_employees row by
+// matching app_user_id to currentUser.id. The form never carries an
+// employeeId — there's no parameter to spoof — and the underlying row
+// is looked up server-side every time. RLS handles cross-tenant; the
+// ownership join handles cross-employee within the same tenant.
+
+export type FormState =
+  | { status: "idle" }
+  | { status: "ok"; message: string }
+  | { status: "error"; message: string; fieldErrors?: Record<string, string[]> };
+
+interface SelfContext {
+  tenantId: string;
+  userId: string;
+  employeeId: string;
+}
+
+async function requireSelfEmployee(): Promise<SelfContext | null> {
+  const membership = await currentMembership();
+  if (!membership) return null;
+  const user = await requireUser();
+  const tenantId = membership.tenant.id;
+  const [emp] = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({ id: scEmployees.id })
+      .from(scEmployees)
+      .where(
+        and(
+          eq(scEmployees.traceyTenantId, tenantId),
+          eq(scEmployees.appUserId, user.id),
+        ),
+      )
+      .limit(1),
+  );
+  if (!emp) return null;
+  return { tenantId, userId: user.id, employeeId: emp.id };
+}
+
+// ─── Personal details ────────────────────────────────────────────────
+
+const personalSchema = z.object({
+  preferredName: z.string().trim().max(80).optional().or(z.literal("")),
+  gender: z
+    .string()
+    .optional()
+    .or(z.literal(""))
+    .refine(
+      (v) =>
+        !v || ["female", "male", "non_binary", "prefer_not_to_say"].includes(v),
+      "Pick a valid value",
+    ),
+  dateOfBirth: z.string().optional().or(z.literal("")),
+  addressLine: z.string().trim().max(300).optional().or(z.literal("")),
+  emergencyContactName: z.string().trim().max(120).optional().or(z.literal("")),
+  emergencyContactPhone: z.string().trim().max(40).optional().or(z.literal("")),
+});
+
+function emptyToNull(v: string | undefined | null): string | null {
+  return v && v.length > 0 ? v : null;
+}
+
+export async function selfUpdatePersonalAction(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const ctx = await requireSelfEmployee();
+  if (!ctx) {
+    return {
+      status: "error",
+      message: "You don't have a roster row yet — ask your manager.",
+    };
+  }
+  const parsed = personalSchema.safeParse({
+    preferredName: formData.get("preferredName") ?? "",
+    gender: formData.get("gender") ?? "",
+    dateOfBirth: formData.get("dateOfBirth") ?? "",
+    addressLine: formData.get("addressLine") ?? "",
+    emergencyContactName: formData.get("emergencyContactName") ?? "",
+    emergencyContactPhone: formData.get("emergencyContactPhone") ?? "",
+  });
+  if (!parsed.success) {
+    return {
+      status: "error",
+      message: "Please fix the highlighted fields.",
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  await forTenant(ctx.tenantId).run((tx) =>
+    tx
+      .update(scEmployees)
+      .set({
+        preferredName: emptyToNull(parsed.data.preferredName),
+        gender: emptyToNull(parsed.data.gender),
+        dateOfBirth: emptyToNull(parsed.data.dateOfBirth),
+        addressLine: emptyToNull(parsed.data.addressLine),
+        emergencyContactName: emptyToNull(parsed.data.emergencyContactName),
+        emergencyContactPhone: emptyToNull(parsed.data.emergencyContactPhone),
+        // First save promotes pending → in_progress so the manager
+        // queue surfaces ongoing onboarding.
+        onboardingStatus: sql`CASE WHEN ${scEmployees.onboardingStatus} = 'pending' THEN 'in_progress' ELSE ${scEmployees.onboardingStatus} END`,
+        onboardingStartedAt: sql`COALESCE(${scEmployees.onboardingStartedAt}, NOW())`,
+        updatedAt: new Date(),
+      })
+      .where(eq(scEmployees.id, ctx.employeeId)),
+  );
+
+  await logAuditEvent({
+    action: "shiftcraft.welcome.personal_saved",
+    targetKind: "sc_employee",
+    targetId: ctx.employeeId,
+  });
+
+  revalidatePath("/app/welcome");
+  return { status: "ok", message: "Saved." };
+}
+
+// ─── Payroll PII (encrypted) ────────────────────────────────────────
+
+const piiSchema = z.object({
+  tfn: z
+    .union([
+      z.literal(""),
+      z.string().trim().regex(/^\d{3}\s?\d{3}\s?\d{2,3}$/, "TFN is 8-9 digits"),
+    ])
+    .optional(),
+  bsb: z
+    .union([
+      z.literal(""),
+      z.string().trim().regex(/^\d{3}-?\d{3}$/, "BSB is 6 digits (xxx-xxx)"),
+    ])
+    .optional(),
+  accountNumber: z
+    .union([
+      z.literal(""),
+      z.string().trim().regex(/^\d{4,12}$/, "Account number is 4-12 digits"),
+    ])
+    .optional(),
+  superFundName: z.string().trim().max(120).optional().or(z.literal("")),
+  superMemberNumber: z
+    .union([
+      z.literal(""),
+      z.string().trim().min(2).max(40),
+    ])
+    .optional(),
+});
+
+export async function selfSavePayrollPiiAction(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const ctx = await requireSelfEmployee();
+  if (!ctx) {
+    return {
+      status: "error",
+      message: "You don't have a roster row yet — ask your manager.",
+    };
+  }
+  const parsed = piiSchema.safeParse({
+    tfn: formData.get("tfn") ?? "",
+    bsb: formData.get("bsb") ?? "",
+    accountNumber: formData.get("accountNumber") ?? "",
+    superFundName: formData.get("superFundName") ?? "",
+    superMemberNumber: formData.get("superMemberNumber") ?? "",
+  });
+  if (!parsed.success) {
+    return {
+      status: "error",
+      message: "Please fix the highlighted fields.",
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  // Normalise spacing/dashes before encrypting so the manager-side
+  // reveal returns a canonical form (matches the existing
+  // savePayrollPiiAction convention).
+  const tfn = emptyToNull(parsed.data.tfn)?.replace(/\s/g, "") ?? null;
+  const bsb = emptyToNull(parsed.data.bsb)?.replace(/-/g, "") ?? null;
+  const accountNumber = emptyToNull(parsed.data.accountNumber);
+  const superFundName = emptyToNull(parsed.data.superFundName);
+  const superMemberNumber = emptyToNull(parsed.data.superMemberNumber);
+
+  await forTenant(ctx.tenantId).run((tx) =>
+    tx
+      .update(scEmployees)
+      .set({
+        tfnEnc: encryptPii(tfn),
+        bsbEnc: encryptPii(bsb),
+        accountNumberEnc: encryptPii(accountNumber),
+        superFundName,
+        superMemberNumberEnc: encryptPii(superMemberNumber),
+        updatedAt: new Date(),
+      })
+      .where(eq(scEmployees.id, ctx.employeeId)),
+  );
+
+  // Audit log records WHICH fields changed but never the value.
+  await logAuditEvent({
+    action: "shiftcraft.welcome.pii_saved",
+    targetKind: "sc_employee",
+    targetId: ctx.employeeId,
+    details: {
+      tfn: tfn !== null,
+      bsb: bsb !== null,
+      account: accountNumber !== null,
+      super: superMemberNumber !== null,
+    },
+  });
+
+  revalidatePath("/app/welcome");
+  return { status: "ok", message: "Payroll details saved." };
+}
+
+// ─── Document self-upload ───────────────────────────────────────────
+
+const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MiB — matches the existing CHECK constraint
+const ALLOWED_MIME = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/msword",
+]);
+
+const uploadSchema = z.object({
+  title: z.string().trim().min(1, "Pick a title").max(200),
+  notes: z.string().trim().max(2000).optional().or(z.literal("")),
+});
+
+export async function selfUploadDocumentAction(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const ctx = await requireSelfEmployee();
+  if (!ctx) {
+    return {
+      status: "error",
+      message: "You don't have a roster row yet — ask your manager.",
+    };
+  }
+
+  const parsed = uploadSchema.safeParse({
+    title: formData.get("title") ?? "",
+    notes: formData.get("notes") ?? "",
+  });
+  if (!parsed.success) {
+    return {
+      status: "error",
+      message: "Please fix the highlighted fields.",
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { status: "error", message: "Pick a file to upload." };
+  }
+  if (file.size > MAX_FILE_BYTES) {
+    return { status: "error", message: "Max file size is 5 MiB." };
+  }
+  if (!ALLOWED_MIME.has(file.type)) {
+    return {
+      status: "error",
+      message: "Only PDF / JPEG / PNG / DOC / DOCX are supported.",
+    };
+  }
+
+  const bytes = Buffer.from(await file.arrayBuffer());
+
+  await forTenant(ctx.tenantId).run((tx) =>
+    tx.insert(scDocuments).values({
+      traceyTenantId: ctx.tenantId,
+      scope: "team",
+      employeeId: ctx.employeeId,
+      title: parsed.data.title,
+      notes: emptyToNull(parsed.data.notes),
+      mimeType: file.type,
+      fileSize: file.size,
+      data: bytes,
+      uploadedByUserId: ctx.userId,
+    }),
+  );
+
+  await logAuditEvent({
+    action: "shiftcraft.welcome.document_uploaded",
+    targetKind: "sc_document",
+    details: {
+      employeeId: ctx.employeeId,
+      title: parsed.data.title,
+      mimeType: file.type,
+      size: file.size,
+    },
+  });
+
+  revalidatePath("/app/welcome");
+  return { status: "ok", message: "Uploaded." };
+}
+
+// ─── Onboarding task self-toggle ────────────────────────────────────
+
+const taskSchema = z.object({
+  taskId: z.string().uuid(),
+  done: z.enum(["1", "0"]),
+});
+
+export async function selfMarkOnboardingTaskAction(
+  formData: FormData,
+): Promise<void> {
+  const ctx = await requireSelfEmployee();
+  if (!ctx) return;
+  const parsed = taskSchema.safeParse({
+    taskId: formData.get("taskId"),
+    done: formData.get("done"),
+  });
+  if (!parsed.success) return;
+
+  // Look up the task; verify it belongs to the caller's employee row.
+  const [task] = await forTenant(ctx.tenantId).run((tx) =>
+    tx
+      .select({
+        id: scEmployeeOnboardingTasks.id,
+        employeeId: scEmployeeOnboardingTasks.employeeId,
+      })
+      .from(scEmployeeOnboardingTasks)
+      .where(
+        and(
+          eq(scEmployeeOnboardingTasks.id, parsed.data.taskId),
+          eq(scEmployeeOnboardingTasks.traceyTenantId, ctx.tenantId),
+        ),
+      )
+      .limit(1),
+  );
+  if (!task || task.employeeId !== ctx.employeeId) return;
+
+  const isDone = parsed.data.done === "1";
+  await forTenant(ctx.tenantId).run((tx) =>
+    tx
+      .update(scEmployeeOnboardingTasks)
+      .set({
+        status: isDone ? "done" : "pending",
+        completedAt: isDone ? new Date() : null,
+        completedByUserId: isDone ? ctx.userId : null,
+      })
+      .where(eq(scEmployeeOnboardingTasks.id, task.id)),
+  );
+
+  await logAuditEvent({
+    action: isDone
+      ? "shiftcraft.welcome.task_completed"
+      : "shiftcraft.welcome.task_reopened",
+    targetKind: "sc_employee_onboarding_task",
+    targetId: task.id,
+  });
+  revalidatePath("/app/welcome");
+}
+
+// ─── Complete onboarding — flips status to 'active' ────────────────
+//
+// Only succeeds when every REQUIRED task is done. Caller doesn't need
+// to fill in PII — that's optional. Personal details are also optional
+// (the manager can chase them later).
+
+export async function completeOnboardingSelfAction(): Promise<void> {
+  const ctx = await requireSelfEmployee();
+  if (!ctx) return;
+
+  // Count outstanding required tasks. If any remain, no-op.
+  const rows = await forTenant(ctx.tenantId).run((tx) =>
+    tx
+      .select({
+        count: sql<number>`count(*)::int`,
+      })
+      .from(scEmployeeOnboardingTasks)
+      .where(
+        and(
+          eq(scEmployeeOnboardingTasks.traceyTenantId, ctx.tenantId),
+          eq(scEmployeeOnboardingTasks.employeeId, ctx.employeeId),
+          eq(scEmployeeOnboardingTasks.required, true),
+          eq(scEmployeeOnboardingTasks.status, "pending"),
+        ),
+      ),
+  );
+  const outstanding = rows[0]?.count ?? 0;
+  if (outstanding > 0) return;
+
+  await forTenant(ctx.tenantId).run((tx) =>
+    tx
+      .update(scEmployees)
+      .set({
+        onboardingStatus: "active",
+        onboardingCompletedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(scEmployees.id, ctx.employeeId)),
+  );
+
+  await logAuditEvent({
+    action: "shiftcraft.welcome.onboarding_completed",
+    targetKind: "sc_employee",
+    targetId: ctx.employeeId,
+  });
+
+  revalidatePath("/app/welcome");
+  revalidatePath("/app");
+  redirect("/app");
+}

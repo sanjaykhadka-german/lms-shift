@@ -64,22 +64,22 @@ Legend: ✅ Implemented · 🟡 Partial · ❌ Missing.
 **Implemented**
 - Manual create-employee form: `apps/shiftcraft-web/app/app/employees/new/page.tsx` + `actions.ts`
 - Edit role / rate / location: `app/app/employees/[id]/edit/page.tsx`
-- Employee table (`sc_employees`): name, email, mobile, department, hourly rate, availability (jsonb), employment type (`permanent` | `casual` | `labour_hire`) — `packages/db/src/shiftcraft-schema.ts:270-317`
+- Employee table (`sc_employees`): name, email, mobile, department, hourly rate, availability (jsonb), employment type (`permanent` | `casual` | `labour_hire`)
 - RBAC role assignment via Tracey membership (`lib/roles.ts`)
+- ✅ **Magic-link signup** — workers sign up at `/sign-up` or accept invites via Tracey's `/accept-invite` on lms-web. Auto-invite from `createEmployeeAction` (#2b) drops the worker into the flow.
+- ✅ **Profile completion** — `sc_employees` has DOB, address line, gender, preferred name, emergency contact name + phone columns. Manager UI on `/app/employees/[id]/edit`; worker self-edit on `/app/welcome` (shipped 2026-05-27 as audit #2 polish).
+- ✅ **TFN / BSB / account / super capture** — encrypted at rest via `@tracey/db/pii` (AES-256-GCM). Columns: `tfn_enc`, `bsb_enc`, `account_number_enc`, `super_fund_name`, `super_member_number_enc` on `sc_employees`. Manager-side PII card with audit-logged reveal; worker self-save on `/app/welcome`.
+- ✅ **Document upload** — `sc_documents` table with scope=`team` for per-employee certs (ID, work permit, RSA, food handling). Manager upload via `/app/people/team-documents`; worker self-upload via `/app/welcome` (shipped 2026-05-27).
+- ✅ **Digital signature on documents** — `sc_document_signatures` table (audit #2c) records IP/UA/timestamp + SHA-256 hash of source. Signature flow on `/app/people/team-documents` when manager flags `requires_signature`.
+- ✅ **Skills & qualifications tagging** — `sc_skills` + `sc_employee_skills` per-tenant tables (audit #8). Manager-side CRUD at `/app/admin/skills`; chip-toggle on the employee edit page.
+- ✅ **Forced onboarding flow** — dashboard redirects to `/app/welcome` while `sc_employees.onboarding_status === 'pending'`. Status flips to `active` once required `sc_employee_onboarding_tasks` are done.
 
 **Missing**
-- Magic-link self-signup (email **or** SMS) — Tracey has invite-by-email at `/app/members` (per memory) but ShiftCraft-specific worker onboarding is not wired
-- Profile completion screen: **DOB, residential address, emergency contact** — no columns on `sc_employees`
-- **TFN capture** (encrypted at rest) — no column, no encryption helper
-- **Banking** (BSB + account) encrypted at rest — no column
-- **Super fund** capture — no column (research-only doc at `apps/shiftcraft-web/docs/ato-integration-research.md` covers stapled-super lookup; not actioned)
-- **Document upload**: photo ID, work permit/visa, role-specific certs (RSA, food handling) — no storage wiring in this app (planning lineage has `packages/storage`; not exposed to shiftcraft-web)
-- **Digital signature on employment contract** + signed PDF + audit trail (who/when/IP)
-- **Skills & qualifications tagging** for the (future) auto-scheduler
-- **Bidirectional payroll sync** — depends on Feature 5
+- **Bidirectional payroll sync** with Xero (push works ✅; pull-back of employee changes from Xero → ShiftCraft not implemented)
 - **Employment-type vocabulary mismatch** — schema uses `permanent` | `casual` | `labour_hire`; brief calls for `full_time` | `part_time` | `casual` | `contractor`. Pick one and migrate.
+- **Document expiry alerts** — `sc_documents.expires_at` exists; the "expiring soon" digest / email doesn't fire yet.
 
-**PII rule reminder for Phase 2:** TFN / bank / super must be encrypted at rest (envelope encryption), never logged, never returned in list endpoints, masked in UI except on explicit reveal.
+**PII rule:** TFN / bank / super are encrypted at rest, never logged, never returned in list endpoints, masked in UI except on explicit manager reveal (which writes a `pii.revealed` audit event).
 
 ---
 
@@ -221,8 +221,8 @@ Recommended Phase 2 housing: new `packages/award` package with a pure rules engi
 | Multi-location | ✅ | `sc_locations` per tenant (tz, accent colour) — schema line 51 |
 | Localisation | ❌ | Hardcoded English. Acceptable for AU-only v1; use `Intl` for date/currency. |
 | Webhooks (outbound) | ✅ | Per-tenant `sc_webhook_subscriptions` + `sc_webhook_deliveries`. Three events ship today: `timesheet.approved` · `employee.created` · `shift.published`. `payroll.exported` lands when the Xero adapter (Feature 5) does. HMAC-SHA256 signing via `X-Webhook-Signature`. Admin CRUD + delivery log + retry-on-failure at `/app/admin/webhooks`. |
-| PII encryption at rest | ❌ | No envelope-encryption helper. **Blocker for onboarding** completion (TFN / bank / super). |
-| Encryption at rest helper | ❌ | No `pgcrypto` wrapper in `@tracey/db`. Build this first. |
+| PII encryption at rest | ✅ | AES-256-GCM via `@tracey/db/pii` (`encryptPii` / `decryptPii`). Used by `sc_employees` (TFN/BSB/account/super) and `sc_xero_connections` (OAuth tokens). `TRACEY_PII_ENC_KEY` env var required. |
+| Encryption at rest helper | ✅ | `@tracey/db/pii` ships AES-256-GCM with `v1:` versioned tokens, random IV per encrypt, base64-encoded ciphertext+tag. Decrypt throws on tampered or malformed input. |
 
 ---
 

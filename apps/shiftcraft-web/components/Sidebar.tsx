@@ -67,6 +67,7 @@ const SECTIONS: NavSection[] = [
   {
     label: "My work",
     items: [
+      { href: "/app/welcome", label: "My profile", icon: UserPlus },
       { href: "/app/clock", label: "Time clock", icon: Clock },
       { href: "/app/my-shifts", label: "Shifts", icon: CalendarCheck },
       { href: "/app/availability", label: "Availability", icon: CalendarCheck },
