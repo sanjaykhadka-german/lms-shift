@@ -846,7 +846,22 @@ export default async function TimesheetsPage({
     <div className="mx-auto max-w-6xl space-y-6 px-6 py-10">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Timesheets</h1>
+          <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+            Timesheets
+            <InfoPopover label="About timesheets">
+              <p>
+                Per-employee weekly hours derived from the clock-event
+                stream. Managers approve or dispute each week before the
+                Xero export.
+              </p>
+              <p className="mt-1">
+                The award classifier splits each day&rsquo;s minutes into
+                ordinary, overtime, and penalty buckets using your tenant
+                award profile. Column headers carry their own &ldquo;i&rdquo;
+                explainers.
+              </p>
+            </InfoPopover>
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {isAdmin
               ? "Hours per employee for the selected week, auto-built from clock punches."

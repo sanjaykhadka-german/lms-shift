@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { forTenant, scDepartments, scEmployees } from "@tracey/db";
 import { currentMembership, currentUser } from "~/lib/auth/current";
 import { AvailabilityForm } from "./_form";
+import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "My availability · ShiftCraft" };
 
@@ -43,8 +44,21 @@ export default async function AvailabilityPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
           My availability
+          <InfoPopover label="About availability">
+            <p>
+              Tell managers when you can work each weekday. The
+              auto-scheduler refuses to assign you outside declared
+              windows, and the regular assign form flags a warning
+              before offering a shift you&rsquo;d miss.
+            </p>
+            <p className="mt-1">
+              Use a time window like <code>09-17</code> for available, or{" "}
+              <code>off</code> to block a day entirely. Updates don&rsquo;t
+              affect shifts you&rsquo;ve already accepted.
+            </p>
+          </InfoPopover>
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Managers see this when they're building shifts. Update it whenever

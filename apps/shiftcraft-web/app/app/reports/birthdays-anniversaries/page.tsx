@@ -5,6 +5,7 @@ import { forTenant, scDepartments, scEmployees } from "@tracey/db";
 import { currentMembership } from "~/lib/auth/current";
 import { isAtLeastManager } from "~/lib/roles";
 import { Button } from "~/components/ui/button";
+import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "Birthdays & anniversaries · ShiftCraft" };
 export const dynamic = "force-dynamic";
@@ -144,8 +145,15 @@ export default async function BirthdaysAnniversariesPage({
     <div className="mx-auto max-w-5xl space-y-6 px-6 py-10">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
+          <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
             Birthdays & anniversaries
+            <InfoPopover label="About employee milestones">
+              <p>
+                Team-member birthdays and work anniversaries in the next
+                ~90 days, scoped to active employees. Use it to plan
+                cards / cake / the awkward all-hands shout-out.
+              </p>
+            </InfoPopover>
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Team-member milestones for {monthLabel}.

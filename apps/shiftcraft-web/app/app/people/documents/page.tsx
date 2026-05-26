@@ -12,6 +12,7 @@ import { isAtLeastManager } from "~/lib/roles";
 import { Button } from "~/components/ui/button";
 import { UploadDocumentForm } from "../_components/UploadDocumentForm";
 import { deleteDocumentAction } from "./_actions";
+import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "Document library · ShiftCraft" };
 export const dynamic = "force-dynamic";
@@ -72,8 +73,22 @@ export default async function DocumentLibraryPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
           Document library
+          <InfoPopover label="About the document library">
+            <p>
+              Workspace-wide files (handbook, policies, contract
+              templates). Anyone on the team can download; only managers
+              can upload.
+            </p>
+            <p className="mt-1">
+              Per-employee certs (licences, signed contracts) live on{" "}
+              <a href="/app/people/team-documents" className="underline">
+                Team documents
+              </a>{" "}
+              instead.
+            </p>
+          </InfoPopover>
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Workspace-wide documents — handbook, policies, contract templates.

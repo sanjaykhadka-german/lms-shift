@@ -5,6 +5,7 @@ import { forTenant, scLocations, scShiftTemplates } from "@tracey/db";
 import { currentMembership } from "~/lib/auth/current";
 import { isAtLeastManager } from "~/lib/roles";
 import { Button } from "~/components/ui/button";
+import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "Shift templates · ShiftCraft" };
 
@@ -67,8 +68,16 @@ export default async function ShiftTemplatesPage({
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-10">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
+          <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
             Shift templates
+            <InfoPopover label="About shift templates">
+              <p>
+                Saved shift patterns (location, role, time-of-day, notes)
+                managers stamp onto a specific date. Combines the
+                template&rsquo;s time-of-day with the chosen day on the{" "}
+                <strong>New shift</strong> form.
+              </p>
+            </InfoPopover>
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Save common shift patterns (location, role, time-of-day, notes).

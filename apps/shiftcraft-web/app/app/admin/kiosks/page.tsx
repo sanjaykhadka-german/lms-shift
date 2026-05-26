@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { and, asc, desc, eq } from "drizzle-orm";
 import QRCode from "qrcode";
+import { InfoPopover } from "~/components/InfoPopover";
 import {
   forTenant,
   scKioskDevices,
@@ -144,7 +145,23 @@ export default async function KiosksAdminPage({
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Kiosks</h1>
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          Kiosks
+          <InfoPopover label="About kiosks">
+            <p>
+              On-premise tablet/laptop devices for shared clock-in.
+              Generate a short-lived pairing code, hand it to the
+              device, and it exchanges for a long-lived cookie scoped
+              to one location.
+            </p>
+            <p className="mt-1">
+              Workers authenticate at the kiosk with a 4-digit PIN
+              (set per-employee). Optional selfie on each punch — a
+              webcam-less device can disable it via{" "}
+              <strong>Require selfie</strong>.
+            </p>
+          </InfoPopover>
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Register an on-premise device (tablet / laptop) where employees can
           clock in with a 4-digit PIN. Each kiosk is pinned to one location;

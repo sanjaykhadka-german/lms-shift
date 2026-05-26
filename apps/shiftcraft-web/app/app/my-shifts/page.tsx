@@ -22,6 +22,7 @@ import {
   declineSwapAction,
 } from "./swap-actions";
 import { SwapForms } from "./_swap-forms";
+import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "My shifts · ShiftCraft" };
 
@@ -234,7 +235,23 @@ export default async function MyShiftsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">My shifts</h1>
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          My shifts
+          <InfoPopover label="About my shifts">
+            <p>
+              Every shift offered to or accepted by you. Tap{" "}
+              <strong>Accept</strong> or <strong>Decline</strong> on
+              pending offers; managers see your response immediately.
+            </p>
+            <p className="mt-1">
+              Subscribe to your iCal feed via{" "}
+              <a href="/app/settings" className="underline">
+                Settings
+              </a>{" "}
+              to see accepted shifts in your phone calendar.
+            </p>
+          </InfoPopover>
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Respond to offers, manage swap requests, see what's upcoming.
         </p>

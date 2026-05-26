@@ -11,6 +11,7 @@ import {
 import { currentMembership } from "~/lib/auth/current";
 import { isAdmin as isOwnerLevel } from "~/lib/roles";
 import { Button } from "~/components/ui/button";
+import { InfoPopover } from "~/components/InfoPopover";
 import { listLocationsLite } from "~/lib/daily-sales";
 import {
   clearScopeAction,
@@ -64,8 +65,21 @@ export default async function ManagerScopesPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
           Manager scopes
+          <InfoPopover label="About manager scopes">
+            <p>
+              Restrict an admin&rsquo;s view of{" "}
+              <strong>Schedule</strong> and <strong>Coverage gaps</strong>{" "}
+              to specific locations. Empty assignment = full access (the
+              default). Owners always see everything regardless.
+            </p>
+            <p className="mt-1">
+              Scoped admins can&rsquo;t see or edit shifts at locations
+              outside their assignment, and the location filter is
+              narrowed to match.
+            </p>
+          </InfoPopover>
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Restrict each admin to specific locations. An admin with no

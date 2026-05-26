@@ -9,6 +9,7 @@ import {
 import { currentMembership, currentUser } from "~/lib/auth/current";
 import { Button } from "~/components/ui/button";
 import { claimShiftAction } from "./actions";
+import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "Open shifts · ShiftCraft" };
 
@@ -92,7 +93,16 @@ export default async function OpenShiftsPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Open shifts</h1>
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          Open shifts
+          <InfoPopover label="About open shifts">
+            <p>
+              Published shifts with no accepted assignment yet. First
+              worker to claim takes the shift; once accepted it
+              disappears from this list.
+            </p>
+          </InfoPopover>
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Published shifts with no one accepted yet. Claim one to add it to
           your roster — managers will be notified.

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { currentMembership } from "~/lib/auth/current";
 import { isAtLeastManager } from "~/lib/roles";
 import { Button } from "~/components/ui/button";
+import { InfoPopover } from "~/components/InfoPopover";
 import {
   addDays,
   fmtIsoDate,
@@ -83,7 +84,24 @@ export default async function DailySalesAdminPage({
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Daily sales</h1>
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          Daily sales
+          <InfoPopover label="About daily sales">
+            <p>
+              Manually-keyed revenue per (location, day). Powers the{" "}
+              <strong>Wages vs sales</strong> card on{" "}
+              <a href="/app/reports" className="underline">
+                Reports
+              </a>{" "}
+              and the labour-cost % calculation.
+            </p>
+            <p className="mt-1">
+              No POS feed in v1 — enter the day&rsquo;s gross sales
+              manually. Re-saving the same day overwrites; clear
+              removes the row entirely.
+            </p>
+          </InfoPopover>
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Key in each day&rsquo;s gross revenue per location. Drives the
           wages-vs-sales card on Reports. No POS feed yet — enter manually.

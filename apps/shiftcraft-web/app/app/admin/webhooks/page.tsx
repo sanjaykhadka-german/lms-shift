@@ -10,6 +10,7 @@ import { isAtLeastManager } from "~/lib/roles";
 import { Button } from "~/components/ui/button";
 import { WEBHOOK_EVENTS } from "~/lib/webhooks";
 import { CreateSubscriptionForm } from "./_create-form";
+import { InfoPopover } from "~/components/InfoPopover";
 import {
   deleteSubscriptionAction,
   retryDeliveryAction,
@@ -96,7 +97,36 @@ export default async function WebhooksAdminPage({
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Webhooks</h1>
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          Webhooks
+          <InfoPopover label="About webhooks">
+            <p>
+              Forward ShiftCraft events to your own integrations. Three
+              events ship today:{" "}
+              <code className="rounded bg-muted px-1 font-mono text-[10px]">
+                timesheet.approved
+              </code>
+              ,{" "}
+              <code className="rounded bg-muted px-1 font-mono text-[10px]">
+                employee.created
+              </code>
+              ,{" "}
+              <code className="rounded bg-muted px-1 font-mono text-[10px]">
+                shift.published
+              </code>
+              .
+            </p>
+            <p className="mt-1">
+              Every delivery carries{" "}
+              <code className="rounded bg-muted px-1 font-mono text-[10px]">
+                X-Webhook-Signature: sha256=…
+              </code>{" "}
+              — HMAC-SHA256 of the raw body with the per-subscription
+              secret. Verify on receipt to reject spoofed payloads.
+              Failed deliveries can be retried inline.
+            </p>
+          </InfoPopover>
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Forward ShiftCraft events to your own integrations. Each
           delivery carries an{" "}

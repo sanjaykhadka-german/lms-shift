@@ -7,6 +7,7 @@ import {
 } from "~/lib/notifications-feed";
 import { Button } from "~/components/ui/button";
 import { markAllReadAction, markReadAction } from "./actions";
+import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "Notifications · ShiftCraft" };
 
@@ -44,8 +45,18 @@ export default async function NotificationsPage() {
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
+          <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
             Notifications
+            <InfoPopover label="About notifications">
+              <p>
+                Your bell-icon feed — every in-app notification routed to
+                you. Email + web-push toggles live in{" "}
+                <a href="/app/settings" className="underline">
+                  Settings
+                </a>
+                .
+              </p>
+            </InfoPopover>
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {unread.length > 0

@@ -28,6 +28,7 @@ import {
 import { listEmployeeSkillMap } from "~/lib/skills";
 import { Button } from "~/components/ui/button";
 import { acceptProposalAction } from "./actions";
+import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "Auto-fill schedule · ShiftCraft" };
 export const dynamic = "force-dynamic";
@@ -227,8 +228,22 @@ export default async function AutoFillPage({
     <div className="mx-auto max-w-5xl space-y-6 px-6 py-10">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
+          <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
             Auto-fill schedule
+            <InfoPopover label="About auto-fill">
+              <p>
+                Greedy generator that proposes assignments for unfilled
+                shifts in the week. Respects employee availability,
+                approved leave, required skill, the 40h weekly cap, and
+                10h minimum rest between shifts.
+              </p>
+              <p className="mt-1">
+                Lowest hourly rate wins ties (rate-less candidates
+                deprioritised). Review the proposal table — accept-all
+                creates offered assignments via the regular shift-offer
+                flow.
+              </p>
+            </InfoPopover>
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Greedy match for unfilled shifts in the week. Respects

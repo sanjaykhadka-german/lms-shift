@@ -14,6 +14,7 @@ import {
 import { currentMembership } from "~/lib/auth/current";
 import { Button } from "~/components/ui/button";
 import { TaskBoard, type BoardTask } from "./_board";
+import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "Tasks · ShiftCraft" };
 
@@ -87,7 +88,17 @@ export default async function TasksPage({
     <div className="mx-auto max-w-6xl space-y-6 px-6 py-10">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Tasks</h1>
+          <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+            Tasks
+            <InfoPopover label="About tasks">
+              <p>
+                Tenant-wide kanban board. Drag a card between{" "}
+                <strong>Open</strong>, <strong>In progress</strong>, and{" "}
+                <strong>Done</strong> to update status; due dates surface
+                on the dashboard.
+              </p>
+            </InfoPopover>
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {tasks.length} task{tasks.length === 1 ? "" : "s"} on the board
             for {membership.tenant.name}. Drag cards between columns or use

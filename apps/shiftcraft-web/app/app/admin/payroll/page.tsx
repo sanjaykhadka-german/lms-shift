@@ -26,6 +26,7 @@ import {
   startConnectAction,
 } from "./actions";
 import { ExportToXeroForm, ReadbackForm } from "./_export-form";
+import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "Payroll · ShiftCraft" };
 export const dynamic = "force-dynamic";
@@ -44,7 +45,17 @@ export default async function PayrollAdminPage({
   if (!isXeroConfigured()) {
     return (
       <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
-        <h1 className="text-2xl font-semibold tracking-tight">Payroll</h1>
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          Payroll
+          <InfoPopover label="About payroll integration">
+            <p>
+              Once configured, this screen lets you connect a Xero org,
+              map ShiftCraft pay categories to Xero earnings rates, link
+              each ShiftCraft employee to a Xero employee, and push
+              approved timesheets to Xero for finalisation.
+            </p>
+          </InfoPopover>
+        </h1>
         <section className="rounded-lg border-2 border-amber-500/40 bg-amber-50 p-6 dark:border-amber-500/30 dark:bg-amber-950/20">
           <h2 className="text-sm font-semibold">Xero is not configured</h2>
           <p className="mt-2 text-sm text-muted-foreground">
@@ -129,7 +140,23 @@ export default async function PayrollAdminPage({
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Payroll</h1>
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          Payroll
+          <InfoPopover label="About payroll integration">
+            <p>
+              Connect a Xero org once; map ShiftCraft pay categories
+              (ordinary / overtime / penalty_sat / penalty_sun /
+              penalty_ph / allowance) to your Xero earnings rates; link
+              each employee to a Xero employee.
+            </p>
+            <p className="mt-1">
+              Pushing a week sends <strong>APPROVED</strong> timesheets
+              via the Xero Payroll AU API. Xero finalises the pay run;
+              read back the totals via the read-back form to surface
+              actual gross/net on Reports.
+            </p>
+          </InfoPopover>
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Push approved timesheets to your Xero Payroll AU org. Xero
           finalises the pay run, calculates tax/super, and produces

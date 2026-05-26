@@ -9,6 +9,7 @@ import {
   getTodayEventsForUser,
 } from "~/lib/clock";
 import { ClockPanel } from "./_panel";
+import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "Time clock · ShiftCraft" };
 
@@ -49,7 +50,20 @@ export default async function ClockPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Time clock</h1>
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          Time clock
+          <InfoPopover label="About clocking in">
+            <p>
+              Tap <strong>In</strong>, <strong>Break</strong>, or{" "}
+              <strong>Out</strong> — every event is appended to your
+              clock stream and drives this week&rsquo;s timesheet.
+            </p>
+            <p className="mt-1">
+              Selfies are optional but help managers verify punches. On a
+              kiosk device the buttons authenticate with a PIN instead.
+            </p>
+          </InfoPopover>
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Punch in when you start, take breaks as needed, punch out when
           you're done. Today's events feed your timesheet automatically.

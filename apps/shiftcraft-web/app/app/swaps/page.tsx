@@ -10,6 +10,7 @@ import {
   users,
 } from "@tracey/db";
 import { currentMembership } from "~/lib/auth/current";
+import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "Swap requests · ShiftCraft" };
 
@@ -141,7 +142,16 @@ export default async function SwapsAuditPage({
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Swap requests</h1>
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          Swap requests
+          <InfoPopover label="About swap requests">
+            <p>
+              Workers ask each other to <strong>cover</strong> a shift
+              (one-way handoff) or <strong>swap</strong> (two-way trade).
+              On accept, the linked assignments flip atomically.
+            </p>
+          </InfoPopover>
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Tenant-wide audit of cover and swap requests between employees.
           Read-only — employees accept or decline from their My shifts page.

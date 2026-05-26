@@ -25,6 +25,7 @@ import {
   startOfWeek,
 } from "~/lib/clock";
 import { listDailySales, sumGrossSales } from "~/lib/daily-sales";
+import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "Reports · ShiftCraft" };
 
@@ -463,7 +464,16 @@ export default async function ReportsPage({
     <div className="mx-auto max-w-6xl space-y-8 px-6 py-10">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Reports</h1>
+          <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+            Reports
+            <InfoPopover label="About reports">
+              <p>
+                Hours, headcount, wage cost, schedule-vs-actual variance,
+                and wages-vs-sales for the selected week. Use the week
+                navigator above the cards to scrub.
+              </p>
+            </InfoPopover>
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Hours worked across {membership.tenant.name} this week, with
             week-over-week deltas. Derived from clock-event activity.

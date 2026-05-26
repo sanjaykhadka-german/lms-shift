@@ -5,6 +5,7 @@ import { auditEvents, db } from "@tracey/db";
 import { currentMembership } from "~/lib/auth/current";
 import { isAtLeastManager } from "~/lib/roles";
 import { Button } from "~/components/ui/button";
+import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "Audit log · ShiftCraft" };
 
@@ -127,7 +128,17 @@ export default async function AuditPage({
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Audit log</h1>
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          Audit log
+          <InfoPopover label="About the audit log">
+            <p>
+              Append-only record of every sensitive action across the
+              workspace — sign-ins, role changes, PII reveals, payroll
+              exports, manager-scope grants. Filter by actor or action
+              kind.
+            </p>
+          </InfoPopover>
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Sensitive activity for {membership.tenant.name}. Append-only — every
           row is preserved even if its actor or target is later removed.

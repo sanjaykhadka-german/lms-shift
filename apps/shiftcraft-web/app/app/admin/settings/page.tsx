@@ -8,6 +8,7 @@ import {
 } from "~/lib/holidays";
 import { getTenantAwardProfile } from "~/lib/award-profile";
 import { HolidayRegionForm } from "./_form";
+import { InfoPopover } from "~/components/InfoPopover";
 import { AwardProfileForm } from "./_award_form";
 
 export const metadata = { title: "Workspace settings · ShiftCraft" };
@@ -26,8 +27,16 @@ export default async function WorkspaceSettingsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
           Workspace settings
+          <InfoPopover label="About workspace settings">
+            <p>
+              Tenant-wide knobs. The AU public-holiday region drives
+              penalty rates on timesheets + leave-overlap warnings. The
+              award profile overrides the package defaults the timesheet
+              classifier uses to split hours into ordinary / OT / penalty.
+            </p>
+          </InfoPopover>
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Settings shared across everyone in this workspace. Only Managers

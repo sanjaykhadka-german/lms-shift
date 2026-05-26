@@ -155,7 +155,22 @@ export default async function TimeOffPage({
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Time off</h1>
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          Time off
+          <InfoPopover label="About time off">
+            <p>
+              Submit a leave request with a type (Annual, Personal/Sick,
+              Unpaid, etc.) and date range. Managers approve or deny;
+              approved windows block the auto-scheduler from assigning
+              you.
+            </p>
+            <p className="mt-1">
+              For admins: each pending request shows which already-
+              accepted shifts would be affected so you see the fallout
+              before approving.
+            </p>
+          </InfoPopover>
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {isAdmin
             ? "Review pending requests and submit your own."

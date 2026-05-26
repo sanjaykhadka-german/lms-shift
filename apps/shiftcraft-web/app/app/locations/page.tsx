@@ -6,6 +6,7 @@ import { currentMembership } from "~/lib/auth/current";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { LocationForm } from "./_form";
+import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "Locations · ShiftCraft" };
 
@@ -61,7 +62,16 @@ export default async function LocationsPage({
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Locations</h1>
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          Locations
+          <InfoPopover label="About locations">
+            <p>
+              Physical sites where shifts happen. Each location carries
+              a timezone, optional geofence (for mobile clock-in), and
+              an accent colour used on the schedule + reports.
+            </p>
+          </InfoPopover>
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Sites where shifts happen. Add a location before scheduling shifts.
         </p>

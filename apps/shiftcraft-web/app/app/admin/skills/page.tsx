@@ -3,6 +3,7 @@ import { currentMembership } from "~/lib/auth/current";
 import { isAtLeastManager } from "~/lib/roles";
 import { listAllSkills } from "~/lib/skills";
 import { Button } from "~/components/ui/button";
+import { InfoPopover } from "~/components/InfoPopover";
 import { CreateSkillForm } from "./_create-form";
 import { RenameSkillForm } from "./_rename-form";
 import { deleteSkillAction, toggleArchiveAction } from "./actions";
@@ -22,7 +23,22 @@ export default async function SkillsAdminPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Skills</h1>
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          Skills
+          <InfoPopover label="About skills">
+            <p>
+              Tags on employees + shifts so the auto-scheduler matches
+              qualified people to qualified shifts. Each shift can
+              require one skill; only employees with that skill in
+              their kit are candidates.
+            </p>
+            <p className="mt-1">
+              Archive (don&rsquo;t delete) once any shift or employee
+              references one — delete only when the skill has never
+              been used.
+            </p>
+          </InfoPopover>
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Tagged on employees + shifts so the auto-scheduler can match
           qualified people to qualified shifts. Renaming keeps existing

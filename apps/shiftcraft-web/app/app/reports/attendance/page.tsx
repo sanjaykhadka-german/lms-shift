@@ -15,6 +15,7 @@ import { currentMembership } from "~/lib/auth/current";
 import { isAtLeastManager } from "~/lib/roles";
 import { Avatar } from "~/components/Avatar";
 import { Button } from "~/components/ui/button";
+import { InfoPopover } from "~/components/InfoPopover";
 import {
   deriveSegments,
   splitSegmentByDay,
@@ -276,7 +277,17 @@ export default async function AttendanceReportPage({
     <div className="mx-auto max-w-5xl space-y-6 px-6 py-10">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Attendance</h1>
+          <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+            Attendance
+            <InfoPopover label="About the attendance report">
+              <p>
+                Per-employee counters for the selected period: late
+                arrivals, no-shows, and unapproved overtime. Late =
+                clocked in after the shift&rsquo;s scheduled start; no-show
+                = accepted shift with no clock activity.
+              </p>
+            </InfoPopover>
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {fmtDate(periodStart)} → {fmtDate(periodEnd)} · scheduled-vs-actual
             attendance per employee.

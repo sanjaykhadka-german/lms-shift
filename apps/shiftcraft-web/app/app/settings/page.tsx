@@ -18,6 +18,7 @@ import { CalendarSubscription } from "./_calendar-subscription";
 import { PasswordForm } from "./_password-form";
 import { ProfileForm } from "./_profile-form";
 import { PushSubscribeButton } from "./_push-subscribe";
+import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "Settings · ShiftCraft" };
 
@@ -48,7 +49,19 @@ export default async function SettingsPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          Settings
+          <InfoPopover label="About settings">
+            <p>
+              Personal profile, notification toggles (email + web push),
+              calendar feed URL, password. Workspace-level knobs live in{" "}
+              <a href="/app/admin/settings" className="underline">
+                Workspace settings
+              </a>
+              .
+            </p>
+          </InfoPopover>
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Manage how you appear and how you sign in.
           {membership && (

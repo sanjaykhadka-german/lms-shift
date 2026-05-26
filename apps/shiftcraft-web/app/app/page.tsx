@@ -17,6 +17,7 @@ import {
 import { currentMembership, currentUser } from "~/lib/auth/current";
 import { Avatar } from "~/components/Avatar";
 import { Button } from "~/components/ui/button";
+import { InfoPopover } from "~/components/InfoPopover";
 
 // Dashboard ("/app") — Deputy-style "Me" view.
 //
@@ -101,8 +102,15 @@ export default async function DashboardPage({
   if (!membership) {
     return (
       <div className="mx-auto max-w-5xl px-6 py-12">
-        <h1 className="text-3xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 text-3xl font-semibold tracking-tight">
           Welcome back{user.name ? `, ${user.name.split(" ")[0]}` : ""}.
+          <InfoPopover label="About this screen">
+            <p>
+              You&rsquo;re signed in but not attached to a ShiftCraft
+              workspace yet. Set one up from the LMS to unlock scheduling,
+              timesheets, and clock-in.
+            </p>
+          </InfoPopover>
         </h1>
         <p className="mt-2 text-muted-foreground">
           You're signed in. Set up a workspace from the LMS to start using
@@ -429,7 +437,17 @@ export default async function DashboardPage({
         {/* ─── Main column ─── */}
         <div className="space-y-6">
           <header className="flex items-center justify-between">
-            <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+            <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+              Dashboard
+              <InfoPopover label="About the dashboard">
+                <p>
+                  Daily roundup: today&rsquo;s shift status, recent
+                  announcements, and (for managers) what needs attention
+                  + approval. The cards below pull live from the schedule,
+                  timesheets, and notifications.
+                </p>
+              </InfoPopover>
+            </h1>
             <div className="text-xs text-muted-foreground">
               {membership.tenant.name}
             </div>

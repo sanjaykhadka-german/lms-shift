@@ -4,6 +4,7 @@ import { db, forTenant, scAnnouncements, users as appUsers } from "@tracey/db";
 import { currentMembership } from "~/lib/auth/current";
 import { Button } from "~/components/ui/button";
 import { AnnouncementForm } from "./_form";
+import { InfoPopover } from "~/components/InfoPopover";
 import {
   deleteAnnouncementAction,
   togglePinnedAction,
@@ -64,8 +65,19 @@ export default async function AnnouncementsPage({
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
           Announcements
+          <InfoPopover label="About announcements">
+            <p>
+              Pinned messages that show on every worker&rsquo;s dashboard
+              when they sign in. Use them for shift changes, holiday
+              rosters, and anything time-sensitive.
+            </p>
+            <p className="mt-1">
+              Tick <strong>Email blast</strong> on save to also fan out
+              to every subscribed worker&rsquo;s inbox.
+            </p>
+          </InfoPopover>
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Pinned messages show on the dashboard. Use them for shift changes,

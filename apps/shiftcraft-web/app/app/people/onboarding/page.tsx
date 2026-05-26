@@ -13,6 +13,7 @@ import { isAtLeastManager } from "~/lib/roles";
 import { Avatar } from "~/components/Avatar";
 import { Button } from "~/components/ui/button";
 import { startOnboardingAction } from "./_actions";
+import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "New hire onboarding · ShiftCraft" };
 export const dynamic = "force-dynamic";
@@ -142,8 +143,17 @@ export default async function OnboardingHubPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
           New hire onboarding
+          <InfoPopover label="About onboarding">
+            <p>
+              Track new starters through their pre-shift checklist
+              (paperwork, training modules, kit). Completion flips an
+              employee&rsquo;s status from <strong>pending</strong> to{" "}
+              <strong>active</strong> so they appear in the candidate
+              pool.
+            </p>
+          </InfoPopover>
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Track new starters through their pre-shift checklist.

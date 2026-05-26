@@ -3,6 +3,7 @@ import { currentMembership } from "~/lib/auth/current";
 import { isAtLeastManager } from "~/lib/roles";
 import { listAllLeaveTypes } from "~/lib/leave-types";
 import { Button } from "~/components/ui/button";
+import { InfoPopover } from "~/components/InfoPopover";
 import { CreateLeaveTypeForm } from "./_create-form";
 import { RenameLeaveTypeForm } from "./_rename-form";
 import { toggleArchiveAction, deleteLeaveTypeAction } from "./actions";
@@ -34,7 +35,22 @@ export default async function LeaveTypesAdminPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Leave types</h1>
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          Leave types
+          <InfoPopover label="About leave types">
+            <p>
+              Per-tenant catalogue the time-off request form uses. Five
+              AU-standard types (Annual, Personal/Sick, Unpaid, Long
+              service, Other) seed on first run.
+            </p>
+            <p className="mt-1">
+              Renaming is safe — the underlying{" "}
+              <strong>slug</strong> stays stable so existing requests
+              keep their categorisation. Archive (don&rsquo;t delete) once
+              any request references one.
+            </p>
+          </InfoPopover>
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Categories that staff pick when submitting a time-off request.
           Renaming keeps existing requests intact. Archiving hides a type

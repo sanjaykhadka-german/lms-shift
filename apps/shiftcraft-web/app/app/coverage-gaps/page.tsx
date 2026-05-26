@@ -11,6 +11,7 @@ import { currentMembership, requireUser } from "~/lib/auth/current";
 import { ALERT_TONE } from "~/lib/badges";
 import { Button } from "~/components/ui/button";
 import { getManagedLocationIds, scopeArray } from "~/lib/manager-scope";
+import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "Coverage gaps · ShiftCraft" };
 
@@ -102,7 +103,17 @@ export default async function CoveragePage() {
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-10">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Coverage gaps</h1>
+          <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+            Coverage gaps
+            <InfoPopover label="About coverage gaps">
+              <p>
+                Published future shifts with no accepted assignment —
+                the to-fill queue. Outstanding{" "}
+                <strong>offered</strong> rows still count as gaps (the
+                shift isn&rsquo;t confirmed until someone accepts).
+              </p>
+            </InfoPopover>
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Published future shifts with no one accepted yet.{" "}
             {rows.length === 0

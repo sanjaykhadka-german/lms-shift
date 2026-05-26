@@ -19,6 +19,7 @@ import { WeeklyLabourForecast } from "~/components/WeeklyLabourForecast";
 import { AreaScheduleView, type AreaShift } from "./_area-view";
 import { EmployeeScheduleView, type EmployeeRow } from "./_employee-view";
 import { bulkPublishWeekAction, duplicateWeekAction } from "./actions";
+import { InfoPopover } from "~/components/InfoPopover";
 
 type ScheduleView = "day" | "area" | "employee";
 
@@ -346,7 +347,18 @@ export default async function SchedulePage({
     <div className="mx-auto max-w-6xl space-y-6 px-6 py-10">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Schedule</h1>
+          <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+            Schedule
+            <InfoPopover label="About the schedule">
+              <p>
+                Weekly roster grid. <strong>Drafts</strong> are visible
+                only to managers; <strong>publish</strong> a shift to
+                make it offerable to staff. Use <strong>Auto-fill</strong>{" "}
+                to let the scheduler propose assignments from your
+                candidate pool.
+              </p>
+            </InfoPopover>
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {fmtRange(weekStart, addDays(weekStart, 6))} ·{" "}
             {shifts.length} shift{shifts.length === 1 ? "" : "s"}
