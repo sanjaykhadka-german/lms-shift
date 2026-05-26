@@ -178,10 +178,11 @@ Recommended Phase 2 housing: new `packages/award` package with a pure rules engi
 - ✅ **Roster-clash guard** — schedule actions (`assignEmployeeAction`, `bulkOfferShiftAction`, `claimShiftAction` in open-shifts) refuse to roster a worker whose APPROVED leave overlaps the shift window. Bulk-offer surfaces a separate `Skipped N on approved leave` counter in the success banner.
 - ✅ **Public-holiday overlap warning** on time-off requests (informational chip; doesn't change accrual yet)
 
+- ✅ **AU accrual rules** — `sc_leave_types.accrual_rate_per_hour` per-tenant column (numeric 8,6). Seeded defaults: annual 0.076923 (4/52), personal_sick 0.038462 (2/52), unpaid + other null, long_service 0. Admin tunable via `/app/admin/leave-types`. Casual + labour_hire employees get zero accrual regardless of rate (paid-leave loading already in the hourly rate per AU general rule).
+- ✅ **Balance display** — running per-type balance card on `/app/time-off`. Accrued = ordinary hours from approved timesheets × rate. Taken = business-days × 7.6h from approved time-off. Negative balance is informational (admins decide; doesn't block submission).
+- ✅ **Calendar view** — `/app/calendar` month grid combining approved leave (solid coloured chips), pending leave (dashed border), accepted shifts (emerald pill), and AU public holidays (purple PH chip). Admin picks any employee via dropdown; workers see their own.
+
 **Missing**
-- **AU accrual rules** per employment type, accruing on approved hours (depends on Feature 4 interpreter)
-- **Balance display** per leave type
-- **Calendar view** of leave alongside roster (single combined month view)
 - **Auto-decline of overlapping offered/accepted assignments** when a leave request is approved post-offer (today the admin sees the impact list and decides manually)
 
 ---

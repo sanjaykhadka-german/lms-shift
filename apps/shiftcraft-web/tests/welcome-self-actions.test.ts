@@ -142,7 +142,7 @@ vi.mock("@tracey/db", () => {
                   const emp = state.employees[0];
                   if (emp) Object.assign(emp, patch);
                 } else if ("status" in patch || "completedAt" in patch) {
-                  const task = state.lastTaskLookup;
+                  const task = (state as StateWithTask).lastTaskLookup;
                   if (task) Object.assign(task, patch);
                 }
                 return undefined;

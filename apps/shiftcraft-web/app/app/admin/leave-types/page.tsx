@@ -6,7 +6,11 @@ import { Button } from "~/components/ui/button";
 import { InfoPopover } from "~/components/InfoPopover";
 import { CreateLeaveTypeForm } from "./_create-form";
 import { RenameLeaveTypeForm } from "./_rename-form";
-import { toggleArchiveAction, deleteLeaveTypeAction } from "./actions";
+import {
+  toggleArchiveAction,
+  deleteLeaveTypeAction,
+  setAccrualRateAction,
+} from "./actions";
 
 export const metadata = { title: "Leave types · ShiftCraft" };
 export const dynamic = "force-dynamic";
@@ -97,6 +101,36 @@ export default async function LeaveTypesAdminPage() {
                       )}
                     </div>
                   </div>
+                  <form
+                    action={setAccrualRateAction}
+                    className="flex items-center gap-2"
+                  >
+                    <input type="hidden" name="id" value={lt.id} />
+                    <label
+                      htmlFor={`rate-${lt.id}`}
+                      className="text-[10px] uppercase tracking-wider text-muted-foreground"
+                    >
+                      Accrual / h
+                    </label>
+                    <input
+                      id={`rate-${lt.id}`}
+                      name="rate"
+                      type="number"
+                      step="0.000001"
+                      min="0"
+                      max="1"
+                      defaultValue={
+                        lt.accrualRatePerHour
+                          ? Number(lt.accrualRatePerHour).toFixed(6)
+                          : ""
+                      }
+                      placeholder="0"
+                      className="h-8 w-28 rounded-md border border-[color:var(--input)] bg-transparent px-2 text-right font-mono text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+                    />
+                    <Button type="submit" size="sm" variant="outline">
+                      Save
+                    </Button>
+                  </form>
                   <div className="flex items-center gap-2">
                     <form action={toggleArchiveAction}>
                       <input type="hidden" name="id" value={lt.id} />

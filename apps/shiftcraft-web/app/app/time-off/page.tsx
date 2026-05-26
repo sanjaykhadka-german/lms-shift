@@ -1,11 +1,22 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { and, desc, eq } from "drizzle-orm";
-import { forTenant, scLeaveTypes, scTimeOffRequests, users } from "@tracey/db";
+import {
+  forTenant,
+  scEmployees,
+  scLeaveTypes,
+  scTimeOffRequests,
+  users,
+} from "@tracey/db";
 import { currentMembership, requireUser } from "~/lib/auth/current";
 import { findAffectedShiftsForRequests } from "~/lib/time-off-impact";
 import { getHolidaysForTenant, type HolidayRow } from "~/lib/holidays";
 import { listActiveLeaveTypes } from "~/lib/leave-types";
+import {
+  computeLeaveBalanceForEmployee,
+  fmtHours,
+  type LeaveBalance,
+} from "~/lib/leave-balances";
 import { Button } from "~/components/ui/button";
 import { InfoPopover } from "~/components/InfoPopover";
 import { TimeOffForm } from "./_form";
@@ -109,6 +120,34 @@ export default async function TimeOffPage({
     listActiveLeaveTypes(membership.tenant.id),
   ]);
 
+  // AUDIT.md Feature 6 — fetch the caller's employee row + per-type
+  // balances. Workers with no roster row (admin-only accounts) get
+  // empty balances; nothing renders.
+  const [selfEmployee] = await forTenant(membership.tenant.id).run((tx) =>
+    tx
+      .select({
+        id: scEmployees.id,
+        employmentType: scEmployees.employmentType,
+      })
+      .from(scEmployees)
+      .where(
+        and(
+          eq(scEmployees.traceyTenantId, membership.tenant.id),
+          eq(scEmployees.appUserId, user.id),
+        ),
+      )
+      .limit(1),
+  );
+  const balances: LeaveBalance[] = selfEmployee
+    ? await computeLeaveBalanceForEmployee({
+        tenantId: membership.tenant.id,
+        employeeId: selfEmployee.id,
+      })
+    : [];
+  const accruedBalances = balances.filter(
+    (b) => b.accrualRatePerHour !== null,
+  );
+
   // For admins, surface which published shifts each pending request
   // would affect — accepted shifts are the obvious fallout, offered
   // shifts also disappear since the employee can't accept while on
@@ -177,6 +216,46 @@ export default async function TimeOffPage({
             : "Submit a request, then track its status here."}
         </p>
       </div>
+
+      {accruedBalances.length > 0 && (
+        <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
+          <h2 className="text-base font-semibold">Your balances</h2>
+          <p className="mt-1 mb-4 text-xs text-muted-foreground">
+            Hours accrued from approved timesheets minus hours of
+            approved leave already taken. Casual + labour-hire
+            employees see zero — paid-leave loading is included in
+            the hourly rate.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {accruedBalances.map((b) => {
+              const negative = b.availableHours < 0;
+              return (
+                <div
+                  key={b.leaveTypeId}
+                  className="rounded-md border border-border bg-background p-3"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white ${leaveTypeBadge(b.slug)}`}
+                    >
+                      {b.name}
+                    </span>
+                    <span
+                      className={`font-mono text-sm font-semibold tabular-nums ${negative ? "text-[color:var(--destructive)]" : ""}`}
+                    >
+                      {fmtHours(b.availableHours)}
+                    </span>
+                  </div>
+                  <div className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Accrued {fmtHours(b.accruedHours)} · Taken{" "}
+                    {fmtHours(b.takenHours)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
         <h2 className="text-base font-semibold">Submit a request</h2>

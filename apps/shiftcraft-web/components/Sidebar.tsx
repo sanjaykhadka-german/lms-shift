@@ -70,6 +70,7 @@ const SECTIONS: NavSection[] = [
       { href: "/app/welcome", label: "My profile", icon: UserPlus },
       { href: "/app/clock", label: "Time clock", icon: Clock },
       { href: "/app/my-shifts", label: "Shifts", icon: CalendarCheck },
+      { href: "/app/calendar", label: "Calendar", icon: CalendarDays },
       { href: "/app/availability", label: "Availability", icon: CalendarCheck },
       { href: "/app/time-off", label: "Time off", icon: CalendarOff },
       { href: "/app/open-shifts", label: "Open shifts", icon: Hand },

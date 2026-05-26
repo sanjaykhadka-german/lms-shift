@@ -146,6 +146,60 @@ export async function renameLeaveTypeAction(
   return { status: "ok", message: "Renamed." };
 }
 
+// ─── Accrual rate (AUDIT.md Feature 6) ──────────────────────────────
+//
+// Accepts an "hours per hour" decimal (4 weeks/year ≈ 0.076923 for
+// AU full-time annual leave). Empty input clears the rate to null
+// (= no accrual). Validation: 0 ≤ rate ≤ 1 — a rate above 1.0 would
+// mean accruing more than an hour of leave per hour worked, which
+// is never right.
+
+const accrualSchema = z.object({
+  id: z.string().uuid(),
+  rate: z.string().trim(),
+});
+
+export async function setAccrualRateAction(
+  formData: FormData,
+): Promise<void> {
+  const parsed = accrualSchema.safeParse({
+    id: formData.get("id"),
+    rate: formData.get("rate") ?? "",
+  });
+  if (!parsed.success) return;
+  const membership = await requireManager();
+
+  // Empty rate clears to null.
+  let rateValue: string | null = null;
+  if (parsed.data.rate !== "") {
+    const n = Number(parsed.data.rate);
+    if (!Number.isFinite(n) || n < 0 || n > 1) return;
+    rateValue = n.toFixed(6);
+  }
+
+  await forTenant(membership.tenant.id).run((tx) =>
+    tx
+      .update(scLeaveTypes)
+      .set({ accrualRatePerHour: rateValue, updatedAt: new Date() })
+      .where(
+        and(
+          eq(scLeaveTypes.id, parsed.data.id),
+          eq(scLeaveTypes.traceyTenantId, membership.tenant.id),
+        ),
+      ),
+  );
+
+  await logAuditEvent({
+    action: "shiftcraft.leave_type.accrual_set",
+    targetKind: "sc_leave_type",
+    targetId: parsed.data.id,
+    details: { rate: rateValue },
+  });
+
+  revalidatePath("/app/admin/leave-types");
+  revalidatePath("/app/time-off");
+}
+
 export async function toggleArchiveAction(formData: FormData): Promise<void> {
   const id = String(formData.get("id") ?? "");
   const archive = formData.get("archive") === "1";

@@ -194,6 +194,18 @@ export const scLeaveTypes = pgTable(
     description: text("description"),
     sortOrder: integer("sort_order").notNull().default(0),
     isArchived: boolean("is_archived").notNull().default(false),
+    // Hours of leave accrued per hour of ordinary work. Null = no
+    // accrual (Unpaid, Other). AU general-rule defaults seeded on
+    // first migration: annual = 4/52 ≈ 0.076923, personal_sick =
+    // 2/52 ≈ 0.038462. Long service starts at 0 (state-dependent;
+    // admin enters when ready). Casual employees get 0 accrual
+    // regardless of this rate — the computation in
+    // lib/leave-balances.ts gates on `employment_type` before
+    // applying the rate.
+    accrualRatePerHour: numeric("accrual_rate_per_hour", {
+      precision: 8,
+      scale: 6,
+    }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
