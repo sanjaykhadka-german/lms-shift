@@ -182,14 +182,17 @@ export default async function ReportsPage({
   const [thisSales, prevSales, scheduledAssignments] = await Promise.all([
     listDailySales(tenantId, thisStartIso, thisEndIso),
     listDailySales(tenantId, prevStartIso, prevEndIso),
-    // Scheduled (accepted) assignments overlapping this week. Joined to
-    // sc_shifts for the window, status filter, and to project
+    // Scheduled (accepted) assignments spanning both weeks. Joined to
+    // sc_shifts for the window, status filter, role, and to project
     // (startsAt, endsAt) once. Drafts excluded — they're not committed
-    // labour and shouldn't show up in a cost forecast.
+    // labour and shouldn't show up in a cost forecast. Pulling both
+    // weeks in one round-trip and bucketing in JS keeps the per-role
+    // and cost aggregations consistent.
     forTenant(tenantId).run((tx) =>
       tx
         .select({
           userId: scShiftAssignments.userId,
+          role: scShifts.role,
           startsAt: scShifts.startsAt,
           endsAt: scShifts.endsAt,
         })
@@ -200,7 +203,7 @@ export default async function ReportsPage({
             eq(scShifts.traceyTenantId, tenantId),
             eq(scShifts.status, "published"),
             eq(scShiftAssignments.status, "accepted"),
-            sql`${scShifts.startsAt} >= ${thisWeekStart.toISOString()}::timestamptz`,
+            sql`${scShifts.startsAt} >= ${prevWeekStart.toISOString()}::timestamptz`,
             sql`${scShifts.startsAt} < ${thisWeekEnd.toISOString()}::timestamptz`,
           ),
         ),
@@ -213,20 +216,66 @@ export default async function ReportsPage({
   // Scheduled cost: sum of (shift duration × employee rate) for
   // every accepted+published shift this week. Skip rows where the
   // employee has no rate so the figure isn't artificially low.
+  // The query spans both weeks; split inline so the variance card still
+  // reflects this-week-only numbers.
   let scheduledCostThis = 0;
   let scheduledHoursMsThis = 0;
   let scheduledMissingRate = 0;
+  // AUDIT.md #9 — Hours by role rollup. Bucket scheduled hours +
+  // distinct headcount per role across both weeks so the table can show
+  // a week-over-week delta. Role is free-text on sc_shifts (e.g.
+  // "Butcher", "Cashier"); rows with an empty role string fall into an
+  // "Unassigned" bucket.
+  const roleHoursThis = new Map<string, number>();
+  const roleHoursPrev = new Map<string, number>();
+  const roleHeadcountThis = new Map<string, Set<string>>();
   for (const a of scheduledAssignments) {
     const ms = a.endsAt.getTime() - a.startsAt.getTime();
     if (ms <= 0) continue;
-    scheduledHoursMsThis += ms;
-    const rate = rateByUser.get(a.userId);
-    if (rate == null) {
-      scheduledMissingRate += 1;
-      continue;
+    const t = a.startsAt.getTime();
+    const inThis =
+      t >= thisWeekStart.getTime() && t < thisWeekEnd.getTime();
+    const inPrev =
+      t >= prevWeekStart.getTime() && t < prevWeekEnd.getTime();
+    const roleKey = a.role && a.role.trim() !== "" ? a.role : "Unassigned";
+    if (inThis) {
+      scheduledHoursMsThis += ms;
+      const rate = rateByUser.get(a.userId);
+      if (rate == null) {
+        scheduledMissingRate += 1;
+      } else {
+        scheduledCostThis += (ms / 3_600_000) * rate;
+      }
+      roleHoursThis.set(roleKey, (roleHoursThis.get(roleKey) ?? 0) + ms);
+      const set = roleHeadcountThis.get(roleKey) ?? new Set<string>();
+      set.add(a.userId);
+      roleHeadcountThis.set(roleKey, set);
+    } else if (inPrev) {
+      roleHoursPrev.set(roleKey, (roleHoursPrev.get(roleKey) ?? 0) + ms);
     }
-    scheduledCostThis += (ms / 3_600_000) * rate;
   }
+  interface RoleRow {
+    role: string;
+    headcount: number;
+    thisHoursMs: number;
+    prevHoursMs: number;
+  }
+  const roleKeys = new Set<string>([
+    ...roleHoursThis.keys(),
+    ...roleHoursPrev.keys(),
+  ]);
+  const roleRows: RoleRow[] = Array.from(roleKeys)
+    .map((role) => ({
+      role,
+      headcount: roleHeadcountThis.get(role)?.size ?? 0,
+      thisHoursMs: roleHoursThis.get(role) ?? 0,
+      prevHoursMs: roleHoursPrev.get(role) ?? 0,
+    }))
+    .sort((a, b) => b.thisHoursMs - a.thisHoursMs || a.role.localeCompare(b.role));
+  const scheduledAssignmentsThis = scheduledAssignments.filter((a) => {
+    const t = a.startsAt.getTime();
+    return t >= thisWeekStart.getTime() && t < thisWeekEnd.getTime();
+  });
 
   // If a department filter is active, narrow the user pool *before*
   // aggregating. Users without a department row are excluded — they
@@ -694,7 +743,7 @@ export default async function ReportsPage({
             Accepted shifts this week
           </span>
         </div>
-        {scheduledAssignments.length === 0 ? (
+        {scheduledAssignmentsThis.length === 0 ? (
           <div className="px-5 py-6 text-sm text-muted-foreground">
             <p>
               No accepted shifts in this week — nothing to compare.
@@ -840,6 +889,56 @@ export default async function ReportsPage({
             </table>
           </div>
         )}
+      </section>
+
+      <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <h2 className="text-base font-semibold">Hours by role</h2>
+          <span className="text-xs text-muted-foreground">
+            Scheduled hours on accepted shifts · grouped by shift role
+          </span>
+        </div>
+        {roleRows.length === 0 ? (
+          <p className="px-5 py-6 text-sm text-muted-foreground">
+            No accepted shifts in this period.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-2 font-medium">Role</th>
+                  <th className="px-3 py-2 font-medium">People</th>
+                  <th className="px-3 py-2 font-medium">Scheduled hours</th>
+                  <th className="px-3 py-2 font-medium">vs last week</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {roleRows.map((r) => (
+                  <tr key={r.role}>
+                    <td className="px-4 py-2">
+                      <div className="text-sm font-medium">{r.role}</div>
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs tabular-nums text-muted-foreground">
+                      {r.headcount}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-sm font-semibold tabular-nums">
+                      {fmtHours(r.thisHoursMs)}
+                    </td>
+                    <td className="px-3 py-2">
+                      {deltaCell(r.thisHoursMs, r.prevHoursMs)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="border-t border-border bg-muted/30 px-5 py-2 text-[10px] uppercase tracking-wider text-muted-foreground">
+          Scheduled = sum of accepted-shift durations. Actual clock
+          hours by role aren&rsquo;t broken out here because clock events
+          don&rsquo;t carry a role; use Hours-by-employee for actuals.
+        </div>
       </section>
 
       <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
