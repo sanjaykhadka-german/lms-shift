@@ -105,6 +105,7 @@ const SECTIONS: NavSection[] = [
       { href: "/app/coverage-gaps", label: "Coverage gaps", icon: AlertCircle },
       { href: "/app/timesheets", label: "Timesheets", icon: ClipboardList },
       { href: "/app/admin/daily-sales", label: "Daily sales", icon: DollarSign },
+      { href: "/app/admin/documents-expiring", label: "Doc expiry digest", icon: FileText },
       { href: "/app/admin/kiosks", label: "Kiosks", icon: Tablet },
       { href: "/app/admin/leave-types", label: "Leave types", icon: Tag },
       { href: "/app/admin/manager-scopes", label: "Manager scopes", icon: ShieldCheck },

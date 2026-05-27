@@ -252,6 +252,40 @@ export async function notifyAnnouncementPosted(opts: {
   return sent;
 }
 
+export async function sendDocumentExpiryDigest(opts: {
+  to: Array<{ email: string; name: string | null }>;
+  tenantName: string;
+  total: number;
+  /** Plaintext summary from summariseExpiry — already formatted. */
+  summary: string;
+}): Promise<void> {
+  if (opts.to.length === 0) return;
+  const DOCS_URL = `${APP_URL}/app/admin/documents-expiring`;
+  const subject = `${opts.total} document${opts.total === 1 ? "" : "s"} expiring · ${opts.tenantName}`;
+  const summaryHtml = opts.summary
+    .split("\n")
+    .map((l) => l.replace(/^  /, "&nbsp;&nbsp;"))
+    .join("<br />");
+  for (const r of opts.to) {
+    const greeting = `Hi ${displayName(r.name, r.email).split(" ")[0]},`;
+    await safeSend({
+      to: r.email,
+      subject,
+      text:
+        `${greeting}\n\n${opts.total} document${opts.total === 1 ? "" : "s"} ` +
+        `with an upcoming or passed expiry in ${opts.tenantName}.\n\n${opts.summary}\n\n` +
+        `Review: ${DOCS_URL}`,
+      html: `
+        <p>${greeting}</p>
+        <p>${opts.total} document${opts.total === 1 ? "" : "s"} with an upcoming or passed expiry in <strong>${opts.tenantName}</strong>.</p>
+        <p style="font-family: ui-monospace, SFMono-Regular, monospace; font-size: 13px; white-space: pre-wrap">${summaryHtml}</p>
+        <p><a href="${DOCS_URL}">Review on ShiftCraft</a></p>
+      `,
+      context: `sendDocumentExpiryDigest to ${r.email}`,
+    });
+  }
+}
+
 export async function notifySwapDeclined(opts: {
   to: { email: string; name: string | null };
   decliner: { name: string | null; email: string };

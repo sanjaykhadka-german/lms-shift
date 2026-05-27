@@ -77,7 +77,7 @@ Legend: ✅ Implemented · 🟡 Partial · ❌ Missing.
 **Missing**
 - **Bidirectional payroll sync** with Xero (push works ✅; pull-back of employee changes from Xero → ShiftCraft not implemented)
 - **Employment-type vocabulary mismatch** — schema uses `permanent` | `casual` | `labour_hire`; brief calls for `full_time` | `part_time` | `casual` | `contractor`. Pick one and migrate.
-- **Document expiry alerts** — `sc_documents.expires_at` exists; the "expiring soon" digest / email doesn't fire yet.
+- ✅ **Document expiry alerts** — `/app/admin/documents-expiring` admin page buckets every doc with an expiry within 30 days (or already passed) into expired / ≤7d / 8–14d / 15–30d tiers. Covers both team and library scope. One-click "Send digest now" button fans an in-app notification + best-effort email to every owner/admin (no cron; manual cadence, matching the WHS reminder pattern). Pure classifier at `lib/document-expiry.ts` covered by `tests/document-expiry.test.ts`. Sidebar entry under Admin: "Doc expiry digest".
 
 **PII rule:** TFN / bank / super are encrypted at rest, never logged, never returned in list endpoints, masked in UI except on explicit manager reveal (which writes a `pii.revealed` audit event).
 
