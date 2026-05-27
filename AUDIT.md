@@ -182,8 +182,10 @@ Recommended Phase 2 housing: new `packages/award` package with a pure rules engi
 - ✅ **Balance display** — running per-type balance card on `/app/time-off`. Accrued = ordinary hours from approved timesheets × rate. Taken = business-days × 7.6h from approved time-off. Negative balance is informational (admins decide; doesn't block submission).
 - ✅ **Calendar view** — `/app/calendar` month grid combining approved leave (solid coloured chips), pending leave (dashed border), accepted shifts (emerald pill), and AU public holidays (purple PH chip). Admin picks any employee via dropdown; workers see their own.
 
+- ✅ **Auto-decline of overlapping offered/accepted assignments** on approval — `approveTimeOffAction` now reads the affected-shift list (same helper that drives the admin-facing Impact disclosure), flips each overlapping `offered`/`accepted` assignment to `declined` in the same tx as the approval, audits with the count, and notifies the worker per shift (in-app + push). Tests in `tests/time-off-approve-auto-decline.test.ts`.
+
 **Missing**
-- **Auto-decline of overlapping offered/accepted assignments** when a leave request is approved post-offer (today the admin sees the impact list and decides manually)
+- (none for Feature 6 in scope; bidirectional Xero payroll-sync still belongs to Feature 1/5.)
 
 ---
 
@@ -236,7 +238,7 @@ Dependency-ordered so each item unblocks the next. Sizing: S < ~1 day, M ~1-3 da
 3. **AU public-holiday calendar + rate interpreter** (M) — new `packages/award`, pure functions, unit-test heavy. Per-region holiday table. Unblocks #4, #6 accrual, #9 variance.
 4. **Timesheet derivation upgrade** (S) — wire interpreter into existing approval flow, display derived OT/penalty/allowance lines, lock approved timesheets behind audit-tracked reopen.
 5. **Xero payroll adapter** (M) — ✅ shipped 2026-05-25. `xero-node` + OAuth + 4 per-tenant tables (connections, earnings mapping, employee links, pay-run ledger) + admin UI + draft pay-run export from approved week's classifier output + read-back of finalised totals. Prod needs three env vars (`XERO_CLIENT_ID`, `XERO_CLIENT_SECRET`, `XERO_REDIRECT_URI`) from a developer.xero.com app registration. MYOB/ADP/Gusto/QuickBooks adapters slot in later via the same interface shape.
-6. **Leave types + accrual + roster-clash guard** (S) — ✅ catalogue + clash guard shipped 2026-05-25; accrual on approved hours + balance UI still deferred (depends on Feature 4 interpreter).
+6. **Leave types + accrual + roster-clash guard** (S) — ✅ catalogue + clash guard shipped 2026-05-25; accrual + balance card + calendar shipped 2026-05-26; auto-decline of overlapping assignments on approval shipped 2026-05-27.
 7. **Geofence + selfie clock-in** (M) — wire the existing `geofence` enum: mobile-web GPS first, `geofence_radius_m` on `sc_locations`, selfie via getUserMedia → object storage. Offline sync deferred until customers ask.
 8. **Auto-scheduler v1** (M-L) — ✅ shipped 2026-05-25. Greedy generator + `/app/schedule/auto-fill` UI + `sc_skills` + `sc_employee_skills` per-tenant tables + `required_skill_id` on `sc_shifts`. Constraints respected: availability jsonb, approved leave, required skill, 40h weekly cap, 10h min rest. Wage-budget guardrail + POS forecast slot still deferred; skills-tagging on `sc_shift_templates` also deferred (manager picks the skill when stamping a template onto a date).
 9. **Reporting deepening** (S-M) — ✅ sc_daily_sales + wages-vs-sales + schedule-vs-actual variance + per-location/department rollups + CSV downloads shipped 2026-05-25; attendance scoreboard (late + no-shows + unapproved OT) shipped 2026-05-27; per-role rollup + payroll cost read-back (depends on Feature 5) still pending.

@@ -205,8 +205,9 @@ export default async function TimeOffPage({
             </p>
             <p className="mt-1">
               For admins: each pending request shows which already-
-              accepted shifts would be affected so you see the fallout
-              before approving.
+              accepted shifts overlap the leave. Approving auto-unassigns
+              every overlapping accepted/offered shift in the same step
+              and notifies the worker.
             </p>
           </InfoPopover>
         </h1>
@@ -358,7 +359,7 @@ export default async function TimeOffPage({
                           </span>
                         )}{" "}
                         <span className="font-normal text-muted-foreground">
-                          — click to see which shifts
+                          — will be auto-unassigned on approval
                         </span>
                       </summary>
                       <ul className="mt-2 divide-y divide-rose-500/20">
