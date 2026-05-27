@@ -7,8 +7,10 @@ import {
   members,
   scClockEvents,
   scEmployees,
+  scLocations,
   scShiftAssignments,
   scShifts,
+  scTimesheetApprovals,
   users as appUsers,
 } from "@tracey/db";
 import { currentMembership } from "~/lib/auth/current";
@@ -17,9 +19,10 @@ import { Avatar } from "~/components/Avatar";
 import { Button } from "~/components/ui/button";
 import { InfoPopover } from "~/components/InfoPopover";
 import {
-  deriveSegments,
-  splitSegmentByDay,
-} from "~/lib/clock";
+  buildScoreboard,
+  LATE_GRACE_MS,
+  OT_GRACE_MS,
+} from "~/lib/attendance-scoreboard";
 
 export const metadata = { title: "Attendance · ShiftCraft" };
 export const dynamic = "force-dynamic";
@@ -65,6 +68,15 @@ function fmtHoursMs(ms: number): string {
   return `${h}h ${m}m`;
 }
 
+function fmtMinutes(ms: number): string {
+  if (ms <= 0) return "0m";
+  const m = Math.round(ms / 60_000);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return r === 0 ? `${h}h` : `${h}h ${r}m`;
+}
+
 function fmtPct(num: number, denom: number): string {
   if (denom === 0) return "—";
   const pct = Math.round((num / denom) * 100);
@@ -74,132 +86,129 @@ function fmtPct(num: number, denom: number): string {
 export default async function AttendanceReportPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string }>;
+  searchParams: Promise<{ period?: string; location?: string }>;
 }) {
   const membership = await currentMembership();
   if (!membership) redirect("/app");
   if (!isAtLeastManager(membership.role)) redirect("/app");
   const tenantId = membership.tenant.id;
 
-  const { period: periodRaw } = await searchParams;
+  const { period: periodRaw, location: locationRaw } = await searchParams;
   const periodDays = parsePeriod(periodRaw);
   const periodEnd = startOfDay(new Date());
   const periodStart = addDays(periodEnd, -periodDays);
+  const locationFilter =
+    locationRaw && locationRaw.trim() !== "" ? locationRaw : null;
 
-  // Step 1: every accepted shift assignment in the period (per-user list).
   const ctx = forTenant(tenantId);
-  const shiftRows = await ctx.run((tx) =>
-    tx
-      .select({
-        userId: scShiftAssignments.userId,
-        shiftId: scShifts.id,
-        startsAt: scShifts.startsAt,
-        endsAt: scShifts.endsAt,
-      })
-      .from(scShiftAssignments)
-      .innerJoin(scShifts, eq(scShifts.id, scShiftAssignments.shiftId))
-      .where(
-        and(
-          eq(scShifts.traceyTenantId, tenantId),
-          eq(scShiftAssignments.status, "accepted"),
-          gte(scShifts.startsAt, periodStart),
-          lte(scShifts.startsAt, periodEnd),
-        ),
-      ),
-  );
 
-  // Step 2: clock events in the period for those users (work-segments only).
-  const userIds = Array.from(new Set(shiftRows.map((s) => s.userId)));
-  const clockRows = userIds.length === 0
-    ? []
-    : await ctx.run((tx) =>
-        tx
-          .select({
-            userId: scClockEvents.appUserId,
-            eventType: scClockEvents.eventType,
-            occurredAt: scClockEvents.occurredAt,
-            voidedAt: scClockEvents.voidedAt,
-          })
-          .from(scClockEvents)
-          .where(
-            and(
-              eq(scClockEvents.traceyTenantId, tenantId),
-              gte(scClockEvents.occurredAt, periodStart),
-              lte(scClockEvents.occurredAt, addDays(periodEnd, 1)),
-              inArray(scClockEvents.appUserId, userIds),
-            ),
+  // Pull accepted shifts in the period, plus the location list for the
+  // filter dropdown.
+  const [shiftRows, locationsList] = await Promise.all([
+    ctx.run((tx) =>
+      tx
+        .select({
+          userId: scShiftAssignments.userId,
+          shiftId: scShifts.id,
+          startsAt: scShifts.startsAt,
+          endsAt: scShifts.endsAt,
+          locationId: scShifts.locationId,
+        })
+        .from(scShiftAssignments)
+        .innerJoin(scShifts, eq(scShifts.id, scShiftAssignments.shiftId))
+        .where(
+          and(
+            eq(scShifts.traceyTenantId, tenantId),
+            eq(scShiftAssignments.status, "accepted"),
+            gte(scShifts.startsAt, periodStart),
+            lte(scShifts.startsAt, periodEnd),
           ),
-      );
+        ),
+    ),
+    ctx.run((tx) =>
+      tx
+        .select({ id: scLocations.id, name: scLocations.name })
+        .from(scLocations)
+        .where(eq(scLocations.traceyTenantId, tenantId))
+        .orderBy(asc(scLocations.name)),
+    ),
+  ]);
 
-  // Group clock events by user, derive work-segments, then split per day so
-  // a shift starting on day N matches against work logged on day N.
-  const workMsByUserDay = new Map<string, Map<string, number>>();
-  const totalWorkMsByUser = new Map<string, number>();
-  const eventsByUser = new Map<string, typeof clockRows>();
-  for (const e of clockRows) {
-    if (e.voidedAt) continue;
-    const arr = eventsByUser.get(e.userId) ?? [];
-    arr.push(e);
-    eventsByUser.set(e.userId, arr);
-  }
-  for (const [uid, events] of eventsByUser) {
-    // deriveSegments expects events sorted ASC by occurredAt; the DB query
-    // didn't ORDER BY so do it here defensively.
-    const sorted = [...events].sort(
-      (a, b) => a.occurredAt.getTime() - b.occurredAt.getTime(),
-    );
-    const segments = deriveSegments(
-      sorted.map((s) => ({
-        id: `${uid}-${s.occurredAt.toISOString()}`,
-        appUserId: uid,
-        eventType: s.eventType,
-        occurredAt: s.occurredAt,
-        locationId: null,
-        voidedAt: null,
-        source: "manual",
-      })) as never,
-    );
-    const dayMap = workMsByUserDay.get(uid) ?? new Map<string, number>();
-    let total = 0;
-    for (const seg of segments) {
-      if (seg.kind !== "work") continue;
-      const parts = splitSegmentByDay(seg);
-      for (const p of parts) {
-        const dayKey = startOfDay(p.startedAt).toISOString().slice(0, 10);
-        const ms = p.endedAt.getTime() - p.startedAt.getTime();
-        dayMap.set(dayKey, (dayMap.get(dayKey) ?? 0) + ms);
-        total += ms;
-      }
+  const userIds = Array.from(new Set(shiftRows.map((s) => s.userId)));
+
+  const [clockRows, approvalRows] = await Promise.all([
+    userIds.length === 0
+      ? Promise.resolve([])
+      : ctx.run((tx) =>
+          tx
+            .select({
+              userId: scClockEvents.appUserId,
+              eventType: scClockEvents.eventType,
+              occurredAt: scClockEvents.occurredAt,
+              voidedAt: scClockEvents.voidedAt,
+            })
+            .from(scClockEvents)
+            .where(
+              and(
+                eq(scClockEvents.traceyTenantId, tenantId),
+                gte(scClockEvents.occurredAt, periodStart),
+                // OT can spill past the shift end on the last scheduled
+                // day, so widen the event window by a day.
+                lte(scClockEvents.occurredAt, addDays(periodEnd, 1)),
+                inArray(scClockEvents.appUserId, userIds),
+              ),
+            ),
+        ),
+    userIds.length === 0
+      ? Promise.resolve([])
+      : ctx.run((tx) =>
+          tx
+            .select({
+              employeeUserId: scTimesheetApprovals.employeeUserId,
+              weekStart: scTimesheetApprovals.weekStart,
+              status: scTimesheetApprovals.status,
+            })
+            .from(scTimesheetApprovals)
+            .where(
+              and(
+                eq(scTimesheetApprovals.traceyTenantId, tenantId),
+                inArray(scTimesheetApprovals.employeeUserId, userIds),
+              ),
+            ),
+        ),
+  ]);
+
+  // Build the "approved week" lookup. weekStart comes back as a string
+  // (date column) in YYYY-MM-DD form — matches `weekKey` output.
+  const approvedWeeks = new Set<string>();
+  for (const a of approvalRows) {
+    if (a.status === "approved") {
+      approvedWeeks.add(`${a.employeeUserId}|${a.weekStart}`);
     }
-    workMsByUserDay.set(uid, dayMap);
-    totalWorkMsByUser.set(uid, total);
   }
 
-  // Step 3: bucket scheduled shifts by user → days; intersect with worked
-  // days to compute attended / no-show counts.
-  const scheduledByUser = new Map<
-    string,
-    { scheduled: number; attended: number; noShows: number }
-  >();
-  for (const s of shiftRows) {
-    const dayKey = startOfDay(s.startsAt).toISOString().slice(0, 10);
-    const stats = scheduledByUser.get(s.userId) ?? {
-      scheduled: 0,
-      attended: 0,
-      noShows: 0,
-    };
-    stats.scheduled += 1;
-    const workedThatDay = workMsByUserDay.get(s.userId)?.get(dayKey);
-    if (workedThatDay && workedThatDay > 0) {
-      stats.attended += 1;
-    } else {
-      stats.noShows += 1;
-    }
-    scheduledByUser.set(s.userId, stats);
-  }
+  const scores = buildScoreboard({
+    shifts: shiftRows.map((s) => ({
+      userId: s.userId,
+      startsAt: s.startsAt,
+      endsAt: s.endsAt,
+      locationId: s.locationId,
+    })),
+    events: clockRows
+      .filter((e) => !e.voidedAt)
+      .map((e) => ({
+        userId: e.userId,
+        eventType: e.eventType,
+        occurredAt: e.occurredAt,
+      })),
+    approvedWeeks,
+    locationId: locationFilter,
+  });
 
-  // Step 4: resolve names + employee link for display.
-  const profileRows = userIds.length === 0
+  // Resolve names + employee link for display. Include every user the
+  // scoreboard ended up surfacing (filtered or unfiltered).
+  const surfaceUserIds = Array.from(scores.keys());
+  const profileRows = surfaceUserIds.length === 0
     ? []
     : await db
         .select({
@@ -213,10 +222,10 @@ export default async function AttendanceReportPage({
         .where(
           and(
             eq(members.tenantId, tenantId),
-            inArray(appUsers.id, userIds),
+            inArray(appUsers.id, surfaceUserIds),
           ),
         );
-  const employeeLinks = userIds.length === 0
+  const employeeLinks = surfaceUserIds.length === 0
     ? []
     : await ctx.run((tx) =>
         tx
@@ -228,7 +237,7 @@ export default async function AttendanceReportPage({
           .where(
             and(
               eq(scEmployees.traceyTenantId, tenantId),
-              inArray(scEmployees.appUserId, userIds),
+              inArray(scEmployees.appUserId, surfaceUserIds),
             ),
           ),
       );
@@ -238,59 +247,77 @@ export default async function AttendanceReportPage({
   }
   const profileById = new Map(profileRows.map((p) => [p.id, p]));
 
-  // Build sorted rows.
-  const rows = userIds
+  const rows = surfaceUserIds
     .map((uid) => {
       const p = profileById.get(uid);
-      const stats = scheduledByUser.get(uid) ?? {
-        scheduled: 0,
-        attended: 0,
-        noShows: 0,
-      };
+      const s = scores.get(uid)!;
       return {
         userId: uid,
         employeeId: employeeIdByUserId.get(uid) ?? null,
         name: p?.name ?? p?.email ?? "Unknown",
         email: p?.email ?? "",
         image: p?.image ?? null,
-        scheduled: stats.scheduled,
-        attended: stats.attended,
-        noShows: stats.noShows,
-        totalWorkMs: totalWorkMsByUser.get(uid) ?? 0,
+        ...s,
       };
     })
-    .sort((a, b) => a.name.localeCompare(b.name));
+    // Surface the worst attendance first so admins triage faster: highest
+    // no-shows, then most late, then most unapproved OT, then by name.
+    .sort(
+      (a, b) =>
+        b.noShows - a.noShows ||
+        b.lateCount - a.lateCount ||
+        b.unapprovedOtMs - a.unapprovedOtMs ||
+        a.name.localeCompare(b.name),
+    );
 
-  // Aggregate footer.
   const totals = rows.reduce(
     (acc, r) => {
       acc.scheduled += r.scheduled;
       acc.attended += r.attended;
       acc.noShows += r.noShows;
       acc.workMs += r.totalWorkMs;
+      acc.lateCount += r.lateCount;
+      acc.lateMs += r.lateMs;
+      acc.unapprovedOtMs += r.unapprovedOtMs;
       return acc;
     },
-    { scheduled: 0, attended: 0, noShows: 0, workMs: 0 },
+    {
+      scheduled: 0,
+      attended: 0,
+      noShows: 0,
+      workMs: 0,
+      lateCount: 0,
+      lateMs: 0,
+      unapprovedOtMs: 0,
+    },
   );
 
+  const periodParam = `period=${periodDays}`;
+  const locationParam = locationFilter
+    ? `&location=${encodeURIComponent(locationFilter)}`
+    : "";
+
   return (
-    <div className="mx-auto max-w-5xl space-y-6 px-6 py-10">
+    <div className="mx-auto max-w-6xl space-y-6 px-6 py-10">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
             Attendance
             <InfoPopover label="About the attendance report">
               <p>
-                Per-employee counters for the selected period: late
-                arrivals, no-shows, and unapproved overtime. Late =
-                clocked in after the shift&rsquo;s scheduled start; no-show
-                = accepted shift with no clock activity.
+                Per-employee counters for the selected period. Late =
+                first clock-in past the shift&rsquo;s scheduled start by
+                more than {Math.round(LATE_GRACE_MS / 60_000)} min. No-show =
+                accepted shift with no clock activity that day. Unapproved
+                OT = work logged past shift end (with{" "}
+                {Math.round(OT_GRACE_MS / 60_000)}-min grace) during weeks
+                without an approved timesheet.
               </p>
             </InfoPopover>
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {fmtDate(periodStart)} → {fmtDate(periodEnd)} · scheduled-vs-actual
-            attendance per employee.
+            {fmtDate(periodStart)} → {fmtDate(periodEnd)} ·
+            scheduled-vs-actual attendance per employee.
           </p>
         </div>
         <Button asChild variant="outline" size="sm">
@@ -298,40 +325,85 @@ export default async function AttendanceReportPage({
         </Button>
       </div>
 
-      {/* Period picker */}
-      <form method="get" className="flex flex-wrap items-center gap-2">
-        <label htmlFor="period-picker" className="text-xs uppercase tracking-wider text-muted-foreground">
-          Period
-        </label>
-        <select
-          id="period-picker"
-          name="period"
-          defaultValue={String(periodDays)}
-          className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-        >
-          {PERIOD_OPTIONS.map((p) => (
-            <option key={p.value} value={p.value}>
-              {p.label}
-            </option>
-          ))}
-        </select>
+      {/* Filters */}
+      <form method="get" className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="period-picker"
+            className="text-xs uppercase tracking-wider text-muted-foreground"
+          >
+            Period
+          </label>
+          <select
+            id="period-picker"
+            name="period"
+            defaultValue={String(periodDays)}
+            className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            {PERIOD_OPTIONS.map((p) => (
+              <option key={p.value} value={p.value}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        {locationsList.length > 0 && (
+          <div className="flex flex-col gap-1">
+            <label
+              htmlFor="location-picker"
+              className="text-xs uppercase tracking-wider text-muted-foreground"
+            >
+              Location
+            </label>
+            <select
+              id="location-picker"
+              name="location"
+              defaultValue={locationFilter ?? ""}
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="">All locations</option>
+              {locationsList.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <Button type="submit" size="sm" variant="outline">
           Apply
         </Button>
+        {locationFilter && (
+          <Button asChild size="sm" variant="ghost">
+            <Link href={`/app/reports/attendance?${periodParam}`}>
+              Clear location
+            </Link>
+          </Button>
+        )}
       </form>
 
       {/* Summary cards */}
-      <div className="grid gap-3 sm:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard label="Scheduled" value={String(totals.scheduled)} />
-        <StatCard
-          label="Attended"
-          value={String(totals.attended)}
-          tone={totals.attended > 0 ? "emerald" : "muted"}
-        />
         <StatCard
           label="No-shows"
           value={String(totals.noShows)}
           tone={totals.noShows > 0 ? "rose" : "muted"}
+        />
+        <StatCard
+          label="Late arrivals"
+          value={String(totals.lateCount)}
+          tone={totals.lateCount > 0 ? "amber" : "muted"}
+          sub={
+            totals.lateCount > 0
+              ? `avg ${fmtMinutes(totals.lateMs / totals.lateCount)}`
+              : undefined
+          }
+        />
+        <StatCard
+          label="Unapproved OT"
+          value={fmtMinutes(totals.unapprovedOtMs)}
+          tone={totals.unapprovedOtMs > 0 ? "amber" : "muted"}
         />
         <StatCard
           label="Attendance %"
@@ -365,11 +437,12 @@ export default async function AttendanceReportPage({
               <thead className="bg-muted/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
                 <tr>
                   <th className="px-4 py-2 font-medium">Employee</th>
-                  <th className="px-4 py-2 font-medium">Scheduled</th>
-                  <th className="px-4 py-2 font-medium">Attended</th>
-                  <th className="px-4 py-2 font-medium">No-shows</th>
-                  <th className="px-4 py-2 font-medium">Attendance %</th>
-                  <th className="px-4 py-2 font-medium">Hours worked</th>
+                  <th className="px-3 py-2 font-medium">Scheduled</th>
+                  <th className="px-3 py-2 font-medium">No-shows</th>
+                  <th className="px-3 py-2 font-medium">Late</th>
+                  <th className="px-3 py-2 font-medium">Unapproved OT</th>
+                  <th className="px-3 py-2 font-medium">Attendance %</th>
+                  <th className="px-3 py-2 font-medium">Hours worked</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -413,13 +486,10 @@ export default async function AttendanceReportPage({
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-2 font-mono tabular-nums">
+                      <td className="px-3 py-2 font-mono tabular-nums">
                         {r.scheduled}
                       </td>
-                      <td className="px-4 py-2 font-mono tabular-nums">
-                        {r.attended}
-                      </td>
-                      <td className="px-4 py-2 font-mono tabular-nums">
+                      <td className="px-3 py-2 font-mono tabular-nums">
                         {r.noShows > 0 ? (
                           <span className="font-semibold text-rose-600">
                             {r.noShows}
@@ -428,10 +498,33 @@ export default async function AttendanceReportPage({
                           r.noShows
                         )}
                       </td>
-                      <td className={`px-4 py-2 font-mono tabular-nums font-semibold ${pctTone}`}>
+                      <td className="px-3 py-2 font-mono tabular-nums">
+                        {r.lateCount > 0 ? (
+                          <span>
+                            <span className="font-semibold text-amber-600">
+                              {r.lateCount}
+                            </span>{" "}
+                            <span className="text-xs text-muted-foreground">
+                              (avg {fmtMinutes(r.lateMs / r.lateCount)})
+                            </span>
+                          </span>
+                        ) : (
+                          "0"
+                        )}
+                      </td>
+                      <td className="px-3 py-2 font-mono tabular-nums">
+                        {r.unapprovedOtMs > 0 ? (
+                          <span className="font-semibold text-amber-600">
+                            {fmtMinutes(r.unapprovedOtMs)}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">0m</span>
+                        )}
+                      </td>
+                      <td className={`px-3 py-2 font-mono tabular-nums font-semibold ${pctTone}`}>
                         {fmtPct(r.attended, r.scheduled)}
                       </td>
-                      <td className="px-4 py-2 font-mono tabular-nums text-muted-foreground">
+                      <td className="px-3 py-2 font-mono tabular-nums text-muted-foreground">
                         {fmtHoursMs(r.totalWorkMs)}
                       </td>
                     </tr>
@@ -444,11 +537,13 @@ export default async function AttendanceReportPage({
       </section>
 
       <p className="text-[11px] text-muted-foreground">
-        "Attended" counts a scheduled shift as attended when the employee
-        logged any work time on the same calendar day (clock-in stream,
-        voided punches excluded). No-shows are scheduled shifts without
-        same-day work. Late arrivals and partial shifts aren't surfaced in
-        this slice.
+        Attended = any clocked work time on the shift&rsquo;s calendar day
+        (voided punches excluded). Late counts shifts where the first
+        clock-in landed more than {Math.round(LATE_GRACE_MS / 60_000)}{" "}
+        minutes after the scheduled start. Unapproved OT only counts inside
+        weeks that don&rsquo;t yet have a timesheet approval. Approving a
+        week in <Link href="/app/timesheets" className="underline">/app/timesheets</Link>{" "}
+        removes its OT from this column.
       </p>
     </div>
   );
@@ -458,10 +553,12 @@ function StatCard({
   label,
   value,
   tone = "neutral",
+  sub,
 }: {
   label: string;
   value: string;
   tone?: "neutral" | "muted" | "emerald" | "amber" | "rose";
+  sub?: string;
 }) {
   const cls =
     tone === "emerald"
@@ -477,6 +574,7 @@ function StatCard({
     <div className={`rounded-lg border px-4 py-3 ${cls}`}>
       <div className="text-2xl font-semibold tabular-nums">{value}</div>
       <div className="text-xs uppercase tracking-wider">{label}</div>
+      {sub && <div className="mt-0.5 text-[10px] opacity-80">{sub}</div>}
     </div>
   );
 }
