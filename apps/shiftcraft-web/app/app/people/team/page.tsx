@@ -37,15 +37,17 @@ const ROLE_BADGE: Record<string, string> = {
 };
 
 const EMPLOYMENT_BADGE: Record<ScEmploymentType, string> = {
-  permanent: "bg-emerald-600 text-white",
+  full_time: "bg-emerald-600 text-white",
+  part_time: "bg-sky-600 text-white",
   casual: "bg-amber-500 text-white",
-  labour_hire: "bg-purple-600 text-white",
+  contractor: "bg-purple-600 text-white",
 };
 
 const EMPLOYMENT_LABEL: Record<ScEmploymentType, string> = {
-  permanent: "Permanent",
+  full_time: "Full-time",
+  part_time: "Part-time",
   casual: "Casual",
-  labour_hire: "Labour hire",
+  contractor: "Contractor",
 };
 
 function actionTone(action: string): string {
@@ -233,7 +235,7 @@ export default async function PeopleTeamPage({
     .where(eq(members.tenantId, tenantId))
     .orderBy(asc(users.name), asc(users.email));
 
-  // ShiftCraft-side HR roster (includes labour-hire / no-auth rows). The
+  // ShiftCraft-side HR roster (includes contractor / no-auth rows). The
   // SELECT pulls every column the People > Team detail modal renders so
   // the modal can open without a follow-up round-trip.
   const scRoster = await forTenant(tenantId).run((tx) =>

@@ -37,7 +37,7 @@ export default async function NewEmployeePage({
           email: email ?? null,
           mobile: null,
           department: null,
-          employmentType: "permanent",
+          employmentType: "full_time",
           hourlyRate: null,
           notes: null,
           availability: null,
@@ -56,10 +56,10 @@ export default async function NewEmployeePage({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Add employee</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Add someone to your ShiftCraft roster. Permanent and casual staff
-            with an email will trigger a "suggest as learner" notification in
-            the LMS so training can be assigned. Labour-hire rows stay
-            ShiftCraft-only.
+            Add someone to your ShiftCraft roster. Full-time, part-time and
+            casual staff with an email will trigger a "suggest as learner"
+            notification in the LMS so training can be assigned. Contractor
+            rows stay ShiftCraft-only.
           </p>
         </div>
         <Link

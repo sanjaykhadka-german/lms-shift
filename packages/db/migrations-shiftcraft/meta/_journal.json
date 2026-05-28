@@ -218,6 +218,13 @@
       "when": 1779839239909,
       "tag": "0030_mute_red_skull",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1780005297980,
+      "tag": "0031_broken_black_widow",
+      "breakpoints": true
     }
   ]
 }

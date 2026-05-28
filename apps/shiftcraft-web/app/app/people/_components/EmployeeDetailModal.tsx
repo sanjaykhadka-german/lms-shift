@@ -20,9 +20,10 @@ const GENDER_LABEL: Record<string, string> = {
 };
 
 const EMPLOYMENT_LABEL: Record<string, string> = {
-  permanent: "Permanent",
+  full_time: "Full-time",
+  part_time: "Part-time",
   casual: "Casual",
-  labour_hire: "Labour hire",
+  contractor: "Contractor",
 };
 
 const ONBOARDING_LABEL: Record<string, string> = {

@@ -73,7 +73,7 @@ export default async function AvailabilityPage() {
             Editing as{" "}
             <span className="font-medium text-foreground">{row.fullName}</span>
             {row.department ? ` · ${row.department}` : ""} ·{" "}
-            {row.employmentType}
+            {row.employmentType.replace(/_/g, "-")}
           </div>
           <AvailabilityForm initialAvailability={availability} />
         </section>

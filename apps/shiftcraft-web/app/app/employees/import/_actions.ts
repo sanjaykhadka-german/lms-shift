@@ -25,14 +25,16 @@ import { logAuditEvent } from "~/lib/audit";
 //   fullName, email, mobile, department, employmentType, hourlyRate
 //
 // fullName is required; everything else is optional. employmentType
-// defaults to 'permanent' and must be one of permanent/casual/labour_hire.
-// Rows missing fullName or with an invalid employmentType skip with a
-// reason. Duplicate emails (already on the roster) skip with a reason.
+// defaults to 'full_time' and must be one of
+// full_time/part_time/casual/contractor. Rows missing fullName or with an
+// invalid employmentType skip with a reason. Duplicate emails (already on
+// the roster) skip with a reason.
 
 const ALLOWED_EMPLOYMENT = new Set([
-  "permanent",
+  "full_time",
+  "part_time",
   "casual",
-  "labour_hire",
+  "contractor",
 ]);
 
 export interface ImportRowOutcome {
@@ -236,7 +238,7 @@ export async function importEmployeesAction(
       const employmentTypeRaw =
         idxOf("employmentType") >= 0
           ? (row[idxOf("employmentType")] ?? "").trim().toLowerCase()
-          : "permanent";
+          : "full_time";
       const hourlyRateRaw =
         idxOf("hourlyRate") >= 0
           ? (row[idxOf("hourlyRate")] ?? "").trim()
@@ -254,7 +256,7 @@ export async function importEmployeesAction(
         continue;
       }
       const employmentType =
-        employmentTypeRaw === "" ? "permanent" : employmentTypeRaw;
+        employmentTypeRaw === "" ? "full_time" : employmentTypeRaw;
       if (!ALLOWED_EMPLOYMENT.has(employmentType)) {
         erroredCount += 1;
         outcomes.push({
@@ -262,7 +264,7 @@ export async function importEmployeesAction(
           email,
           fullName,
           status: "errored",
-          reason: `Invalid employmentType '${employmentTypeRaw}' (allowed: permanent, casual, labour_hire)`,
+          reason: `Invalid employmentType '${employmentTypeRaw}' (allowed: full_time, part_time, casual, contractor)`,
         });
         continue;
       }
@@ -316,9 +318,10 @@ export async function importEmployeesAction(
           mobile: mobile === "" ? null : mobile,
           departmentId,
           employmentType: employmentType as
-            | "permanent"
+            | "full_time"
+            | "part_time"
             | "casual"
-            | "labour_hire",
+            | "contractor",
           hourlyRate: hourlyRateRaw === "" ? null : hourlyRateRaw,
           appUserId: linkedAppUserId,
           createdByUserId: me.id,

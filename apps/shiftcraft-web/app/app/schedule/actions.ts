@@ -680,7 +680,7 @@ export async function assignEmployeeAction(
 /**
  * Bulk-offer one shift to every linked employee — either all of them
  * or those in a chosen department. "Linked" means sc_employees rows
- * with a non-null app_user_id (labour-hire rows without an auth
+ * with a non-null app_user_id (contractor rows without an auth
  * account can't accept anyway).
  *
  * - Skips users already on the shift (any status).

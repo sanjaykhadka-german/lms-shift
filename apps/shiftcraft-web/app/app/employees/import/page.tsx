@@ -56,10 +56,11 @@ export default async function EmployeeImportPage() {
           </li>
           <li>
             <code className="rounded bg-muted px-1 font-mono text-xs">employmentType</code>{" "}
-            — one of <code className="font-mono">permanent</code>,{" "}
+            — one of <code className="font-mono">full_time</code>,{" "}
+            <code className="font-mono">part_time</code>,{" "}
             <code className="font-mono">casual</code>,{" "}
-            <code className="font-mono">labour_hire</code> (defaults to{" "}
-            <code className="font-mono">permanent</code>)
+            <code className="font-mono">contractor</code> (defaults to{" "}
+            <code className="font-mono">full_time</code>)
           </li>
           <li>
             <code className="rounded bg-muted px-1 font-mono text-xs">hourlyRate</code>{" "}
@@ -69,7 +70,7 @@ export default async function EmployeeImportPage() {
         <div className="mt-4 overflow-x-auto rounded-md border border-border bg-muted/40 p-3 font-mono text-xs">
           <div>fullName,email,mobile,department,employmentType,hourlyRate</div>
           <div>
-            Jane Doe,jane@example.com,0400 000 000,Butchery,permanent,28.50
+            Jane Doe,jane@example.com,0400 000 000,Butchery,full_time,28.50
           </div>
           <div>John Roe,,0400 111 222,Counter,casual,25.00</div>
         </div>

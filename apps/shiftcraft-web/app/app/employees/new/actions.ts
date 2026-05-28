@@ -79,7 +79,7 @@ const employeeSchema = z.object({
     .optional(),
   mobile: z.string().trim().max(40).optional().or(z.literal("")),
   department: z.string().trim().max(80).optional().or(z.literal("")),
-  employmentType: z.enum(["permanent", "casual", "labour_hire"]),
+  employmentType: z.enum(["full_time", "part_time", "casual", "contractor"]),
   hourlyRate: z
     .union([
       z.literal(""),
@@ -162,7 +162,7 @@ export async function createEmployeeAction(
     email: formData.get("email") ?? "",
     mobile: formData.get("mobile") ?? "",
     department: formData.get("department") ?? "",
-    employmentType: formData.get("employmentType") ?? "permanent",
+    employmentType: formData.get("employmentType") ?? "full_time",
     hourlyRate: formData.get("hourlyRate") ?? "",
     notes: formData.get("notes") ?? "",
     preferredName: formData.get("preferredName") ?? "",
@@ -274,9 +274,9 @@ export async function createEmployeeAction(
 
   // Suggest-as-learner notification: only when there's an email to invite on
   // (the LMS uses email as the learner identity key) AND the person is a
-  // staff member who would normally need training. Labour-hire is skipped
+  // staff member who would normally need training. Contractors are skipped
   // by design — they're not part of the training cohort.
-  if (email && parsed.data.employmentType !== "labour_hire") {
+  if (email && parsed.data.employmentType !== "contractor") {
     await notifyTenantAdmins(
       tenantId,
       {
@@ -294,7 +294,7 @@ export async function createEmployeeAction(
   // the new employee can claim their account from the standard
   // /accept-invite page (hosted on lms-web). Skipped silently when:
   //   - no email             — no address to send to
-  //   - labour_hire          — roster-only, no login needed
+  //   - contractor           — roster-only, no login needed
   //   - already linked       — already a tenant member; auto-link covers it
   //   - already invited      — pending invitation exists; don't duplicate
   //   - no `me`              — invitedByUserId is NOT NULL on the schema
@@ -305,7 +305,7 @@ export async function createEmployeeAction(
   if (
     wantsInvite &&
     email &&
-    parsed.data.employmentType !== "labour_hire" &&
+    parsed.data.employmentType !== "contractor" &&
     linkedAppUserId === null &&
     me
   ) {
@@ -382,7 +382,7 @@ export async function updateEmployeeAction(
     email: formData.get("email") ?? "",
     mobile: formData.get("mobile") ?? "",
     department: formData.get("department") ?? "",
-    employmentType: formData.get("employmentType") ?? "permanent",
+    employmentType: formData.get("employmentType") ?? "full_time",
     hourlyRate: formData.get("hourlyRate") ?? "",
     notes: formData.get("notes") ?? "",
     preferredName: formData.get("preferredName") ?? "",
@@ -521,7 +521,7 @@ export async function updateEmployeeAction(
 // their own PIN — the kiosk surface is operator-managed.
 //
 // Anchored on app_user_id (the auth identity) rather than sc_employees.id
-// because clock events are keyed on the same identifier. Labour-hire roster
+// because clock events are keyed on the same identifier. Contractor roster
 // rows without an attached auth user can't have a PIN — the UI hides the
 // card in that case.
 

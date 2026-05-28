@@ -39,19 +39,24 @@ const GENDER_OPTIONS: Array<{ value: string; label: string }> = [
 
 const EMPLOYMENT_TYPES: Array<{ value: string; label: string; hint: string }> = [
   {
-    value: "permanent",
-    label: "Permanent",
-    hint: "Ongoing employee. Will trigger a training suggestion if email is set.",
+    value: "full_time",
+    label: "Full-time",
+    hint: "Ongoing full-time employee. Triggers a training suggestion if email is set.",
+  },
+  {
+    value: "part_time",
+    label: "Part-time",
+    hint: "Ongoing part-time employee. Triggers a training suggestion if email is set.",
   },
   {
     value: "casual",
     label: "Casual",
-    hint: "Variable hours. Will trigger a training suggestion if email is set.",
+    hint: "Variable hours. Triggers a training suggestion if email is set.",
   },
   {
-    value: "labour_hire",
-    label: "Labour hire",
-    hint: "Roster-only. No LMS suggestion — not added to training cohort.",
+    value: "contractor",
+    label: "Contractor",
+    hint: "Roster-only / external. No LMS suggestion — not added to training cohort.",
   },
 ];
 
@@ -131,7 +136,7 @@ export function EmployeeForm({
             </p>
           ) : (
             <p className="text-xs text-muted-foreground">
-              Required for learner suggestion. Leave blank for labour-hire.
+              Required for learner suggestion. Leave blank for contractors.
             </p>
           )}
           {mode === "create" ? (
@@ -144,7 +149,7 @@ export function EmployeeForm({
               />
               <span className="text-muted-foreground">
                 Email them a link to create their account. Ignored if email
-                is empty or employment type is labour-hire.
+                is empty or employment type is contractor.
               </span>
             </label>
           ) : null}
@@ -190,7 +195,7 @@ export function EmployeeForm({
           <select
             id="employmentType"
             name="employmentType"
-            defaultValue={v?.employmentType ?? "permanent"}
+            defaultValue={v?.employmentType ?? "full_time"}
             required
             className="flex h-9 w-full rounded-md border border-[color:var(--input)] bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
           >

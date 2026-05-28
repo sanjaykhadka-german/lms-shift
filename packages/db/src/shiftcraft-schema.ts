@@ -357,12 +357,13 @@ export const scDepartments = pgTable(
 //
 // ShiftCraft-owned record of someone who can be assigned to shifts. Distinct
 // from `app.users` (auth identity) and `app.members` (tenant access) so that
-// labour-hire / contractor staff who never need a login still appear on the
-// roster. Permanent and casual employees can be linked to their auth user
-// (app_user_id) when they have one — for example after self-onboarding or
-// when the LMS admin confirms the suggested learner record.
+// contractor staff who never need a login still appear on the roster.
+// Full-time / part-time / casual employees can be linked to their auth
+// user (app_user_id) when they have one — for example after
+// self-onboarding or when the LMS admin confirms the suggested learner
+// record.
 //
-// `email` is nullable because labour-hire rows often have only a name +
+// `email` is nullable because contractor rows often have only a name +
 // mobile. The partial unique index on (tracey_tenant_id, lower(email))
 // prevents duplicate emails within a tenant while still allowing many
 // null-email rows.
@@ -389,8 +390,16 @@ export const scEmployees = pgTable(
       onDelete: "set null",
     }),
     availability: jsonb("availability"),
-    employmentType: text("employment_type").notNull().default("permanent"),
-    // Hourly wage in tenant currency. Nullable so labour-hire / contract
+    // Employment vocabulary aligned with the AU brief (migration 0034
+    // renamed the legacy `permanent`/`labour_hire` values):
+    //   full_time | part_time : ongoing employees, accrue leave, join the
+    //                           training cohort, auto-invited to log in.
+    //   casual                : variable hours, zero leave accrual
+    //                           (loading is in the rate), still invited.
+    //   contractor            : roster-only / external. No leave accrual,
+    //                           no LMS suggestion, never auto-invited.
+    employmentType: text("employment_type").notNull().default("full_time"),
+    // Hourly wage in tenant currency. Nullable so contractor / casual
     // employees can be added without forcing a rate (the platform owner
     // sets per-tenant currency; Reports treats nulls as "rate not set").
     hourlyRate: numeric("hourly_rate", { precision: 10, scale: 2 }),
@@ -457,7 +466,7 @@ export const scEmployees = pgTable(
       .where(sql`${t.email} is not null`),
     check(
       "sc_employees_employment_type_chk",
-      sql`${t.employmentType} in ('permanent','casual','labour_hire')`,
+      sql`${t.employmentType} in ('full_time','part_time','casual','contractor')`,
     ),
     check(
       "sc_employees_email_format_chk",
@@ -491,7 +500,7 @@ export const scEmployees = pgTable(
 // `location_id` is optional: kiosk/geofence integrations would populate
 // it, but a phone-based clock-in might not know which location the user
 // is at. No FK to sc_employees because clock events are keyed on
-// app_user_id (the auth identity) — a labour-hire row without an auth
+// app_user_id (the auth identity) — a contractor row without an auth
 // user can't clock in anyway.
 
 export const scClockEvents = pgTable(
@@ -1687,7 +1696,11 @@ export type ScShiftSwapRequest = typeof scShiftSwapRequests.$inferSelect;
 export type NewScShiftSwapRequest = typeof scShiftSwapRequests.$inferInsert;
 export type ScEmployee = typeof scEmployees.$inferSelect;
 export type NewScEmployee = typeof scEmployees.$inferInsert;
-export type ScEmploymentType = "permanent" | "casual" | "labour_hire";
+export type ScEmploymentType =
+  | "full_time"
+  | "part_time"
+  | "casual"
+  | "contractor";
 export type ScDepartment = typeof scDepartments.$inferSelect;
 export type NewScDepartment = typeof scDepartments.$inferInsert;
 export type ScClockEvent = typeof scClockEvents.$inferSelect;

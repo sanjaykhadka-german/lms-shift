@@ -49,15 +49,15 @@ const EMPLOYEE_SEEDS: Array<{
   email: string;
   mobile: string;
   department: string;
-  employmentType: "permanent" | "casual" | "labour_hire";
+  employmentType: "full_time" | "part_time" | "casual" | "contractor";
   hourlyRate: string | null;
 }> = [
-  { fullName: "Lena Müller", email: "lena@butchery.test", mobile: "0400 111 222", department: "Butchery", employmentType: "permanent", hourlyRate: "32.50" },
-  { fullName: "Tomas Novak", email: "tomas@butchery.test", mobile: "0400 222 333", department: "Butchery", employmentType: "permanent", hourlyRate: "30.00" },
+  { fullName: "Lena Müller", email: "lena@butchery.test", mobile: "0400 111 222", department: "Butchery", employmentType: "full_time", hourlyRate: "32.50" },
+  { fullName: "Tomas Novak", email: "tomas@butchery.test", mobile: "0400 222 333", department: "Butchery", employmentType: "full_time", hourlyRate: "30.00" },
   { fullName: "Priya Shah", email: "priya@butchery.test", mobile: "0400 333 444", department: "Counter", employmentType: "casual", hourlyRate: "28.50" },
   { fullName: "Jin Park", email: "jin@butchery.test", mobile: "0400 444 555", department: "Counter", employmentType: "casual", hourlyRate: "28.50" },
-  { fullName: "Marta Silva", email: "marta@butchery.test", mobile: "0400 555 666", department: "Prep", employmentType: "permanent", hourlyRate: "29.00" },
-  { fullName: "Dan O'Brien", email: "dan@butchery.test", mobile: "0400 666 777", department: "Cleaning", employmentType: "labour_hire", hourlyRate: null },
+  { fullName: "Marta Silva", email: "marta@butchery.test", mobile: "0400 555 666", department: "Prep", employmentType: "part_time", hourlyRate: "29.00" },
+  { fullName: "Dan O'Brien", email: "dan@butchery.test", mobile: "0400 666 777", department: "Cleaning", employmentType: "contractor", hourlyRate: null },
 ];
 
 const TASKS: Array<{

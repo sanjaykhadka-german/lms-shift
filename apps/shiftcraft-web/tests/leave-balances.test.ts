@@ -63,27 +63,32 @@ describe("computeBalance", () => {
     expect(Math.abs(r.available)).toBe(0); // -0 / +0 normalised
   });
 
-  it("returns zero accrued for labour_hire", () => {
-    const r = computeBalance(200, 0.076923, 0, "labour_hire");
+  it("returns zero accrued for contractor", () => {
+    const r = computeBalance(200, 0.076923, 0, "contractor");
     expect(r.accrued).toBe(0);
   });
 
+  it("accrues for part_time employees (pro-rata via actual hours)", () => {
+    const r = computeBalance(100, 0.076923, 0, "part_time");
+    expect(r.accrued).toBeCloseTo(7.6923, 2);
+  });
+
   it("returns zero accrued when rate is null (Unpaid type)", () => {
-    const r = computeBalance(200, null, 5, "permanent");
+    const r = computeBalance(200, null, 5, "full_time");
     expect(r.accrued).toBe(0);
     expect(r.taken).toBe(5);
     expect(r.available).toBe(-5);
   });
 
-  it("multiplies hours × rate for permanent employees with rate set", () => {
+  it("multiplies hours × rate for full_time employees with rate set", () => {
     // 200 ordinary hours × annual-leave rate ≈ 15.38h accrued
-    const r = computeBalance(200, 0.076923, 0, "permanent");
+    const r = computeBalance(200, 0.076923, 0, "full_time");
     expect(r.accrued).toBeCloseTo(15.385, 2);
     expect(r.available).toBeCloseTo(15.385, 2);
   });
 
   it("subtracts taken hours from accrued", () => {
-    const r = computeBalance(1000, 0.076923, 38, "permanent");
+    const r = computeBalance(1000, 0.076923, 38, "full_time");
     // 1000 × 0.076923 = 76.923, − 38 = 38.923
     expect(r.accrued).toBeCloseTo(76.923, 2);
     expect(r.taken).toBe(38);
@@ -91,7 +96,7 @@ describe("computeBalance", () => {
   });
 
   it("can return a negative balance (informational; admins decide)", () => {
-    const r = computeBalance(100, 0.076923, 50, "permanent");
+    const r = computeBalance(100, 0.076923, 50, "full_time");
     // 7.69 − 50 = -42.31
     expect(r.available).toBeLessThan(0);
   });

@@ -83,7 +83,7 @@ export default async function EditEmployeePage({
   if (!row) notFound();
 
   // PIN state is only queried when the employee has an attached auth user.
-  // Labour-hire roster rows never have a PIN — the card just doesn't render.
+  // Contractor roster rows never have a PIN — the card just doesn't render.
   const pinRow =
     row.appUserId !== null
       ? (

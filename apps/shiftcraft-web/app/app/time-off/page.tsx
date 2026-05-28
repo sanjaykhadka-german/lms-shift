@@ -223,7 +223,7 @@ export default async function TimeOffPage({
           <h2 className="text-base font-semibold">Your balances</h2>
           <p className="mt-1 mb-4 text-xs text-muted-foreground">
             Hours accrued from approved timesheets minus hours of
-            approved leave already taken. Casual + labour-hire
+            approved leave already taken. Casual + contractor
             employees see zero — paid-leave loading is included in
             the hourly rate.
           </p>

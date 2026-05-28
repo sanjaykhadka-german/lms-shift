@@ -22,15 +22,17 @@ import {
 //   - available     = accrued - taken (can go negative — we surface
 //                     a warning, don't block)
 //
-// Casual + labour_hire employees: accrued is always 0 (paid-leave
-// loading is included in their hourly rate per AU general rule).
-// They CAN still take unpaid leave; balance just stays 0 / negative.
+// Casual + contractor employees: accrued is always 0 (paid-leave
+// loading is included in their hourly rate per AU general rule;
+// contractors aren't entitled to accrued leave at all). They CAN still
+// take unpaid leave; balance just stays 0 / negative. full_time and
+// part_time both accrue (part-timers pro-rata via their actual hours).
 //
 // Hours per day: 7.6 (AU full-time standard — 38h/5d). Future tenants
 // can override via the award profile; for v1 we hardcode.
 
 const HOURS_PER_LEAVE_DAY = 7.6;
-const CASUAL_TYPES = new Set(["casual", "labour_hire"]);
+const ZERO_ACCRUAL_TYPES = new Set(["casual", "contractor"]);
 
 export interface LeaveBalance {
   leaveTypeId: string;
@@ -70,7 +72,7 @@ export function computeBalance(
   takenHours: number,
   employmentType: string,
 ): { accrued: number; taken: number; available: number } {
-  if (rate == null || CASUAL_TYPES.has(employmentType)) {
+  if (rate == null || ZERO_ACCRUAL_TYPES.has(employmentType)) {
     return { accrued: 0, taken: takenHours, available: -takenHours };
   }
   const accrued = ordinaryHoursWorked * rate;

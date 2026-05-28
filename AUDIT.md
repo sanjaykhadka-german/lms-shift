@@ -76,7 +76,7 @@ Legend: ✅ Implemented · 🟡 Partial · ❌ Missing.
 
 **Missing**
 - **Bidirectional payroll sync** with Xero (push works ✅; pull-back of employee changes from Xero → ShiftCraft not implemented)
-- **Employment-type vocabulary mismatch** — schema uses `permanent` | `casual` | `labour_hire`; brief calls for `full_time` | `part_time` | `casual` | `contractor`. Pick one and migrate.
+- ✅ **Employment-type vocabulary aligned** — migration `0043_shiftcraft_employment_type_vocab` renamed the legacy enum to the brief's `full_time` | `part_time` | `casual` | `contractor` (public template migration `0031` + per-tenant backfill `permanent→full_time`, `labour_hire→contractor`; `part_time` is new). Business logic carried over: `contractor` inherits the old `labour_hire` "roster-only / no LMS suggestion / never auto-invited" semantics; the zero-accrual set is now `{casual, contractor}` (full_time + part_time accrue). Surfaced across the create/edit/import forms, People > Team badges, and the detail modal.
 - ✅ **Document expiry alerts** — `/app/admin/documents-expiring` admin page buckets every doc with an expiry within 30 days (or already passed) into expired / ≤7d / 8–14d / 15–30d tiers. Covers both team and library scope. One-click "Send digest now" button fans an in-app notification + best-effort email to every owner/admin (no cron; manual cadence, matching the WHS reminder pattern). Pure classifier at `lib/document-expiry.ts` covered by `tests/document-expiry.test.ts`. Sidebar entry under Admin: "Doc expiry digest".
 
 **PII rule:** TFN / bank / super are encrypted at rest, never logged, never returned in list endpoints, masked in UI except on explicit manager reveal (which writes a `pii.revealed` audit event).
@@ -255,7 +255,7 @@ These do **not** block AUDIT.md acceptance. They block specific Phase 2 slices.
 
 - **#2 onboarding:** email-magic-link only, or email + SMS at parity from v1?
 - **#2 onboarding:** reuse `packages/storage` (planning Slice 7's local-fs + R2 adapter) for documents, or stand up a ShiftCraft-specific bucket?
-- **#2 onboarding:** which employment-type vocabulary wins — the brief's `full_time / part_time / casual / contractor` or the existing schema's `permanent / casual / labour_hire`?
+- ✅ **#2 onboarding:** employment-type vocabulary resolved — the brief's `full_time / part_time / casual / contractor` won (migration 0043, 2026-05-29).
 - **#5 Xero:** one Xero org per tenant, or per location?
 - **#5 Xero:** ship a sensible AU default earnings-code mapping, or require admin to configure on first export?
 - **#11 SMS:** carrier — Twilio, MessageBird, AWS SNS, or defer?

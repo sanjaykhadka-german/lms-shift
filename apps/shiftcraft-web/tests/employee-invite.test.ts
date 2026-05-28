@@ -277,7 +277,7 @@ describe("createEmployeeAction — invite gate", () => {
         fd({
           fullName: "Jane Doe",
           email: "jane@example.com",
-          employmentType: "permanent",
+          employmentType: "full_time",
           sendInvite: "on",
         }),
       ),
@@ -315,7 +315,7 @@ describe("createEmployeeAction — invite gate", () => {
         fd({
           fullName: "Jane Doe",
           email: "jane@example.com",
-          employmentType: "permanent",
+          employmentType: "full_time",
           // sendInvite intentionally omitted — unchecked checkbox
         }),
       ),
@@ -328,7 +328,7 @@ describe("createEmployeeAction — invite gate", () => {
     ).toBe(false);
   });
 
-  it("skips the invite for labour_hire even with checkbox + email", async () => {
+  it("skips the invite for contractor even with checkbox + email", async () => {
     const { createEmployeeAction } = await load();
     await expect(
       createEmployeeAction(
@@ -336,7 +336,7 @@ describe("createEmployeeAction — invite gate", () => {
         fd({
           fullName: "Contractor C",
           email: "c@agency.example",
-          employmentType: "labour_hire",
+          employmentType: "contractor",
           sendInvite: "on",
         }),
       ),
@@ -373,7 +373,7 @@ describe("createEmployeeAction — invite gate", () => {
         fd({
           fullName: "Jane Doe",
           email: "jane@example.com",
-          employmentType: "permanent",
+          employmentType: "full_time",
           sendInvite: "on",
         }),
       ),
@@ -392,7 +392,7 @@ describe("createEmployeeAction — invite gate", () => {
         fd({
           fullName: "Jane Doe",
           email: "jane@example.com",
-          employmentType: "permanent",
+          employmentType: "full_time",
           sendInvite: "on",
         }),
       ),
@@ -411,7 +411,7 @@ describe("createEmployeeAction — invite gate", () => {
         fd({
           fullName: "Jane Doe",
           email: "jane@example.com",
-          employmentType: "permanent",
+          employmentType: "full_time",
           sendInvite: "on",
         }),
       ),

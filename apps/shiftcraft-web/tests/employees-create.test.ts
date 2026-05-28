@@ -221,7 +221,7 @@ beforeEach(() => {
 });
 
 describe("createEmployeeAction", () => {
-  it("inserts a permanent employee and notifies admins when email is provided", async () => {
+  it("inserts a full-time employee and notifies admins when email is provided", async () => {
     const { createEmployeeAction } = await load();
     await expect(
       createEmployeeAction(
@@ -231,7 +231,7 @@ describe("createEmployeeAction", () => {
           email: "jane@example.com",
           mobile: "0400 000 000",
           department: "Butchery",
-          employmentType: "permanent",
+          employmentType: "full_time",
         }),
       ),
     ).rejects.toThrow(/NEXT_REDIRECT/);
@@ -241,7 +241,7 @@ describe("createEmployeeAction", () => {
       fullName: "Jane Doe",
       email: "jane@example.com",
       mobile: "0400 000 000",
-      employmentType: "permanent",
+      employmentType: "full_time",
       traceyTenantId: "tenant-A",
       createdByUserId: "user-1",
     });
@@ -270,7 +270,7 @@ describe("createEmployeeAction", () => {
       fd({
         fullName: "Jane Doe",
         email: "jane@example.com",
-        employmentType: "permanent",
+        employmentType: "full_time",
       }),
     );
 
@@ -282,7 +282,7 @@ describe("createEmployeeAction", () => {
     expect(state.notifyCalls).toHaveLength(0);
   });
 
-  it("accepts a labour-hire row with no email and skips the LMS suggestion", async () => {
+  it("accepts a contractor row with no email and skips the LMS suggestion", async () => {
     const { createEmployeeAction } = await load();
     await expect(
       createEmployeeAction(
@@ -291,7 +291,7 @@ describe("createEmployeeAction", () => {
           fullName: "Contractor A",
           email: "",
           mobile: "0400 111 222",
-          employmentType: "labour_hire",
+          employmentType: "contractor",
         }),
       ),
     ).rejects.toThrow(/NEXT_REDIRECT/);
@@ -300,12 +300,12 @@ describe("createEmployeeAction", () => {
     expect(state.inserted[0]).toMatchObject({
       fullName: "Contractor A",
       email: null,
-      employmentType: "labour_hire",
+      employmentType: "contractor",
     });
     expect(state.notifyCalls).toHaveLength(0);
   });
 
-  it("does not fire the LMS suggestion when email is set but type is labour_hire", async () => {
+  it("does not fire the LMS suggestion when email is set but type is contractor", async () => {
     const { createEmployeeAction } = await load();
     await expect(
       createEmployeeAction(
@@ -313,7 +313,7 @@ describe("createEmployeeAction", () => {
         fd({
           fullName: "Contractor B",
           email: "contractor@example.com",
-          employmentType: "labour_hire",
+          employmentType: "contractor",
         }),
       ),
     ).rejects.toThrow(/NEXT_REDIRECT/);
@@ -348,7 +348,7 @@ describe("createEmployeeAction", () => {
       fd({
         fullName: "Jane Doe",
         email: "not-an-email",
-        employmentType: "permanent",
+        employmentType: "full_time",
       }),
     );
     expect(result.status).toBe("error");
@@ -366,7 +366,7 @@ describe("createEmployeeAction", () => {
         fd({
           fullName: "Jane Doe",
           email: "jane@example.com",
-          employmentType: "permanent",
+          employmentType: "full_time",
           hourlyRate: "24.50",
         }),
       ),
@@ -381,7 +381,7 @@ describe("createEmployeeAction", () => {
       fd({
         fullName: "Jane Doe",
         email: "jane@example.com",
-        employmentType: "permanent",
+        employmentType: "full_time",
         hourlyRate: "not a number",
       }),
     );
@@ -400,7 +400,7 @@ describe("createEmployeeAction", () => {
         fd({
           fullName: "Jane Doe",
           email: "jane@example.com",
-          employmentType: "permanent",
+          employmentType: "full_time",
           hourlyRate: "",
         }),
       ),
@@ -418,7 +418,7 @@ describe("updateEmployeeAction", () => {
       fd({
         fullName: "Jane Doe",
         email: "jane@example.com",
-        employmentType: "permanent",
+        employmentType: "full_time",
         hourlyRate: "30.00",
         department: "Butchery",
       }),
@@ -442,7 +442,7 @@ describe("updateEmployeeAction", () => {
       fd({
         fullName: "Jane Doe",
         email: "garbage",
-        employmentType: "permanent",
+        employmentType: "full_time",
       }),
     );
     expect(r.status).toBe("error");
