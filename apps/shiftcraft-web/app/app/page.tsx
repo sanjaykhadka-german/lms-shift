@@ -18,6 +18,8 @@ import {
 import { currentMembership, currentUser } from "~/lib/auth/current";
 import { Avatar } from "~/components/Avatar";
 import { Button } from "~/components/ui/button";
+import { Badge } from "~/components/ui/badge";
+import { Eyebrow } from "~/components/ui/card";
 import { InfoPopover } from "~/components/InfoPopover";
 
 // Dashboard ("/app") — Deputy-style "Me" view.
@@ -75,12 +77,12 @@ function fmtDateRange(start: Date, end: Date): string {
   return `${s} → ${e}`;
 }
 
-const STATUS_BADGE: Record<string, string> = {
-  accepted: "bg-emerald-600 text-white",
-  offered: "bg-amber-500 text-white",
-  declined: "bg-slate-500 text-white",
-  swapped: "bg-blue-600 text-white",
-  no_show: "bg-rose-600 text-white",
+const STATUS_VARIANT: Record<string, "live" | "warn" | "neutral" | "open" | "danger"> = {
+  accepted: "live",
+  offered: "warn",
+  declined: "neutral",
+  swapped: "open",
+  no_show: "danger",
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -461,20 +463,39 @@ export default async function DashboardPage({
 
         {/* ─── Main column ─── */}
         <div className="space-y-6">
-          <header className="flex items-center justify-between">
-            <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
-              Dashboard
-              <InfoPopover label="About the dashboard">
-                <p>
-                  Daily roundup: today&rsquo;s shift status, recent
-                  announcements, and (for managers) what needs attention
-                  + approval. The cards below pull live from the schedule,
-                  timesheets, and notifications.
-                </p>
-              </InfoPopover>
-            </h1>
-            <div className="text-xs text-muted-foreground">
-              {membership.tenant.name}
+          <header className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <Eyebrow>
+                {today.toLocaleDateString(undefined, {
+                  weekday: "long",
+                  day: "numeric",
+                  month: "long",
+                })}
+              </Eyebrow>
+              <h1 className="mt-1 flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
+                {(() => {
+                  const h = new Date().getHours();
+                  const part = h < 12 ? "morning" : h < 18 ? "afternoon" : "evening";
+                  const first = user.name ? `, ${user.name.split(" ")[0]}` : "";
+                  return `Good ${part}${first}.`;
+                })()}
+                <InfoPopover label="About the dashboard">
+                  <p>
+                    Daily roundup: today&rsquo;s shift status, recent
+                    announcements, and (for managers) what needs attention
+                    + approval. The cards below pull live from the schedule,
+                    timesheets, and notifications.
+                  </p>
+                </InfoPopover>
+              </h1>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button asChild variant="outline" size="sm">
+                <Link href="/app/schedule">Open roster</Link>
+              </Button>
+              <Button asChild size="sm">
+                <Link href="/app/clock">Time clock</Link>
+              </Button>
             </div>
           </header>
 
@@ -714,22 +735,22 @@ export default async function DashboardPage({
                   <div
                     key={i}
                     className={`flex min-h-[10rem] flex-col rounded-lg border bg-card p-3 shadow-sm ${
-                      isToday ? "border-primary" : "border-border"
+                      isToday ? "border-[var(--ink)] ring-1 ring-[var(--ink)]" : "border-border"
                     }`}
                   >
                     <div
                       className={`flex items-baseline gap-1 border-b pb-1 ${
-                        isToday ? "border-primary" : "border-border"
+                        isToday ? "border-[var(--ink)]" : "border-border"
                       }`}
                     >
-                      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-3">
                         {label.weekday}
                       </span>
-                      <span className="text-base font-semibold">
+                      <span className="font-display text-base font-semibold text-ink">
                         {label.day}
                       </span>
                       {isToday ? (
-                        <span className="ml-auto text-[10px] font-semibold uppercase tracking-wider text-primary">
+                        <span className="ml-auto rounded-full bg-[var(--accent)] px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-[var(--accent-ink)]">
                           Today
                         </span>
                       ) : null}
@@ -765,14 +786,12 @@ export default async function DashboardPage({
                                 </div>
                               ) : null}
                               <div className="flex items-center justify-between pt-1">
-                                <span className="text-muted-foreground">
+                                <span className="font-mono text-ink-3">
                                   {h}h {m}m
                                 </span>
-                                <span
-                                  className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider ${STATUS_BADGE[s.status] ?? "bg-muted text-muted-foreground"}`}
-                                >
+                                <Badge variant={STATUS_VARIANT[s.status] ?? "neutral"} size="sm">
                                   {STATUS_LABEL[s.status] ?? s.status}
-                                </span>
+                                </Badge>
                               </div>
                             </div>
                           );
