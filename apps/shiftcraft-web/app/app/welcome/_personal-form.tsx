@@ -104,7 +104,7 @@ export function PersonalForm({ defaults }: { defaults: Defaults }) {
           {pending ? "Saving…" : "Save personal details"}
         </Button>
         {state.status === "ok" && (
-          <p className="text-xs text-emerald-600">{state.message}</p>
+          <p className="text-xs text-[var(--live)]">{state.message}</p>
         )}
         {state.status === "error" && (
           <p className="text-xs text-[color:var(--destructive)]">{state.message}</p>

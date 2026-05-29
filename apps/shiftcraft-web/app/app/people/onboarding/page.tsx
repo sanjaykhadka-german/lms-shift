@@ -25,9 +25,9 @@ const STATUS_LABEL: Record<ScOnboardingStatus, string> = {
 };
 
 const STATUS_BADGE: Record<ScOnboardingStatus, string> = {
-  pending: "bg-amber-500 text-white",
-  in_progress: "bg-blue-600 text-white",
-  active: "bg-emerald-600 text-white",
+  pending: "bg-[var(--warn)] text-white",
+  in_progress: "bg-[var(--accent-deep)] text-[var(--accent-ink)]",
+  active: "bg-[var(--live)] text-white",
 };
 
 function startOfThisMonth(): Date {
@@ -143,7 +143,7 @@ export default async function OnboardingHubPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
           New hire onboarding
           <InfoPopover label="About onboarding">
             <p>
@@ -165,17 +165,17 @@ export default async function OnboardingHubPage() {
         <Stat
           label="Not started"
           value={pendingCount}
-          tone="bg-amber-500/10 border-amber-500/40 text-amber-700 dark:text-amber-300"
+          tone="bg-[color-mix(in_srgb,var(--warn)_12%,transparent)] border-[color-mix(in_srgb,var(--warn)_40%,transparent)] text-[var(--warn)]"
         />
         <Stat
           label="In progress"
           value={inProgressCount}
-          tone="bg-blue-500/10 border-blue-500/40 text-blue-700 dark:text-blue-300"
+          tone="bg-[color-mix(in_srgb,var(--accent)_15%,transparent)] border-[color-mix(in_srgb,var(--accent-deep)_40%,transparent)] text-[var(--accent-deep)]"
         />
         <Stat
           label="Completed this month"
           value={completedCount}
-          tone="bg-emerald-500/10 border-emerald-500/40 text-emerald-700 dark:text-emerald-300"
+          tone="bg-[color-mix(in_srgb,var(--live)_12%,transparent)] border-[color-mix(in_srgb,var(--live)_40%,transparent)] text-[var(--live)]"
         />
       </div>
 

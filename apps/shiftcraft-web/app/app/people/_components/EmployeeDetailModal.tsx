@@ -33,9 +33,9 @@ const ONBOARDING_LABEL: Record<string, string> = {
 };
 
 const ONBOARDING_TONE: Record<string, string> = {
-  pending: "bg-amber-500 text-white",
-  in_progress: "bg-blue-600 text-white",
-  active: "bg-emerald-600 text-white",
+  pending: "bg-[var(--warn)] text-white",
+  in_progress: "bg-[var(--accent-deep)] text-[var(--accent-ink)]",
+  active: "bg-[var(--live)] text-white",
 };
 
 const TABS = [
@@ -377,7 +377,7 @@ function EmploymentTab({ employee }: { employee: EmployeeDetail }) {
           label="Status"
           value={
             <span
-              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${employee.isActive ? "bg-emerald-600 text-white" : "bg-slate-500 text-white"}`}
+              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${employee.isActive ? "bg-[var(--live)] text-white" : "bg-[var(--ink-3)] text-white"}`}
             >
               {employee.isActive ? "Active" : "Inactive"}
             </span>
@@ -478,9 +478,9 @@ function DocumentsTab({ employee }: { employee: EmployeeDetail }) {
                 <span
                   className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${
                     expired
-                      ? "bg-red-600 text-white"
+                      ? "bg-[var(--danger)] text-white"
                       : expiringSoon
-                        ? "bg-amber-500 text-white"
+                        ? "bg-[var(--warn)] text-white"
                         : "bg-muted text-muted-foreground"
                   }`}
                 >

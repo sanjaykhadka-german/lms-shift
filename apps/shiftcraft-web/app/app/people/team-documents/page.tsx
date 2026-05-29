@@ -62,13 +62,13 @@ function SignatureBadge({
   if (!requires) return null;
   if (signatures > 0) {
     return (
-      <span className="inline-flex items-center rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white">
+      <span className="inline-flex items-center rounded-full bg-[var(--live)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white">
         Signed
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center rounded-full bg-amber-600 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white">
+    <span className="inline-flex items-center rounded-full bg-[var(--warn)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white">
       Signature required
     </span>
   );
@@ -80,14 +80,14 @@ function ExpiryBadge({ expiresAt }: { expiresAt: Date | null }) {
   if (days === null) return null;
   if (days < 0) {
     return (
-      <span className="inline-flex items-center rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white">
+      <span className="inline-flex items-center rounded-full bg-[var(--danger)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white">
         Expired {fmtDate(expiresAt)}
       </span>
     );
   }
   if (days <= EXPIRY_WARN_DAYS) {
     return (
-      <span className="inline-flex items-center rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white">
+      <span className="inline-flex items-center rounded-full bg-[var(--warn)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white">
         Expires in {days} {days === 1 ? "day" : "days"}
       </span>
     );
@@ -217,7 +217,7 @@ export default async function TeamDocumentsPage({
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight inline-flex items-center gap-2">
+        <h1 className="font-display text-[28px] font-semibold tracking-[-0.02em] text-ink inline-flex items-center gap-2">
           Team documents
           <InfoPopover label="About team documents">
             <p className="font-semibold">Per-employee documents</p>
@@ -256,7 +256,7 @@ export default async function TeamDocumentsPage({
         </Link>
         <Link
           href="/app/people/team-documents?expiring=1"
-          className={`rounded-md border px-3 py-1.5 ${expiringOnly ? "border-amber-500 bg-amber-500 text-white" : "border-border bg-background hover:bg-muted"}`}
+          className={`rounded-md border px-3 py-1.5 ${expiringOnly ? "border-[var(--warn)] bg-[var(--warn)] text-white" : "border-border bg-background hover:bg-muted"}`}
         >
           Expiring in {EXPIRY_WARN_DAYS} days ({expiringCount})
         </Link>

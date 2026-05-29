@@ -38,7 +38,7 @@ export function SignDocumentDialog({
         type="button"
         size="sm"
         onClick={() => setOpen(true)}
-        className="bg-amber-600 hover:bg-amber-500 text-white"
+        className="bg-[var(--warn)] hover:bg-[color-mix(in_srgb,var(--warn)_85%,black)] text-white"
       >
         Sign
       </Button>

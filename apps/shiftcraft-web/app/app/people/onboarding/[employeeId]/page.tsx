@@ -28,9 +28,9 @@ const STATUS_LABEL: Record<ScOnboardingStatus, string> = {
 };
 
 const STATUS_BADGE: Record<ScOnboardingStatus, string> = {
-  pending: "bg-amber-500 text-white",
-  in_progress: "bg-blue-600 text-white",
-  active: "bg-emerald-600 text-white",
+  pending: "bg-[var(--warn)] text-white",
+  in_progress: "bg-[var(--accent-deep)] text-[var(--accent-ink)]",
+  active: "bg-[var(--live)] text-white",
 };
 
 function fmtDate(d: Date | null): string {

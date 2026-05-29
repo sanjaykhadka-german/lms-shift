@@ -49,7 +49,7 @@ export default async function WelcomePage() {
   if (!employee) {
     return (
       <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
-        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
           Welcome
           <InfoPopover label="About this screen">
             <p>
@@ -60,7 +60,7 @@ export default async function WelcomePage() {
             </p>
           </InfoPopover>
         </h1>
-        <section className="rounded-lg border-2 border-amber-500/40 bg-amber-50 p-6 dark:border-amber-500/30 dark:bg-amber-950/20">
+        <section className="rounded-[var(--r-lg)] border border-[color-mix(in_srgb,var(--warn)_45%,transparent)] bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] p-6">
           <p className="text-sm">
             Ask your manager to add you on{" "}
             <code className="rounded bg-muted px-1 font-mono text-xs">
@@ -116,7 +116,7 @@ export default async function WelcomePage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
           Welcome, {employee.preferredName || employee.fullName.split(" ")[0]}
           <InfoPopover label="About the welcome flow">
             <p>
@@ -257,7 +257,7 @@ export default async function WelcomePage() {
                       }
                       className={`inline-flex h-5 w-5 items-center justify-center rounded border text-xs ${
                         isDone
-                          ? "border-emerald-600 bg-emerald-600 text-white"
+                          ? "border-[var(--live)] bg-[var(--live)] text-white"
                           : "border-border bg-background text-transparent hover:border-foreground"
                       }`}
                     >
@@ -272,7 +272,7 @@ export default async function WelcomePage() {
                     >
                       {t.title}
                       {t.required && !isDone && (
-                        <span className="ml-2 inline-flex items-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-white">
+                        <span className="ml-2 inline-flex items-center rounded-full bg-[var(--warn)] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-white">
                           Required
                         </span>
                       )}

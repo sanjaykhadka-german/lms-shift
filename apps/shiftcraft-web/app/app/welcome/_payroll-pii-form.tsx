@@ -30,18 +30,18 @@ export function PayrollPiiForm({ flags }: { flags: Flags }) {
 
   if (!showForm) {
     return (
-      <div className="rounded-md border border-emerald-500/40 bg-emerald-50 p-3 text-xs dark:border-emerald-500/30 dark:bg-emerald-950/20">
-        <p className="font-medium text-emerald-900 dark:text-emerald-200">
+      <div className="rounded-md border border-[color-mix(in_srgb,var(--live)_45%,transparent)] bg-[color-mix(in_srgb,var(--live)_10%,transparent)] p-3 text-xs">
+        <p className="font-medium text-[var(--live)]">
           Payroll details on file
         </p>
-        <p className="mt-1 text-emerald-800 dark:text-emerald-300">
+        <p className="mt-1 text-[var(--live)]">
           TFN, BSB + account, super fund all stored (encrypted).
           {flags.superFundName ? ` Super fund: ${flags.superFundName}.` : ""}
         </p>
         <button
           type="button"
           onClick={() => setShowForm(true)}
-          className="mt-2 underline text-emerald-900 dark:text-emerald-200"
+          className="mt-2 underline text-[var(--live)]"
         >
           Update / change
         </button>
@@ -55,7 +55,7 @@ export function PayrollPiiForm({ flags }: { flags: Flags }) {
         <Label htmlFor="tfn">
           TFN
           {flags.hasTfn && (
-            <span className="ml-2 text-[10px] uppercase tracking-wider text-emerald-600">
+            <span className="ml-2 text-[10px] uppercase tracking-wider text-[var(--live)]">
               on file
             </span>
           )}
@@ -73,7 +73,7 @@ export function PayrollPiiForm({ flags }: { flags: Flags }) {
         <Label htmlFor="bsb">
           BSB
           {flags.hasBsb && (
-            <span className="ml-2 text-[10px] uppercase tracking-wider text-emerald-600">
+            <span className="ml-2 text-[10px] uppercase tracking-wider text-[var(--live)]">
               on file
             </span>
           )}
@@ -91,7 +91,7 @@ export function PayrollPiiForm({ flags }: { flags: Flags }) {
         <Label htmlFor="accountNumber">
           Account number
           {flags.hasAccount && (
-            <span className="ml-2 text-[10px] uppercase tracking-wider text-emerald-600">
+            <span className="ml-2 text-[10px] uppercase tracking-wider text-[var(--live)]">
               on file
             </span>
           )}
@@ -122,7 +122,7 @@ export function PayrollPiiForm({ flags }: { flags: Flags }) {
         <Label htmlFor="superMemberNumber">
           Super member number
           {flags.hasSuper && (
-            <span className="ml-2 text-[10px] uppercase tracking-wider text-emerald-600">
+            <span className="ml-2 text-[10px] uppercase tracking-wider text-[var(--live)]">
               on file
             </span>
           )}
@@ -147,7 +147,7 @@ export function PayrollPiiForm({ flags }: { flags: Flags }) {
           Skip for now
         </button>
         {state.status === "ok" && (
-          <p className="text-xs text-emerald-600">{state.message}</p>
+          <p className="text-xs text-[var(--live)]">{state.message}</p>
         )}
         {state.status === "error" && (
           <p className="text-xs text-[color:var(--destructive)]">{state.message}</p>
