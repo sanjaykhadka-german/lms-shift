@@ -43,6 +43,20 @@ const geofenceRadiusField = z
   ])
   .optional();
 
+// Wage-budget guardrail. Blank → null (no budget). Otherwise a
+// non-negative dollar figure; the DB column is numeric(10,2) so the
+// practical ceiling is 99,999,999.99 — far beyond any sane daily wage
+// bill. We store it as a string to match Drizzle's numeric handling.
+const dailyWageBudgetField = z
+  .union([
+    z.literal(""),
+    z.coerce.number().refine(
+      (n) => Number.isFinite(n) && n >= 0 && n <= 99_999_999,
+      "Budget must be a positive dollar amount",
+    ),
+  ])
+  .optional();
+
 const locationSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(120, "Too long"),
   timezone: z.string().trim().min(1, "Timezone is required").max(64),
@@ -59,10 +73,17 @@ const locationSchema = z.object({
   lat: geofenceLatField,
   lng: geofenceLngField,
   geofenceRadiusM: geofenceRadiusField,
+  dailyWageBudget: dailyWageBudgetField,
 });
 
 function coerceCoord(v: number | "" | undefined): number | null {
   return typeof v === "number" ? v : null;
+}
+
+// numeric columns round-trip through Drizzle as strings. Blank/undefined
+// → null; a number → its fixed 2-decimal string form.
+function coerceBudget(v: number | "" | undefined): string | null {
+  return typeof v === "number" ? v.toFixed(2) : null;
 }
 
 function emptyToNull(v: string | undefined | null): string | null {
@@ -89,6 +110,7 @@ export async function createLocationAction(
     lat: formData.get("lat") ?? "",
     lng: formData.get("lng") ?? "",
     geofenceRadiusM: formData.get("geofenceRadiusM") ?? "",
+    dailyWageBudget: formData.get("dailyWageBudget") ?? "",
   });
   if (!parsed.success) {
     return {
@@ -108,6 +130,7 @@ export async function createLocationAction(
       lat: coerceCoord(parsed.data.lat),
       lng: coerceCoord(parsed.data.lng),
       geofenceRadiusM: coerceCoord(parsed.data.geofenceRadiusM),
+      dailyWageBudget: coerceBudget(parsed.data.dailyWageBudget),
       traceyTenantId: tenant.id,
     }),
   );
@@ -128,6 +151,7 @@ export async function updateLocationAction(
     lat: formData.get("lat") ?? "",
     lng: formData.get("lng") ?? "",
     geofenceRadiusM: formData.get("geofenceRadiusM") ?? "",
+    dailyWageBudget: formData.get("dailyWageBudget") ?? "",
   });
   if (!parsed.success) {
     return {
@@ -149,6 +173,7 @@ export async function updateLocationAction(
         lat: coerceCoord(parsed.data.lat),
         lng: coerceCoord(parsed.data.lng),
         geofenceRadiusM: coerceCoord(parsed.data.geofenceRadiusM),
+        dailyWageBudget: coerceBudget(parsed.data.dailyWageBudget),
       })
       .where(and(eq(scLocations.id, id), eq(scLocations.traceyTenantId, tenant.id))),
   );

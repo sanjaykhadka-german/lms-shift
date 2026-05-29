@@ -225,6 +225,13 @@
       "when": 1780005297980,
       "tag": "0031_broken_black_widow",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1780014014496,
+      "tag": "0032_red_proteus",
+      "breakpoints": true
     }
   ]
 }

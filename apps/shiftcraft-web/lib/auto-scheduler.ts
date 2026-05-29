@@ -12,11 +12,19 @@
 //   4. Running weekly-hours total ≤ maxWeeklyHoursMs → skip
 //   5. Min rest from any existing or already-proposed shift end
 //      to this shift's start → skip if shorter than minRestMs
+//   6. Daily wage budget (optional) — adding this pick must not push
+//      the shift's (location, start-day) running wage past the cap.
+//      The whole shift cost is attributed to its start calendar day.
 //
 // Ties: lowest hourly rate; nulls treated as Infinity so rate-less
 // employees lose to rate-set ones (predictable behaviour and matches
 // the report's "excluded — no rate set" convention). Final tie-break
-// is fullName ascending so the output is deterministic.
+// is fullName ascending so the output is deterministic. The budget
+// check (6) runs AFTER the rate sort: we walk the acceptable list
+// cheapest-first and take the first candidate that still fits the
+// day's remaining budget — so the guardrail prefers the cheapest
+// in-budget option rather than rejecting the shift outright while a
+// affordable candidate exists.
 
 import { checkAvailability } from "./availability-check";
 
@@ -51,6 +59,10 @@ export interface ExistingAssignment {
   userId: string;
   startsAt: Date;
   endsAt: Date;
+  /** Location of the existing shift — used to seed the per-(location,
+   *  day) running wage so the budget guardrail accounts for shifts that
+   *  were already on the roster before auto-fill ran. */
+  locationId: string;
 }
 
 export interface AutoSchedulerOptions {
@@ -58,6 +70,12 @@ export interface AutoSchedulerOptions {
   minRestMs?: number;
   /** Default 40h — sensible week cap; tenants can override later. */
   maxWeeklyHoursMs?: number;
+  /** Optional per-(location, local-start-day) wage budget in AUD.
+   *  Key format: `${locationId}|${YYYY-MM-DD}`. Only locations with a
+   *  budget configured appear in the map; a shift whose every affordable
+   *  candidate would breach its day's budget is left unfilled with a
+   *  budget-specific rejection reason. Omit (or empty map) to disable. */
+  dayBudgets?: Map<string, number>;
 }
 
 export interface ProposedAssignment {
@@ -90,6 +108,21 @@ export function generateAssignmentPlan(
 ): AutoSchedulerResult {
   const minRest = options.minRestMs ?? TEN_HOURS_MS;
   const maxWeekly = options.maxWeeklyHoursMs ?? FORTY_HOURS_MS;
+  const dayBudgets = options.dayBudgets ?? new Map<string, number>();
+
+  // Rate lookup so existing-assignment wage can be attributed when
+  // seeding the per-day running cost below. Rate-less employees
+  // contribute $0 (unknown cost), matching the labour-forecast
+  // "what we know" convention.
+  const rateByUser = new Map<string, number | null>();
+  for (const c of candidates) rateByUser.set(c.appUserId, c.hourlyRate);
+
+  // Running per-(location, start-day) wage, keyed `${locationId}|${iso}`.
+  // Only meaningful for keys present in dayBudgets, but we track all so
+  // the seeding loop stays branch-free.
+  const dayCost = new Map<string, number>();
+  const budgetKeyFor = (locationId: string, startsAt: Date) =>
+    `${locationId}|${localDateIso(startsAt)}`;
 
   // Sort shifts chronologically for a stable greedy walk. Ties on
   // start time broken by shift id so re-runs return identical
@@ -111,6 +144,11 @@ export function generateAssignmentPlan(
     const list = shiftEnds.get(e.userId) ?? [];
     list.push({ startsAt: e.startsAt, endsAt: e.endsAt });
     shiftEnds.set(e.userId, list);
+    // Pre-load the day's wage so the budget guardrail counts shifts
+    // already on the roster, not just the ones it proposes this run.
+    const key = budgetKeyFor(e.locationId, e.startsAt);
+    const cost = (ms / 3_600_000) * (rateByUser.get(e.userId) ?? 0);
+    dayCost.set(key, (dayCost.get(key) ?? 0) + cost);
   }
 
   const proposal: ProposedAssignment[] = [];
@@ -194,16 +232,53 @@ export function generateAssignmentPlan(
       if (aRate !== bRate) return aRate - bRate;
       return a.candidate.fullName.localeCompare(b.candidate.fullName);
     });
-    const pick = acceptable[0]!;
+
+    // Constraint 6 — daily wage budget. Walk cheapest-first and take
+    // the first candidate that keeps the day's (location) wage within
+    // the cap. No budget for this key → the cheapest acceptable wins
+    // immediately (legacy behaviour). Candidates skipped purely for
+    // budget add a rejection line so the unfilled view explains it.
+    const budgetKey = budgetKeyFor(shift.locationId, shift.startsAt);
+    const budget = dayBudgets.get(budgetKey);
+    const spentToday = dayCost.get(budgetKey) ?? 0;
+    const shiftHours = shiftMs / 3_600_000;
+
+    let pick: (typeof acceptable)[number] | null = null;
+    let pickCost = 0;
+    let pickProjectedTotal = spentToday;
+    for (const cand of acceptable) {
+      const candCost = (cand.candidate.hourlyRate ?? 0) * shiftHours;
+      if (budget == null || spentToday + candCost <= budget) {
+        pick = cand;
+        pickCost = candCost;
+        pickProjectedTotal = spentToday + candCost;
+        break;
+      }
+      rejections.push(
+        `${cand.candidate.fullName}: would breach $${budget.toFixed(0)}/day ` +
+          `wage budget (day total $${(spentToday + candCost).toFixed(0)})`,
+      );
+    }
+
+    if (!pick) {
+      // Everyone acceptable on skills/availability/rest blew the budget.
+      unfilled.push({ shiftId: shift.id, rejections });
+      continue;
+    }
+
+    const reasoning =
+      budget == null
+        ? pick.reasonBits.join(", ")
+        : `${pick.reasonBits.join(", ")}, day spend $${pickProjectedTotal.toFixed(0)}/$${budget.toFixed(0)}`;
 
     proposal.push({
       shiftId: shift.id,
       userId: pick.candidate.appUserId,
-      reasoning: pick.reasonBits.join(", "),
+      reasoning,
     });
 
     // Update running state so subsequent shifts respect the new
-    // assignment for max-hours + min-rest computations.
+    // assignment for max-hours + min-rest + budget computations.
     workMs.set(
       pick.candidate.appUserId,
       (workMs.get(pick.candidate.appUserId) ?? 0) + shiftMs,
@@ -211,6 +286,7 @@ export function generateAssignmentPlan(
     const list = shiftEnds.get(pick.candidate.appUserId) ?? [];
     list.push({ startsAt: shift.startsAt, endsAt: shift.endsAt });
     shiftEnds.set(pick.candidate.appUserId, list);
+    if (budget != null) dayCost.set(budgetKey, spentToday + pickCost);
   }
 
   return { proposal, unfilled };

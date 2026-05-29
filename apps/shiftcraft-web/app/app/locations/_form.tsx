@@ -35,6 +35,7 @@ interface Props {
     lat: number | null;
     lng: number | null;
     geofenceRadiusM: number | null;
+    dailyWageBudget: string | null;
   };
 }
 
@@ -121,6 +122,40 @@ export function LocationForm({ mode, locationId, defaultValues }: Props) {
         {state.status === "error" && state.fieldErrors?.color && (
           <p className="text-xs text-[color:var(--destructive)]">
             {state.fieldErrors.color[0]}
+          </p>
+        )}
+      </div>
+
+      <div className="space-y-1.5 sm:col-span-2">
+        <Label htmlFor="dailyWageBudget">Daily wage budget (AUD, optional)</Label>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">$</span>
+          <Input
+            id="dailyWageBudget"
+            name="dailyWageBudget"
+            type="number"
+            inputMode="decimal"
+            step="0.01"
+            min={0}
+            defaultValue={defaultValues?.dailyWageBudget ?? ""}
+            placeholder="e.g. 1200"
+            className="max-w-[12rem]"
+            aria-invalid={
+              state.status === "error" && !!state.fieldErrors?.dailyWageBudget
+            }
+          />
+          <span className="text-xs text-muted-foreground">
+            per day. Leave blank for no budget.
+          </span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          The schedule and auto-fill warn when a day&rsquo;s projected wages
+          (shift hours &times; each assignee&rsquo;s rate) exceed this. A single
+          figure applies to every day of the week.
+        </p>
+        {state.status === "error" && state.fieldErrors?.dailyWageBudget && (
+          <p className="text-xs text-[color:var(--destructive)]">
+            {state.fieldErrors.dailyWageBudget[0]}
           </p>
         )}
       </div>

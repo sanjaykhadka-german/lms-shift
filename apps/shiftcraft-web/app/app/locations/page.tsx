@@ -45,6 +45,7 @@ export default async function LocationsPage({
         timezone: scLocations.timezone,
         address: scLocations.address,
         color: scLocations.color,
+        dailyWageBudget: scLocations.dailyWageBudget,
         upcomingShifts: upcomingCount,
       })
       .from(scLocations)
@@ -141,9 +142,16 @@ export default async function LocationsPage({
                     </div>
                   </div>
                 </div>
-                <Button asChild variant="outline" size="sm">
-                  <Link href={`/app/locations/${loc.id}/edit`}>Edit</Link>
-                </Button>
+                <div className="flex items-center gap-3">
+                  {loc.dailyWageBudget != null && (
+                    <span className="hidden whitespace-nowrap rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white sm:inline">
+                      ${Math.round(Number(loc.dailyWageBudget)).toLocaleString()}/day budget
+                    </span>
+                  )}
+                  <Button asChild variant="outline" size="sm">
+                    <Link href={`/app/locations/${loc.id}/edit`}>Edit</Link>
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>

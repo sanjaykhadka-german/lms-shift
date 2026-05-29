@@ -81,6 +81,14 @@ export const scLocations = pgTable(
     lat: doublePrecision("lat"),
     lng: doublePrecision("lng"),
     geofenceRadiusM: integer("geofence_radius_m"),
+    // Wage-budget guardrail (Phase 2 #2 / AUDIT Feature 2). Optional
+    // daily labour-cost ceiling for this site, in AUD. Null = no budget
+    // set (guardrail inactive — schedule + auto-fill behave as before).
+    // Compared against projected scheduled wages per calendar day
+    // (shift hours × accepted employee's hourly rate). A single daily
+    // figure applies to every weekday for v1; per-weekday budgets are a
+    // documented future refinement.
+    dailyWageBudget: numeric("daily_wage_budget", { precision: 10, scale: 2 }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -89,6 +97,10 @@ export const scLocations = pgTable(
     check(
       "sc_locations_color_chk",
       sql`${t.color} is null or ${t.color} ~* '^#[0-9a-f]{6}$'`,
+    ),
+    check(
+      "sc_locations_daily_wage_budget_chk",
+      sql`${t.dailyWageBudget} is null or ${t.dailyWageBudget} >= 0`,
     ),
   ],
 );

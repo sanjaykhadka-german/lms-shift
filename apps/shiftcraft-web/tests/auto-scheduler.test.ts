@@ -151,16 +151,19 @@ describe("generateAssignmentPlan", () => {
         userId: "u-cheap",
         startsAt: t("2026-05-30T08:00:00"),
         endsAt: t("2026-05-30T20:00:00"),
+        locationId: "loc-1",
       },
       {
         userId: "u-cheap",
         startsAt: t("2026-05-31T08:00:00"),
         endsAt: t("2026-05-31T20:00:00"),
+        locationId: "loc-1",
       },
       {
         userId: "u-cheap",
         startsAt: t("2026-06-01T20:30:00"), // unrelated rest-of-day
         endsAt: t("2026-06-01T22:30:00"),
+        locationId: "loc-1",
       },
     ];
     const result = generateAssignmentPlan(
@@ -188,6 +191,7 @@ describe("generateAssignmentPlan", () => {
         userId: "u-cheap",
         startsAt: t("2026-05-30T22:00:00"),
         endsAt: t("2026-05-31T06:00:00"),
+        locationId: "loc-1",
       },
     ];
     const sundayShift: AutoSchedulerShift = {
@@ -303,5 +307,118 @@ describe("generateAssignmentPlan", () => {
       new Map(),
     );
     expect(r1).toEqual(r2);
+  });
+});
+
+describe("generateAssignmentPlan — daily wage budget", () => {
+  // SHIFT_A is 8h (09:00–17:00) at loc-1 on 2026-06-01.
+  const BUDGET_KEY = "loc-1|2026-06-01";
+
+  it("assigns within budget and reports the day's running spend", () => {
+    const result = generateAssignmentPlan(
+      [SHIFT_A],
+      [candidate({ appUserId: "u-cheap", hourlyRate: 20 })], // 8h × $20 = $160
+      [],
+      new Map(),
+      { dayBudgets: new Map([[BUDGET_KEY, 200]]) },
+    );
+    expect(result.proposal).toHaveLength(1);
+    expect(result.proposal[0]?.userId).toBe("u-cheap");
+    expect(result.proposal[0]?.reasoning).toContain("day spend $160/$200");
+    expect(result.unfilled).toEqual([]);
+  });
+
+  it("leaves a shift unfilled when every candidate would breach the budget", () => {
+    const result = generateAssignmentPlan(
+      [SHIFT_A],
+      [candidate({ appUserId: "u-cheap", hourlyRate: 20 })], // $160 > $100
+      [],
+      new Map(),
+      { dayBudgets: new Map([[BUDGET_KEY, 100]]) },
+    );
+    expect(result.proposal).toHaveLength(0);
+    expect(result.unfilled).toHaveLength(1);
+    expect(result.unfilled[0]?.rejections.join(" ")).toContain("wage budget");
+  });
+
+  it("skips a rate-set candidate over budget but still fills with a no-rate one", () => {
+    // u-rate ($30×8=$240) breaches a $100 cap; u-norate has unknown
+    // cost (treated as $0) so it slots in as the in-budget fallback.
+    const result = generateAssignmentPlan(
+      [SHIFT_A],
+      [
+        candidate({ appUserId: "u-rate", hourlyRate: 30 }),
+        candidate({ appUserId: "u-norate", hourlyRate: null }),
+      ],
+      [],
+      new Map(),
+      { dayBudgets: new Map([[BUDGET_KEY, 100]]) },
+    );
+    expect(result.proposal).toHaveLength(1);
+    expect(result.proposal[0]?.userId).toBe("u-norate");
+  });
+
+  it("counts existing same-day shifts at the location toward the budget", () => {
+    // u-seed already worked 8h × $10 = $80 at loc-1 on 2026-06-01.
+    // The new (skill-gated) shift for u-new adds $20 → $100, which
+    // sits under a $120 cap. The reasoning proves the $80 base was
+    // seeded from the existing assignment.
+    const skilledShift: AutoSchedulerShift = {
+      ...SHIFT_A,
+      id: "shift-skilled",
+      startsAt: t("2026-06-01T17:00:00"),
+      endsAt: t("2026-06-01T21:00:00"), // 4h
+      requiredSkillId: "skill-x",
+    };
+    const existing = [
+      {
+        userId: "u-seed",
+        startsAt: t("2026-06-01T08:00:00"),
+        endsAt: t("2026-06-01T16:00:00"), // 8h
+        locationId: "loc-1",
+      },
+    ];
+    const candidates = [
+      candidate({ appUserId: "u-seed", hourlyRate: 10 }), // lacks skill-x
+      candidate({
+        appUserId: "u-new",
+        hourlyRate: 5, // 4h × $5 = $20
+        skills: new Set(["skill-x"]),
+      }),
+    ];
+    const under = generateAssignmentPlan(
+      [skilledShift],
+      candidates,
+      existing,
+      new Map(),
+      { dayBudgets: new Map([[BUDGET_KEY, 120]]) },
+    );
+    expect(under.proposal[0]?.userId).toBe("u-new");
+    expect(under.proposal[0]?.reasoning).toContain("day spend $100/$120");
+
+    // Same setup, tighter cap → the seeded $80 pushes u-new over.
+    const over = generateAssignmentPlan(
+      [skilledShift],
+      candidates,
+      existing,
+      new Map(),
+      { dayBudgets: new Map([[BUDGET_KEY, 90]]) },
+    );
+    expect(over.proposal).toHaveLength(0);
+    expect(over.unfilled[0]?.rejections.join(" ")).toContain("wage budget");
+  });
+
+  it("ignores budgets for other location/day keys (legacy behaviour)", () => {
+    const result = generateAssignmentPlan(
+      [SHIFT_A], // loc-1 / 2026-06-01
+      [candidate({ appUserId: "u-cheap", hourlyRate: 20 })],
+      [],
+      new Map(),
+      { dayBudgets: new Map([["loc-2|2026-06-01", 1]]) },
+    );
+    expect(result.proposal).toHaveLength(1);
+    expect(result.proposal[0]?.userId).toBe("u-cheap");
+    // No budget for this shift's key → no day-spend annotation.
+    expect(result.proposal[0]?.reasoning).not.toContain("day spend");
   });
 });

@@ -6,6 +6,7 @@ import {
   forTenant,
   members,
   scEmployees,
+  scLocations,
   scShiftAssignments,
   scShifts,
   scSkills,
@@ -131,6 +132,7 @@ export default async function AutoFillPage({
         userId: scShiftAssignments.userId,
         startsAt: scShifts.startsAt,
         endsAt: scShifts.endsAt,
+        locationId: scShifts.locationId,
       })
       .from(scShiftAssignments)
       .innerJoin(scShifts, eq(scShifts.id, scShiftAssignments.shiftId))
@@ -191,6 +193,35 @@ export default async function AutoFillPage({
     userNames.map((u) => [u.id, u.name ?? u.email ?? "Unknown"]),
   );
 
+  // 5. Per-location daily wage budgets → a per-(location, day) map the
+  //    generator uses to keep each day's projected wage under the cap.
+  //    Only locations with a budget set contribute keys; a single daily
+  //    figure applies to all 7 days of the visible week.
+  const budgetLocations = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({
+        id: scLocations.id,
+        dailyWageBudget: scLocations.dailyWageBudget,
+      })
+      .from(scLocations)
+      .where(
+        and(
+          eq(scLocations.traceyTenantId, tenantId),
+          sql`${scLocations.dailyWageBudget} is not null`,
+          scopeIds ? sql`${scLocations.id} = ANY(${scopeIds})` : undefined,
+        ),
+      ),
+  );
+  const dayBudgets = new Map<string, number>();
+  for (const loc of budgetLocations) {
+    const budget = Number(loc.dailyWageBudget);
+    if (!Number.isFinite(budget)) continue;
+    for (let i = 0; i < 7; i += 1) {
+      const dayIso = fmtIsoDate(addDays(weekStart, i));
+      dayBudgets.set(`${loc.id}|${dayIso}`, budget);
+    }
+  }
+
   // Hydrate the generator inputs.
   const generatorShifts: AutoSchedulerShift[] = rawShifts.map((s) => ({
     id: s.id,
@@ -216,6 +247,7 @@ export default async function AutoFillPage({
     generatorCandidates,
     existing,
     leaveMap,
+    { dayBudgets },
   );
 
   // Map shift id → details for the review table.
@@ -234,23 +266,26 @@ export default async function AutoFillPage({
               <p>
                 Greedy generator that proposes assignments for unfilled
                 shifts in the week. Respects employee availability,
-                approved leave, required skill, the 40h weekly cap, and
-                10h minimum rest between shifts.
+                approved leave, required skill, the 40h weekly cap, 10h
+                minimum rest between shifts, and any per-location daily
+                wage budget.
               </p>
               <p className="mt-1">
                 Lowest hourly rate wins ties (rate-less candidates
-                deprioritised). Review the proposal table — accept-all
-                creates offered assignments via the regular shift-offer
-                flow.
+                deprioritised). When a location has a daily wage budget,
+                a shift is left unfilled once every affordable candidate
+                would push that day&rsquo;s projected wages over the cap.
+                Review the proposal table — accept-all creates offered
+                assignments via the regular shift-offer flow.
               </p>
             </InfoPopover>
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Greedy match for unfilled shifts in the week. Respects
             availability, approved leave, required skills, max weekly
-            hours (40h cap), and 10h minimum rest. Review the proposal
-            below — accept offers everyone at once via the regular
-            offered-shift flow.
+            hours (40h cap), 10h minimum rest, and per-location daily
+            wage budgets. Review the proposal below — accept offers
+            everyone at once via the regular offered-shift flow.
           </p>
         </div>
         <div className="flex items-center gap-2">

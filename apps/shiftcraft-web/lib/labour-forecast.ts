@@ -42,7 +42,18 @@ export interface LabourForecast {
     locationName: string | null;
     cost: number;
     hours: number;
+    /** dailyWageBudget × 7 for this location. Null when the location
+     *  has no budget set (or the "Unassigned" bucket). */
+    weeklyBudget: number | null;
   }>;
+  /** Sum of every location's daily wage budget. Null when no location
+   *  in the tenant has a budget configured (guardrail inactive). */
+  dailyBudgetTotal: number | null;
+  /** dailyBudgetTotal × 7. Null when dailyBudgetTotal is null. */
+  weeklyBudgetTotal: number | null;
+  /** Projected cost per day index 0..6 (Mon..Sun, relative to
+   *  weekStart). Lets the UI flag days that run over the daily budget. */
+  costByDay: number[];
 }
 
 // ─── DB helper ───────────────────────────────────────────────────────────
@@ -57,41 +68,64 @@ export async function forecastWeek(
   weekStart: Date,
   weekEnd: Date,
 ): Promise<LabourForecast> {
-  const rows = await forTenant(tenantId).run((tx) =>
-    tx
-      .select({
-        shiftId: scShifts.id,
-        locationId: scShifts.locationId,
-        locationName: scLocations.name,
-        startsAt: scShifts.startsAt,
-        endsAt: scShifts.endsAt,
-        acceptedUserId: scShiftAssignments.userId,
-        hourlyRate: scEmployees.hourlyRate,
-      })
-      .from(scShifts)
-      .leftJoin(scLocations, eq(scLocations.id, scShifts.locationId))
-      .leftJoin(
-        scShiftAssignments,
-        and(
-          eq(scShiftAssignments.shiftId, scShifts.id),
-          eq(scShiftAssignments.status, "accepted"),
+  const [rows, budgetRows] = await forTenant(tenantId).run((tx) =>
+    Promise.all([
+      tx
+        .select({
+          shiftId: scShifts.id,
+          locationId: scShifts.locationId,
+          locationName: scLocations.name,
+          startsAt: scShifts.startsAt,
+          endsAt: scShifts.endsAt,
+          acceptedUserId: scShiftAssignments.userId,
+          hourlyRate: scEmployees.hourlyRate,
+        })
+        .from(scShifts)
+        .leftJoin(scLocations, eq(scLocations.id, scShifts.locationId))
+        .leftJoin(
+          scShiftAssignments,
+          and(
+            eq(scShiftAssignments.shiftId, scShifts.id),
+            eq(scShiftAssignments.status, "accepted"),
+          ),
+        )
+        .leftJoin(
+          scEmployees,
+          and(
+            eq(scEmployees.appUserId, scShiftAssignments.userId),
+            eq(scEmployees.traceyTenantId, tenantId),
+          ),
+        )
+        .where(
+          and(
+            eq(scShifts.traceyTenantId, tenantId),
+            between(scShifts.startsAt, weekStart, weekEnd),
+            ne(scShifts.status, "cancelled"),
+          ),
         ),
-      )
-      .leftJoin(
-        scEmployees,
-        and(
-          eq(scEmployees.appUserId, scShiftAssignments.userId),
-          eq(scEmployees.traceyTenantId, tenantId),
-        ),
-      )
-      .where(
-        and(
-          eq(scShifts.traceyTenantId, tenantId),
-          between(scShifts.startsAt, weekStart, weekEnd),
-          ne(scShifts.status, "cancelled"),
-        ),
-      ),
+      // Every budgeted location in the tenant — independent of whether it
+      // has shifts this week — so the daily budget total reflects the
+      // whole business's labour capacity, not just rostered sites.
+      tx
+        .select({
+          id: scLocations.id,
+          dailyWageBudget: scLocations.dailyWageBudget,
+        })
+        .from(scLocations)
+        .where(eq(scLocations.traceyTenantId, tenantId)),
+    ]),
   );
+
+  // Per-location daily budget map + tenant-wide daily total.
+  const dailyBudgetByLocation = new Map<string, number>();
+  let dailyBudgetTotal: number | null = null;
+  for (const b of budgetRows) {
+    if (b.dailyWageBudget == null) continue;
+    const v = Number(b.dailyWageBudget);
+    if (!Number.isFinite(v)) continue;
+    dailyBudgetByLocation.set(b.id, v);
+    dailyBudgetTotal = (dailyBudgetTotal ?? 0) + v;
+  }
 
   // De-dup shifts that joined to multiple employees (shouldn't happen for
   // accepted shifts since uniqueness is on shift_id+user_id and we filter
@@ -101,6 +135,7 @@ export async function forecastWeek(
   let totalHours = 0;
   let uncoveredCount = 0;
   let missingRateCount = 0;
+  const costByDay = Array.from({ length: 7 }, () => 0);
   const byLocation = new Map<
     string,
     { locationId: string | null; locationName: string | null; cost: number; hours: number }
@@ -118,6 +153,13 @@ export async function forecastWeek(
     totalCost += cost;
     if (r.acceptedUserId == null) uncoveredCount += 1;
     else if (rateNum == null) missingRateCount += 1;
+
+    // Attribute the whole shift's cost to its start calendar day —
+    // matches the auto-scheduler's budget bucketing.
+    const dayIdx = Math.floor(
+      (r.startsAt.getTime() - weekStart.getTime()) / 86_400_000,
+    );
+    if (dayIdx >= 0 && dayIdx <= 6) costByDay[dayIdx]! += cost;
 
     const key = r.locationId ?? "_none";
     const slot = byLocation.get(key) ?? {
@@ -137,9 +179,18 @@ export async function forecastWeek(
     shiftCount: seen.size,
     uncoveredCount,
     missingRateCount,
-    byLocation: Array.from(byLocation.values()).sort(
-      (a, b) => b.cost - a.cost,
-    ),
+    byLocation: Array.from(byLocation.values())
+      .map((slot) => ({
+        ...slot,
+        weeklyBudget:
+          slot.locationId != null && dailyBudgetByLocation.has(slot.locationId)
+            ? dailyBudgetByLocation.get(slot.locationId)! * 7
+            : null,
+      }))
+      .sort((a, b) => b.cost - a.cost),
+    dailyBudgetTotal,
+    weeklyBudgetTotal: dailyBudgetTotal == null ? null : dailyBudgetTotal * 7,
+    costByDay,
   };
 }
 

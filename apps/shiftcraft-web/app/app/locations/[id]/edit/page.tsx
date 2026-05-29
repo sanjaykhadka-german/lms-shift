@@ -29,6 +29,7 @@ export default async function EditLocationPage({
         lat: scLocations.lat,
         lng: scLocations.lng,
         geofenceRadiusM: scLocations.geofenceRadiusM,
+        dailyWageBudget: scLocations.dailyWageBudget,
       })
       .from(scLocations)
       .where(
@@ -67,6 +68,7 @@ export default async function EditLocationPage({
             lat: location.lat,
             lng: location.lng,
             geofenceRadiusM: location.geofenceRadiusM,
+            dailyWageBudget: location.dailyWageBudget,
           }}
         />
       </section>
