@@ -9,9 +9,17 @@ import {
   getTodayEventsForUser,
 } from "~/lib/clock";
 import { ClockPanel } from "./_panel";
+import { Badge } from "~/components/ui/badge";
 import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "Time clock · ShiftCraft" };
+
+const EVENT_BADGE: Record<string, "live" | "warn" | "neutral" | "open"> = {
+  in: "live",
+  out: "neutral",
+  break_start: "warn",
+  break_end: "open",
+};
 
 export default async function ClockPage() {
   const user = await currentUser();
@@ -50,7 +58,7 @@ export default async function ClockPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
           Time clock
           <InfoPopover label="About clocking in">
             <p>
@@ -64,7 +72,7 @@ export default async function ClockPage() {
             </p>
           </InfoPopover>
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-1 text-sm text-ink-2">
           Punch in when you start, take breaks as needed, punch out when
           you're done. Today's events feed your timesheet automatically.
         </p>
@@ -79,38 +87,42 @@ export default async function ClockPage() {
         baseBreakMs={baseTotals.breakMs}
       />
 
-      <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
-        <div className="flex items-center justify-between border-b border-border px-5 py-3">
-          <h2 className="text-base font-semibold">Today's punches</h2>
-          <span className="text-xs text-muted-foreground">
+      <section className="overflow-hidden rounded-[var(--r-lg)] border border-line bg-[var(--paper)] shadow-[var(--shadow-sm)]">
+        <div className="flex items-center justify-between border-b border-line-soft px-5 py-3.5">
+          <h2 className="font-display text-[17px] font-semibold tracking-[-0.01em] text-ink">
+            Today's punches
+          </h2>
+          <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-ink-3">
             {events.length} {events.length === 1 ? "event" : "events"} ·{" "}
-            {fmtHours(baseTotals.workMs)} closed work
+            {fmtHours(baseTotals.workMs)} closed
           </span>
         </div>
         {events.length === 0 ? (
-          <p className="px-5 py-6 text-sm text-muted-foreground">
+          <p className="px-5 py-6 text-sm text-ink-2">
             No punches yet today. Clock in to start.
           </p>
         ) : (
-          <ul className="divide-y divide-border">
+          <ul className="divide-y divide-line-soft">
             {events.map((e) => {
               const loc = locations.find((l) => l.id === e.locationId);
               return (
                 <li
                   key={e.id}
-                  className="flex items-center justify-between gap-3 px-5 py-2.5"
+                  className="flex items-center justify-between gap-3 px-5 py-3"
                 >
                   <div className="flex items-center gap-3">
-                    <span className="font-mono text-xs text-muted-foreground">
+                    <span className="font-mono text-xs tabular-nums text-ink-3">
                       {e.occurredAt.toLocaleTimeString(undefined, {
                         hour: "2-digit",
                         minute: "2-digit",
                         second: "2-digit",
                       })}
                     </span>
-                    <span className="text-sm">{eventLabel(e.eventType)}</span>
+                    <Badge variant={EVENT_BADGE[e.eventType] ?? "neutral"} size="sm">
+                      {eventLabel(e.eventType)}
+                    </Badge>
                   </div>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-xs text-ink-2">
                     {loc ? loc.name : ""}
                     {loc && e.notes ? " · " : ""}
                     {e.notes ?? ""}

@@ -2,6 +2,9 @@
 
 import { useActionState, useEffect, useState } from "react";
 import { Button } from "~/components/ui/button";
+import { Badge } from "~/components/ui/badge";
+import { Eyebrow } from "~/components/ui/card";
+import { cn } from "~/lib/utils";
 import { SelfieCapture } from "~/components/SelfieCapture";
 import {
   breakEndAction,
@@ -39,25 +42,14 @@ function fmtClock(ms: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-function StatusPill({ status }: { status: PanelStatus }) {
-  const styles: Record<PanelStatus, string> = {
-    clocked_out: "bg-slate-500 text-white",
-    working: "bg-emerald-600 text-white",
-    on_break: "bg-amber-500 text-white",
-  };
-  const label: Record<PanelStatus, string> = {
-    clocked_out: "Clocked out",
-    working: "Working",
-    on_break: "On break",
-  };
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium uppercase tracking-wider ${styles[status]}`}
-    >
-      {label[status]}
-    </span>
-  );
-}
+const STATUS_BADGE: Record<
+  PanelStatus,
+  { variant: "live" | "warn" | "neutral"; label: string }
+> = {
+  clocked_out: { variant: "neutral", label: "Clocked out" },
+  working: { variant: "live", label: "Working" },
+  on_break: { variant: "warn", label: "On break" },
+};
 
 export function ClockPanel({
   status,
@@ -145,13 +137,17 @@ export function ClockPanel({
   const workMs = status === "working" ? baseWorkMs + liveMs : baseWorkMs;
   const breakMs = status === "on_break" ? baseBreakMs + liveMs : baseBreakMs;
 
+  const badge = STATUS_BADGE[status];
+
   return (
-    <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="space-y-1">
-          <StatusPill status={status} />
+    <section className="rounded-[var(--r-lg)] border border-line bg-[var(--paper)] p-6 shadow-[var(--shadow-sm)] sm:p-8">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="space-y-2">
+          <Badge variant={badge.variant} dot={status === "working"}>
+            {badge.label}
+          </Badge>
           {segmentStartedAt && (
-            <p className="text-xs text-muted-foreground">
+            <p className="font-mono text-[11px] text-ink-3">
               Since{" "}
               {segmentStartedAt.toLocaleTimeString(undefined, {
                 hour: "2-digit",
@@ -160,23 +156,28 @@ export function ClockPanel({
             </p>
           )}
         </div>
-        <div className="flex items-baseline gap-4 font-mono">
-          <div>
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              Worked today
-            </div>
-            <div className="text-2xl font-semibold tabular-nums">
-              {fmtClock(workMs)}
-            </div>
+        <div className="text-right">
+          <Eyebrow>Break</Eyebrow>
+          <div className="mt-1 font-mono text-2xl tabular-nums text-ink-2">
+            {fmtClock(breakMs)}
           </div>
-          <div>
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              Break
-            </div>
-            <div className="text-lg tabular-nums text-muted-foreground">
-              {fmtClock(breakMs)}
-            </div>
-          </div>
+        </div>
+      </div>
+
+      {/* Hero timer — the live "worked today" total, big mono numerals. */}
+      <div className="mt-6">
+        <Eyebrow>Worked today</Eyebrow>
+        <div
+          className={cn(
+            "mt-1 font-mono text-[clamp(3rem,12vw,4.5rem)] font-semibold leading-none tabular-nums tracking-[-0.02em]",
+            status === "working"
+              ? "text-ink"
+              : status === "on_break"
+                ? "text-[var(--warn)]"
+                : "text-ink-3",
+          )}
+        >
+          {fmtClock(workMs)}
         </div>
       </div>
 
@@ -184,7 +185,7 @@ export function ClockPanel({
         <div className="mt-6 space-y-2">
           <label
             htmlFor="locationId"
-            className="text-xs font-medium uppercase tracking-wider text-muted-foreground"
+            className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-ink-3"
           >
             Location (optional)
           </label>
@@ -192,7 +193,7 @@ export function ClockPanel({
             id="locationId"
             value={selectedLocationId}
             onChange={(e) => setSelectedLocationId(e.target.value)}
-            className="mt-1 flex h-9 w-full rounded-md border border-[color:var(--input)] bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)] sm:w-72"
+            className="mt-1 flex h-10 w-full rounded-[var(--r-sm)] border border-line bg-[var(--paper-2)] px-3 text-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] sm:w-72"
           >
             <option value="">— No location —</option>
             {locations.map((l) => (
@@ -218,14 +219,10 @@ export function ClockPanel({
                     : "Use my location"}
               </Button>
               {gpsStatus.kind === "ok" && (
-                <span className="text-emerald-700 dark:text-emerald-400">
-                  {gpsStatus.message}
-                </span>
+                <span className="text-[var(--live)]">{gpsStatus.message}</span>
               )}
               {gpsStatus.kind === "error" && (
-                <span className="text-amber-700 dark:text-amber-400">
-                  {gpsStatus.message}
-                </span>
+                <span className="text-[var(--warn)]">{gpsStatus.message}</span>
               )}
             </div>
           ) : null}
@@ -244,19 +241,19 @@ export function ClockPanel({
               </Button>
               {selfieDataUrl && selfieDataUrl !== "skip" ? (
                 <>
-                  <span className="text-emerald-700 dark:text-emerald-400">
+                  <span className="text-[var(--live)]">
                     Selfie attached. Submitted with the next punch.
                   </span>
                   <button
                     type="button"
                     onClick={() => setSelfieDataUrl(null)}
-                    className="text-muted-foreground hover:text-foreground hover:underline"
+                    className="text-ink-3 hover:text-ink hover:underline"
                   >
                     Clear
                   </button>
                 </>
               ) : selfieDataUrl === "skip" ? (
-                <span className="text-amber-700 dark:text-amber-400">
+                <span className="text-[var(--warn)]">
                   Skipped — the punch will record selfie as denied.
                 </span>
               ) : null}
@@ -362,16 +359,15 @@ function PunchForm({
     FormData
   >(action, undefined);
 
-  // Map our semantic intent onto the Button variants that exist in
-  // components/ui/button.tsx (default | outline | ghost | link). The
-  // destructive intent is approximated with an outline + a destructive
-  // text colour — adding a dedicated variant is out of scope for now.
-  const buttonVariant: "default" | "outline" =
-    variant === "primary" ? "default" : "outline";
-  const extraClass =
-    variant === "destructive"
-      ? "text-[color:var(--destructive)] border-[color:var(--destructive)]/40 hover:bg-[color:var(--destructive)]/10"
-      : "";
+  // Map our semantic intent onto the Workforce Studio Button variants:
+  // primary → lime fill, secondary → hairline outline, destructive →
+  // danger fill (clock-out).
+  const buttonVariant: "default" | "outline" | "destructive" =
+    variant === "primary"
+      ? "default"
+      : variant === "destructive"
+        ? "destructive"
+        : "outline";
 
   return (
     <form action={formAction} className="flex flex-col gap-1">
@@ -385,18 +381,11 @@ function PunchForm({
       {selfieDataUrl ? (
         <input type="hidden" name="selfie" value={selfieDataUrl} />
       ) : null}
-      <Button
-        type="submit"
-        disabled={pending}
-        variant={buttonVariant}
-        className={extraClass}
-      >
+      <Button type="submit" disabled={pending} variant={buttonVariant} size="lg">
         {pending ? "Recording…" : label}
       </Button>
       {state?.status === "error" && (
-        <p className="text-xs text-[color:var(--destructive)]">
-          {state.message}
-        </p>
+        <p className="text-xs text-[var(--danger)]">{state.message}</p>
       )}
     </form>
   );
