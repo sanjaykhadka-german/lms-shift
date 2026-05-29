@@ -153,20 +153,20 @@ export function PunchScreen(props: PunchScreenProps) {
 
   if (!ackd && announcement) {
     return (
-      <section className="mx-auto mt-12 w-full max-w-xl space-y-5 rounded-xl border border-amber-900/40 bg-amber-950/30 p-8 text-center">
-        <div className="text-[10px] uppercase tracking-[0.2em] text-amber-300">
+      <section className="mx-auto mt-12 w-full max-w-xl space-y-5 rounded-xl border border-[color-mix(in_srgb,var(--warn)_40%,transparent)] bg-[color-mix(in_srgb,var(--warn)_15%,transparent)] p-8 text-center">
+        <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-[color-mix(in_srgb,var(--warn)_60%,white)]">
           Pinned announcement
         </div>
-        <h2 className="text-xl font-semibold tracking-tight text-amber-100">
+        <h2 className="font-display text-xl font-semibold tracking-tight text-[#f4eee3]">
           {announcement.title}
         </h2>
-        <p className="whitespace-pre-line text-sm text-amber-100/80">
+        <p className="whitespace-pre-line text-sm text-[#a89c8c]">
           {announcement.body}
         </p>
         <button
           type="button"
           onClick={() => setAckd(true)}
-          className="rounded-md bg-amber-400 px-5 py-2 text-sm font-semibold text-amber-950 hover:bg-amber-300"
+          className="rounded-md bg-[var(--warn)] px-5 py-2 text-sm font-semibold text-[#17130f] hover:bg-[color-mix(in_srgb,var(--warn)_85%,white)]"
         >
           Got it
         </button>
@@ -182,21 +182,21 @@ export function PunchScreen(props: PunchScreenProps) {
 
   return (
     <>
-      <header className="flex items-center gap-4 border-b border-zinc-800 pb-5">
+      <header className="flex items-center gap-4 border-b border-[rgba(244,238,227,0.13)] pb-5">
         <Avatar name={user.name} image={user.image} />
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-2xl font-semibold tracking-tight">
+          <h1 className="truncate font-display text-2xl font-semibold tracking-tight">
             Hi {user.name}
           </h1>
-          <div className="mt-0.5 text-xs text-zinc-500">
+          <div className="mt-0.5 text-xs text-[#766b5e]">
             {locationName} ·{" "}
             <span
               className={
                 clockStatus === "working"
-                  ? "text-emerald-400"
+                  ? "text-[color-mix(in_srgb,var(--live)_55%,white)]"
                   : clockStatus === "on_break"
-                    ? "text-amber-300"
-                    : "text-zinc-400"
+                    ? "text-[color-mix(in_srgb,var(--warn)_60%,white)]"
+                    : "text-[#a89c8c]"
               }
             >
               {statusLabel[clockStatus]}
@@ -209,7 +209,7 @@ export function PunchScreen(props: PunchScreenProps) {
         <form action={clearActorAction}>
           <button
             type="submit"
-            className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800"
+            className="rounded-md border border-[rgba(244,238,227,0.18)] px-3 py-1.5 text-xs text-[#a89c8c] hover:bg-[rgba(244,238,227,0.08)]"
           >
             Cancel
           </button>
@@ -217,8 +217,8 @@ export function PunchScreen(props: PunchScreenProps) {
       </header>
 
       {todayShift ? (
-        <section className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4 text-sm">
-          <div className="text-[10px] uppercase tracking-wider text-zinc-500">
+        <section className="rounded-lg border border-[rgba(244,238,227,0.13)] bg-[rgba(244,238,227,0.04)] p-4 text-sm">
+          <div className="font-mono text-[10px] uppercase tracking-wider text-[#766b5e]">
             Your shift today
           </div>
           <div className="mt-1 font-medium">
@@ -227,7 +227,7 @@ export function PunchScreen(props: PunchScreenProps) {
           </div>
         </section>
       ) : (
-        <section className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4 text-sm text-zinc-500">
+        <section className="rounded-lg border border-[rgba(244,238,227,0.13)] bg-[rgba(244,238,227,0.04)] p-4 text-sm text-[#766b5e]">
           No scheduled shift here today.
         </section>
       )}
@@ -237,10 +237,10 @@ export function PunchScreen(props: PunchScreenProps) {
           const allowed = isAllowed(clockStatus, et);
           const tone =
             et === "in"
-              ? "bg-emerald-600 hover:bg-emerald-500"
+              ? "bg-[var(--live)] hover:bg-[color-mix(in_srgb,var(--live)_85%,white)]"
               : et === "out"
-                ? "bg-rose-600 hover:bg-rose-500"
-                : "bg-zinc-700 hover:bg-zinc-600";
+                ? "bg-[var(--danger)] hover:bg-[color-mix(in_srgb,var(--danger)_85%,white)]"
+                : "bg-[rgba(244,238,227,0.12)] hover:bg-[rgba(244,238,227,0.16)]";
           return (
             <form
               key={et}
@@ -261,11 +261,11 @@ export function PunchScreen(props: PunchScreenProps) {
       </section>
 
       <section>
-        <div className="mb-2 text-[10px] uppercase tracking-wider text-zinc-500">
+        <div className="mb-2 font-mono text-[10px] uppercase tracking-wider text-[#766b5e]">
           On shift at {locationName} now
         </div>
         {whosHere.length === 0 ? (
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-[#766b5e]">
             Nobody clocked in here yet today.
           </p>
         ) : (
@@ -273,13 +273,13 @@ export function PunchScreen(props: PunchScreenProps) {
             {whosHere.map((p) => (
               <li
                 key={p.id}
-                className="flex items-center gap-3 rounded-md border border-zinc-800 bg-zinc-900/40 px-3 py-2"
+                className="flex items-center gap-3 rounded-md border border-[rgba(244,238,227,0.13)] bg-[rgba(244,238,227,0.04)] px-3 py-2"
               >
                 <Avatar name={p.name} image={p.image} small />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm">{p.name}</div>
                 </div>
-                <div className="text-xs tabular-nums text-zinc-500">
+                <div className="text-xs tabular-nums text-[#766b5e]">
                   since {fmtTime(p.since)}
                 </div>
               </li>
@@ -322,7 +322,7 @@ function PunchButton({
       type="button"
       disabled={disabled || pending}
       onClick={onClick}
-      className={`h-20 w-full rounded-xl text-sm font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-600 ${tone}`}
+      className={`h-20 w-full rounded-xl text-sm font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:bg-[rgba(244,238,227,0.08)] disabled:text-[rgba(244,238,227,0.35)] ${tone}`}
     >
       {pending ? "…" : children}
     </button>
@@ -360,7 +360,7 @@ function Avatar({
     .toUpperCase();
   return (
     <span
-      className={`${cls} flex items-center justify-center rounded-full bg-zinc-800 font-semibold text-zinc-200`}
+      className={`${cls} flex items-center justify-center rounded-full bg-[rgba(244,238,227,0.08)] font-semibold text-[#f4eee3]`}
     >
       {init || "?"}
     </span>
@@ -444,16 +444,16 @@ function SelfieModal({
       aria-modal="true"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
     >
-      <div className="w-full max-w-md space-y-4 rounded-xl border border-zinc-800 bg-zinc-950 p-6 shadow-2xl">
+      <div className="w-full max-w-md space-y-4 rounded-xl border border-[rgba(244,238,227,0.13)] bg-[#17130f] p-6 shadow-2xl">
         <div className="text-center">
-          <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+          <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#766b5e]">
             {event === "in" ? "Clocking in" : "Clocking out"}
           </div>
-          <h3 className="mt-1 text-lg font-semibold">Quick selfie</h3>
+          <h3 className="mt-1 font-display text-lg font-semibold">Quick selfie</h3>
         </div>
-        <div className="overflow-hidden rounded-md border border-zinc-800 bg-black">
+        <div className="overflow-hidden rounded-md border border-[rgba(244,238,227,0.13)] bg-black">
           {error ? (
-            <div className="flex aspect-[4/3] items-center justify-center p-4 text-center text-sm text-zinc-400">
+            <div className="flex aspect-[4/3] items-center justify-center p-4 text-center text-sm text-[#a89c8c]">
               {error}
             </div>
           ) : (
@@ -461,7 +461,7 @@ function SelfieModal({
               ref={videoRef}
               playsInline
               muted
-              className="aspect-[4/3] w-full bg-zinc-900 object-cover"
+              className="aspect-[4/3] w-full bg-[rgba(244,238,227,0.04)] object-cover"
             />
           )}
         </div>
@@ -470,14 +470,14 @@ function SelfieModal({
             <button
               type="button"
               onClick={onCancel}
-              className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
+              className="rounded-md border border-[rgba(244,238,227,0.18)] px-4 py-2 text-sm text-[#a89c8c] hover:bg-[rgba(244,238,227,0.08)]"
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={onSkip}
-              className="rounded-md bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-100 hover:bg-zinc-600"
+              className="rounded-md bg-[rgba(244,238,227,0.12)] px-4 py-2 text-sm font-medium text-[#f4eee3] hover:bg-[rgba(244,238,227,0.16)]"
             >
               Punch anyway
             </button>
@@ -487,14 +487,14 @@ function SelfieModal({
             <button
               type="button"
               onClick={onCancel}
-              className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
+              className="rounded-md border border-[rgba(244,238,227,0.18)] px-3 py-2 text-sm text-[#a89c8c] hover:bg-[rgba(244,238,227,0.08)]"
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={onSkip}
-              className="rounded-md bg-zinc-800 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700"
+              className="rounded-md bg-[rgba(244,238,227,0.08)] px-3 py-2 text-sm text-[#a89c8c] hover:bg-[rgba(244,238,227,0.12)]"
             >
               Skip
             </button>

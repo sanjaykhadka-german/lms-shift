@@ -9,7 +9,7 @@ export default function KioskLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 antialiased">
+    <div className="min-h-screen bg-[#17130f] text-[#f4eee3] antialiased">
       {children}
     </div>
   );

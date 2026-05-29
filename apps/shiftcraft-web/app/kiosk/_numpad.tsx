@@ -46,15 +46,15 @@ export function KioskNumpad() {
         <p
           className={
             state.status === "locked"
-              ? "text-sm font-medium text-amber-300"
-              : "text-sm font-medium text-rose-300"
+              ? "text-sm font-medium text-[color-mix(in_srgb,var(--warn)_60%,white)]"
+              : "text-sm font-medium text-[color-mix(in_srgb,var(--danger)_60%,white)]"
           }
           role="status"
         >
           {message}
         </p>
       ) : (
-        <p className="text-sm text-zinc-500">Enter your 4-digit PIN</p>
+        <p className="text-sm text-[#766b5e]">Enter your 4-digit PIN</p>
       )}
 
       <div className="grid w-full grid-cols-3 gap-3">
@@ -95,8 +95,8 @@ function PinDots({
           key={i}
           className={
             i < entered
-              ? "h-4 w-4 rounded-full bg-zinc-100"
-              : "h-4 w-4 rounded-full border-2 border-zinc-700 bg-transparent"
+              ? "h-4 w-4 rounded-full bg-[#f4eee3]"
+              : "h-4 w-4 rounded-full border-2 border-[rgba(244,238,227,0.3)] bg-transparent"
           }
         />
       ))}
@@ -120,8 +120,8 @@ function PadButton({
       onClick={onClick}
       className={
         secondary
-          ? "h-20 rounded-xl bg-zinc-800 text-base font-medium text-zinc-300 active:bg-zinc-700"
-          : "h-20 rounded-xl bg-zinc-900 text-3xl font-semibold text-zinc-100 ring-1 ring-zinc-800 active:bg-zinc-800"
+          ? "h-20 rounded-xl bg-[rgba(244,238,227,0.08)] text-base font-medium text-[#a89c8c] active:bg-[rgba(244,238,227,0.12)]"
+          : "h-20 rounded-xl bg-[rgba(244,238,227,0.04)] text-3xl font-semibold text-[#f4eee3] ring-1 ring-[rgba(244,238,227,0.13)] active:bg-[rgba(244,238,227,0.08)]"
       }
       {...rest}
     >

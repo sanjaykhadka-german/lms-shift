@@ -130,21 +130,21 @@ export default async function KioskHome({
   if (!paired) {
     return (
       <main className="flex min-h-screen items-center justify-center px-6">
-        <div className="w-full max-w-md space-y-4 rounded-xl border border-zinc-800 bg-zinc-900/80 p-8 text-center shadow-xl">
-          <h1 className="text-2xl font-semibold tracking-tight">
+        <div className="w-full max-w-md space-y-4 rounded-xl border border-[rgba(244,238,227,0.13)] bg-[rgba(244,238,227,0.05)] p-8 text-center shadow-xl">
+          <h1 className="font-display text-2xl font-semibold tracking-tight">
             Kiosk not paired
           </h1>
-          <p className="text-sm text-zinc-400">
+          <p className="text-sm text-[#a89c8c]">
             This device isn't registered yet. A manager needs to pair it
             from the admin app:
           </p>
-          <ol className="space-y-1 rounded-md bg-zinc-950 px-4 py-3 text-left text-xs text-zinc-300">
+          <ol className="space-y-1 rounded-md bg-[#17130f] px-4 py-3 text-left text-xs text-[#a89c8c]">
             <li>1. Sign in at the main app</li>
             <li>2. Go to Kiosks → Add a kiosk</li>
             <li>3. Open the pairing link on this device</li>
           </ol>
           {errMsg ? (
-            <p className="rounded-md border border-amber-900/40 bg-amber-950/30 px-3 py-2 text-xs text-amber-300">
+            <p className="rounded-md border border-[color-mix(in_srgb,var(--warn)_40%,transparent)] bg-[color-mix(in_srgb,var(--warn)_15%,transparent)] px-3 py-2 text-xs text-[color-mix(in_srgb,var(--warn)_60%,white)]">
               {errMsg}
             </p>
           ) : null}
@@ -156,10 +156,10 @@ export default async function KioskHome({
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-10 px-6 py-12">
       <header className="space-y-1 text-center">
-        <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+        <div className="font-mono text-xs uppercase tracking-[0.2em] text-[#766b5e]">
           {paired.tenantName}
         </div>
-        <h1 className="text-3xl font-semibold tracking-tight">
+        <h1 className="font-display text-3xl font-semibold tracking-tight">
           {paired.locationName}
         </h1>
       </header>
@@ -168,7 +168,7 @@ export default async function KioskHome({
       ) : (
         <>
           {errMsg ? (
-            <p className="rounded-md border border-rose-900/40 bg-rose-950/30 px-4 py-2 text-sm text-rose-300">
+            <p className="rounded-md border border-[color-mix(in_srgb,var(--danger)_40%,transparent)] bg-[color-mix(in_srgb,var(--danger)_15%,transparent)] px-4 py-2 text-sm text-[color-mix(in_srgb,var(--danger)_60%,white)]">
               {errMsg}
             </p>
           ) : null}
@@ -186,11 +186,11 @@ function PunchedSplash({ message }: { message: string }) {
   return (
     <>
       <meta httpEquiv="refresh" content="3;url=/kiosk" />
-      <div className="rounded-xl border border-emerald-900/40 bg-emerald-950/30 px-10 py-8 text-center">
-        <div className="text-3xl font-semibold text-emerald-300">
+      <div className="rounded-xl border border-[color-mix(in_srgb,var(--live)_40%,transparent)] bg-[color-mix(in_srgb,var(--live)_15%,transparent)] px-10 py-8 text-center">
+        <div className="font-display text-3xl font-semibold text-[color-mix(in_srgb,var(--live)_55%,white)]">
           {message}
         </div>
-        <div className="mt-2 text-xs text-emerald-500/80">
+        <div className="mt-2 text-xs text-[color-mix(in_srgb,var(--live)_50%,white)]">
           Returning to the kiosk in a moment…
         </div>
       </div>
