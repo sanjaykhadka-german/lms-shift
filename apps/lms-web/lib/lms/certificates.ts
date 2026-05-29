@@ -89,6 +89,49 @@ export async function listAllCertificates(
   });
 }
 
+export interface VerifiedCertificate {
+  recipientName: string;
+  moduleTitle: string;
+  score: number;
+  passedAt: Date;
+}
+
+/** Looks up a certificate by (tenant, user, module) for the public verify
+ *  route. Returns null if that learner hasn't actually passed that module. */
+export async function getCertificateForVerification(ref: {
+  tenantId: string;
+  userId: number;
+  moduleId: number;
+}): Promise<VerifiedCertificate | null> {
+  return forTenant(ref.tenantId).run(async (tx) => {
+    const [r] = await tx
+      .select({
+        recipientName: lmsUsers.name,
+        moduleTitle: lmsModules.title,
+        score: sql<number>`max(${lmsAttempts.score})::int`,
+        passedAt: sql<Date>`min(${lmsAttempts.createdAt})`,
+      })
+      .from(lmsAttempts)
+      .innerJoin(lmsModules, eq(lmsModules.id, lmsAttempts.moduleId))
+      .innerJoin(lmsUsers, eq(lmsUsers.id, lmsAttempts.userId))
+      .where(
+        and(
+          eq(lmsAttempts.userId, ref.userId),
+          eq(lmsAttempts.moduleId, ref.moduleId),
+          eq(lmsAttempts.passed, true),
+        ),
+      )
+      .groupBy(lmsUsers.name, lmsModules.title);
+    if (!r) return null;
+    return {
+      recipientName: r.recipientName,
+      moduleTitle: r.moduleTitle,
+      score: r.score,
+      passedAt: r.passedAt,
+    };
+  });
+}
+
 /** The certificate for one module, or null if the learner hasn't passed it. */
 export async function getEarnedCertificate(
   moduleId: number,

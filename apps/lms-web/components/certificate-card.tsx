@@ -7,12 +7,14 @@ export function CertificateCard({
   moduleTitle,
   score,
   dateStr,
+  verifyUrl,
 }: {
   workspace: string;
   recipientName: string;
   moduleTitle: string;
   score: number;
   dateStr: string;
+  verifyUrl?: string;
 }) {
   return (
     <div className="rounded-xl border-[6px] border-[color:var(--primary)]/70 bg-white px-10 py-14 text-center shadow-sm print:border print:shadow-none">
@@ -50,6 +52,13 @@ export function CertificateCard({
           <div className="text-xs uppercase tracking-wider">Score</div>
         </div>
       </div>
+
+      {verifyUrl && (
+        <div className="mt-8 break-all text-xs text-[color:var(--muted-foreground)]">
+          Verify this certificate at{" "}
+          <span className="font-mono text-[color:var(--foreground)]">{verifyUrl}</span>
+        </div>
+      )}
     </div>
   );
 }

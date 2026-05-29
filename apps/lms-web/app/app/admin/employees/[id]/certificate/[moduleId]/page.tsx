@@ -7,6 +7,8 @@ import { currentMembership } from "~/lib/auth/current";
 import { getEarnedCertificate } from "~/lib/lms/certificates";
 import { Button } from "~/components/ui/button";
 import { CertificateCard } from "~/components/certificate-card";
+import { signCertificate } from "~/lib/lms/certificate-token";
+import { siteConfig } from "~/lib/site-config";
 import { PrintButton } from "~/app/app/my/certificates/_print-button";
 
 export const metadata = { title: "Employee certificate" };
@@ -44,6 +46,12 @@ export default async function AdminEmployeeCertificatePage({
     dateStyle: "long",
     timeZone: ctx.tenantTimezone,
   }).format(cert.passedAt);
+
+  const verifyUrl = `${siteConfig.url}/verify/${signCertificate({
+    tenantId: tid,
+    userId: employeeId,
+    moduleId: mid,
+  })}`;
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8">
