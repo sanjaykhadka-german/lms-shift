@@ -88,7 +88,7 @@ importers:
         version: 1.12.0
       next:
         specifier: ^16.0.0
-        version: 16.2.4(@babel/core@7.29.0)(@playwright/test@1.59.1)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+        version: 16.2.4(@playwright/test@1.59.1)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       pdf-parse:
         specifier: ^2.4.5
         version: 2.4.5
@@ -166,94 +166,6 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.17)(lightningcss@1.32.0)
 
-  apps/shiftcraft-web:
-    dependencies:
-      '@radix-ui/react-label':
-        specifier: ^2.1.1
-        version: 2.1.8(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
-      '@radix-ui/react-slot':
-        specifier: ^1.1.1
-        version: 1.2.4(@types/react@19.2.14)(react@19.2.5)
-      '@supabase/ssr':
-        specifier: ^0.5.2
-        version: 0.5.2(@supabase/supabase-js@2.106.2)
-      '@supabase/supabase-js':
-        specifier: ^2.47.10
-        version: 2.106.2
-      '@tracey/auth':
-        specifier: workspace:*
-        version: link:../../packages/auth
-      '@tracey/db':
-        specifier: workspace:*
-        version: link:../../packages/db
-      '@tracey/types':
-        specifier: workspace:*
-        version: link:../../packages/types
-      '@tracey/ui':
-        specifier: workspace:*
-        version: link:../../packages/ui
-      bcryptjs:
-        specifier: ^2.4.3
-        version: 2.4.3
-      class-variance-authority:
-        specifier: ^0.7.1
-        version: 0.7.1
-      clsx:
-        specifier: ^2.1.1
-        version: 2.1.1
-      drizzle-orm:
-        specifier: ^0.38.3
-        version: 0.38.4(@types/react@19.2.14)(postgres@3.4.9)(react@19.2.5)
-      lucide-react:
-        specifier: ^0.468.0
-        version: 0.468.0(react@19.2.5)
-      next:
-        specifier: ^16.0.0
-        version: 16.2.4(@babel/core@7.29.0)(@playwright/test@1.59.1)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
-      postgres:
-        specifier: ^3.4.5
-        version: 3.4.9
-      react:
-        specifier: ^19.0.0
-        version: 19.2.5
-      react-dom:
-        specifier: ^19.0.0
-        version: 19.2.5(react@19.2.5)
-      tailwind-merge:
-        specifier: ^2.5.5
-        version: 2.6.1
-      zod:
-        specifier: ^3.24.1
-        version: 3.25.76
-    devDependencies:
-      '@tailwindcss/postcss':
-        specifier: ^4.0.0
-        version: 4.2.4
-      '@tracey/config':
-        specifier: workspace:*
-        version: link:../../packages/config
-      '@types/bcryptjs':
-        specifier: ^2.4.6
-        version: 2.4.6
-      '@types/node':
-        specifier: ^22.10.5
-        version: 22.19.17
-      '@types/react':
-        specifier: ^19.0.0
-        version: 19.2.14
-      '@types/react-dom':
-        specifier: ^19.0.0
-        version: 19.2.3(@types/react@19.2.14)
-      tailwindcss:
-        specifier: ^4.0.0
-        version: 4.2.4
-      typescript:
-        specifier: ^5.7.2
-        version: 5.9.3
-      vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@22.19.17)(lightningcss@1.32.0)
-
   packages/auth:
     dependencies:
       '@tracey/db':
@@ -268,7 +180,7 @@ importers:
         version: 22.19.17
       next:
         specifier: ^16.0.0
-        version: 16.2.4(@babel/core@7.29.0)(@playwright/test@1.59.1)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+        version: 16.2.4(@playwright/test@1.59.1)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       react:
         specifier: ^19.0.0
         version: 19.2.5
@@ -6496,7 +6408,7 @@ snapshots:
       tinyglobby: 0.2.16
       unrs-resolver: 1.11.1
     optionalDependencies:
-      eslint-plugin-import: 2.32.0(eslint-import-resolver-typescript@3.10.1)(eslint@9.39.4(jiti@2.7.0))
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.59.2(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1)(eslint@9.39.4(jiti@2.7.0))
     transitivePeerDependencies:
       - supports-color
 
@@ -7222,7 +7134,7 @@ snapshots:
 
   natural-compare@1.4.0: {}
 
-  next@16.2.4(@babel/core@7.29.0)(@playwright/test@1.59.1)(react-dom@19.2.5(react@19.2.5))(react@19.2.5):
+  next@16.2.4(@playwright/test@1.59.1)(react-dom@19.2.5(react@19.2.5))(react@19.2.5):
     dependencies:
       '@next/env': 16.2.4
       '@swc/helpers': 0.5.15
@@ -7231,7 +7143,7 @@ snapshots:
       postcss: 8.4.31
       react: 19.2.5
       react-dom: 19.2.5(react@19.2.5)
-      styled-jsx: 5.1.6(@babel/core@7.29.0)(react@19.2.5)
+      styled-jsx: 5.1.6(react@19.2.5)
     optionalDependencies:
       '@next/swc-darwin-arm64': 16.2.4
       '@next/swc-darwin-x64': 16.2.4
@@ -7792,12 +7704,10 @@ snapshots:
       '@types/node': 22.19.17
       qs: 6.15.1
 
-  styled-jsx@5.1.6(@babel/core@7.29.0)(react@19.2.5):
+  styled-jsx@5.1.6(react@19.2.5):
     dependencies:
       client-only: 0.0.1
       react: 19.2.5
-    optionalDependencies:
-      '@babel/core': 7.29.0
 
   supports-color@7.2.0:
     dependencies:

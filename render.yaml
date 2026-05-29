@@ -50,32 +50,6 @@ services:
       - key: PLATFORM_ADMIN_EMAILS
         sync: false
 
-  # ─── ShiftCraft ───
-  - type: web
-    name: shiftcraft-web
-    runtime: node
-    plan: free
-    autoDeploy: false
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter shiftcraft-web build
-    startCommand: pnpm --filter shiftcraft-web start
-    envVars:
-      - key: TZ
-        value: Australia/Sydney
-      - key: NODE_VERSION
-        value: "22.13.0"
-      - key: DATABASE_URL
-        sync: false
-      - key: DIRECT_URL
-        sync: false
-      - key: NEXT_PUBLIC_SUPABASE_URL
-        sync: false
-      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
-        sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
-      - key: NEXT_PUBLIC_APP_URL
-        sync: false
-
   - type: cron
     name: lms-stripe-reconcile
     runtime: node
