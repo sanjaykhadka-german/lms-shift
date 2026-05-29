@@ -18,6 +18,7 @@ import {
   type LeaveBalance,
 } from "~/lib/leave-balances";
 import { Button } from "~/components/ui/button";
+import { Badge } from "~/components/ui/badge";
 import { InfoPopover } from "~/components/InfoPopover";
 import { TimeOffForm } from "./_form";
 import {
@@ -31,11 +32,12 @@ export const metadata = { title: "Time off · ShiftCraft" };
 type Filter = "pending" | "approved" | "denied" | "cancelled" | "all";
 const FILTERS: Filter[] = ["pending", "approved", "denied", "cancelled", "all"];
 
-const STATUS_BADGE: Record<string, string> = {
-  pending: "bg-amber-500 text-white",
-  approved: "bg-emerald-600 text-white",
-  denied: "bg-rose-600 text-white",
-  cancelled: "bg-slate-500 text-white line-through",
+// Universal status language → Workforce Studio Badge variants.
+const STATUS_VARIANT: Record<string, "warn" | "live" | "danger" | "neutral"> = {
+  pending: "warn",
+  approved: "live",
+  denied: "danger",
+  cancelled: "neutral",
 };
 
 // Saturated solid backgrounds for the leave-type chip — per the
@@ -194,7 +196,7 @@ export default async function TimeOffPage({
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
           Time off
           <InfoPopover label="About time off">
             <p>
@@ -211,7 +213,7 @@ export default async function TimeOffPage({
             </p>
           </InfoPopover>
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-1 text-sm text-ink-2">
           {isAdmin
             ? "Review pending requests and submit your own."
             : "Submit a request, then track its status here."}
@@ -219,9 +221,11 @@ export default async function TimeOffPage({
       </div>
 
       {accruedBalances.length > 0 && (
-        <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
-          <h2 className="text-base font-semibold">Your balances</h2>
-          <p className="mt-1 mb-4 text-xs text-muted-foreground">
+        <section className="rounded-[var(--r-lg)] border border-line bg-[var(--paper)] p-5 shadow-[var(--shadow-sm)]">
+          <h2 className="font-display text-[17px] font-semibold tracking-[-0.01em] text-ink">
+            Your balances
+          </h2>
+          <p className="mt-1 mb-4 text-xs text-ink-2">
             Hours accrued from approved timesheets minus hours of
             approved leave already taken. Casual + contractor
             employees see zero — paid-leave loading is included in
@@ -233,7 +237,7 @@ export default async function TimeOffPage({
               return (
                 <div
                   key={b.leaveTypeId}
-                  className="rounded-md border border-border bg-background p-3"
+                  className="rounded-[var(--r-md)] border border-line bg-[var(--paper-2)] p-3"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span
@@ -242,12 +246,12 @@ export default async function TimeOffPage({
                       {b.name}
                     </span>
                     <span
-                      className={`font-mono text-sm font-semibold tabular-nums ${negative ? "text-[color:var(--destructive)]" : ""}`}
+                      className={`font-mono text-sm font-semibold tabular-nums ${negative ? "text-[var(--danger)]" : "text-ink"}`}
                     >
                       {fmtHours(b.availableHours)}
                     </span>
                   </div>
-                  <div className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <div className="mt-2 font-mono text-[10px] uppercase tracking-[0.06em] text-ink-3">
                     Accrued {fmtHours(b.accruedHours)} · Taken{" "}
                     {fmtHours(b.takenHours)}
                   </div>
@@ -258,9 +262,11 @@ export default async function TimeOffPage({
         </section>
       )}
 
-      <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
-        <h2 className="text-base font-semibold">Submit a request</h2>
-        <p className="mt-1 mb-4 text-xs text-muted-foreground">
+      <section className="rounded-[var(--r-lg)] border border-line bg-[var(--paper)] p-5 shadow-[var(--shadow-sm)]">
+        <h2 className="font-display text-[17px] font-semibold tracking-[-0.01em] text-ink">
+          Submit a request
+        </h2>
+        <p className="mt-1 mb-4 text-xs text-ink-2">
           {isAdmin
             ? "Admins can also submit on behalf of themselves."
             : "Your manager will review and approve or deny."}
@@ -285,13 +291,13 @@ export default async function TimeOffPage({
         ))}
       </div>
 
-      <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+      <section className="overflow-hidden rounded-[var(--r-lg)] border border-line bg-[var(--paper)] shadow-[var(--shadow-sm)]">
         {rows.length === 0 ? (
-          <p className="px-5 py-6 text-sm text-muted-foreground">
+          <p className="px-5 py-6 text-sm text-ink-2">
             No {filter === "all" ? "" : filter} requests.
           </p>
         ) : (
-          <ul className="divide-y divide-border">
+          <ul className="divide-y divide-line-soft">
             {rows.map((r) => {
               const isOwn = r.userId === user.id;
               const canReview = isAdmin && r.status === "pending";
@@ -311,12 +317,12 @@ export default async function TimeOffPage({
                 <li key={r.id} className="px-5 py-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="text-sm font-medium">
+                      <div className="flex items-center gap-2 text-sm font-medium text-ink">
                         {r.userName ?? r.userEmail ?? "Unknown"}
                         {isOwn && (
-                          <span className="ml-2 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-primary">
+                          <Badge variant="open" size="sm">
                             You
-                          </span>
+                          </Badge>
                         )}
                       </div>
                       <div className="mt-0.5 flex flex-wrap items-center gap-2 text-sm">
@@ -337,42 +343,40 @@ export default async function TimeOffPage({
                         </div>
                       )}
                     </div>
-                    <span
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${STATUS_BADGE[r.status] ?? ""}`}
-                    >
+                    <Badge variant={STATUS_VARIANT[r.status] ?? "neutral"} size="sm">
                       {r.status}
-                    </span>
+                    </Badge>
                   </div>
 
                   {canReview && affected.length > 0 && (
-                    <details className="mt-3 rounded-md border border-rose-500/40 bg-rose-50/60 px-3 py-2 text-xs dark:border-rose-500/30 dark:bg-rose-950/20">
-                      <summary className="cursor-pointer font-medium text-rose-900 dark:text-rose-200">
+                    <details className="mt-3 rounded-[var(--r-sm)] border border-[color-mix(in_srgb,var(--danger)_35%,transparent)] bg-[color-mix(in_srgb,var(--danger)_8%,transparent)] px-3 py-2 text-xs">
+                      <summary className="flex cursor-pointer flex-wrap items-center gap-1.5 font-medium text-ink">
                         Impact:{" "}
                         {acceptedAffected > 0 && (
-                          <span className="inline-flex items-center rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
+                          <Badge variant="danger" size="sm">
                             {acceptedAffected} accepted
-                          </span>
+                          </Badge>
                         )}
                         {offeredAffected > 0 && (
-                          <span className="ml-1 inline-flex items-center rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
+                          <Badge variant="warn" size="sm">
                             {offeredAffected} offered
-                          </span>
-                        )}{" "}
-                        <span className="font-normal text-muted-foreground">
+                          </Badge>
+                        )}
+                        <span className="font-normal text-ink-2">
                           — will be auto-unassigned on approval
                         </span>
                       </summary>
-                      <ul className="mt-2 divide-y divide-rose-500/20">
+                      <ul className="mt-2 divide-y divide-line-soft">
                         {affected.map((s) => (
                           <li
                             key={s.shiftId}
                             className="flex items-center justify-between gap-3 py-1.5"
                           >
-                            <span className="truncate">
-                              <span className="font-medium">{s.role}</span>
+                            <span className="truncate text-ink-2">
+                              <span className="font-medium text-ink">{s.role}</span>
                               {s.locationName ? ` · ${s.locationName}` : ""}
                             </span>
-                            <span className="flex items-center gap-2 font-mono tabular-nums text-muted-foreground">
+                            <span className="flex items-center gap-2 font-mono tabular-nums text-ink-3">
                               {s.startsAt.toLocaleString(undefined, {
                                 weekday: "short",
                                 day: "numeric",
@@ -380,15 +384,12 @@ export default async function TimeOffPage({
                                 hour: "2-digit",
                                 minute: "2-digit",
                               })}
-                              <span
-                                className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${
-                                  s.status === "accepted"
-                                    ? "bg-rose-600 text-white"
-                                    : "bg-amber-500 text-white"
-                                }`}
+                              <Badge
+                                variant={s.status === "accepted" ? "danger" : "warn"}
+                                size="sm"
                               >
                                 {s.status}
-                              </span>
+                              </Badge>
                             </span>
                           </li>
                         ))}
@@ -397,7 +398,7 @@ export default async function TimeOffPage({
                   )}
 
                   {canReview && affected.length === 0 && (
-                    <p className="mt-3 text-xs text-emerald-700 dark:text-emerald-300">
+                    <p className="mt-3 text-xs text-[var(--live)]">
                       No published shifts assigned to this person in the
                       requested window.
                     </p>
@@ -471,12 +472,7 @@ export default async function TimeOffPage({
                           </form>
                           <form action={denyTimeOffAction}>
                             <input type="hidden" name="id" value={r.id} />
-                            <Button
-                              type="submit"
-                              size="sm"
-                              variant="outline"
-                              className="border-destructive/40 text-destructive hover:bg-destructive/10"
-                            >
+                            <Button type="submit" size="sm" variant="destructive">
                               Deny
                             </Button>
                           </form>
