@@ -41,6 +41,7 @@ import { cn } from "~/lib/utils";
 import { friendlyRoleLabel } from "~/lib/roles";
 import { Avatar } from "./Avatar";
 import { Logo } from "./Logo";
+import { ThemeToggle } from "./ThemeToggle";
 import { signOutAction } from "~/app/app/_actions";
 
 type NavItem = {
@@ -150,13 +151,13 @@ export function Sidebar({
 
   const drawerContents = (
     <>
-      <div className="flex items-center justify-between border-b border-border px-5 py-6">
+      <div className="flex items-center justify-between border-b border-line-soft px-5 py-5">
         <Logo size="sm" />
         <button
           type="button"
           onClick={() => setOpen(false)}
           aria-label="Close menu"
-          className="md:hidden rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="md:hidden rounded-md p-1 text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink"
         >
           <X className="h-5 w-5" />
         </button>
@@ -167,10 +168,10 @@ export function Sidebar({
             key={section.label}
             className={cn(
               "space-y-0.5",
-              sectionIdx > 0 && "mt-2 border-t border-border/60 pt-2",
+              sectionIdx > 0 && "mt-2 border-t border-line-soft pt-2",
             )}
           >
-            <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <div className="px-3 pb-1.5 pt-3 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-3">
               {section.label}
             </div>
             {section.items.map((item) => {
@@ -183,13 +184,19 @@ export function Sidebar({
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                    "group flex items-center gap-3 rounded-[var(--r-sm)] px-3 py-2 text-sm font-medium transition-colors",
                     active
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                      ? "bg-[var(--ink)] text-[var(--paper)]"
+                      : "text-ink-2 hover:bg-paper-2 hover:text-ink",
                   )}
                 >
-                  <Icon className="h-4 w-4" strokeWidth={2} />
+                  <Icon
+                    className={cn(
+                      "h-[18px] w-[18px]",
+                      active ? "text-[var(--accent)]" : "text-ink-3 group-hover:text-ink",
+                    )}
+                    strokeWidth={2}
+                  />
                   <span className="flex-1">{item.label}</span>
                 </Link>
               );
@@ -197,7 +204,7 @@ export function Sidebar({
           </div>
         ))}
       </nav>
-      <div className="border-t border-border px-3 py-4">
+      <div className="border-t border-line-soft px-3 py-4">
         <div className="mb-2 flex items-center gap-3 px-3">
           <Avatar
             name={name}
@@ -207,11 +214,8 @@ export function Sidebar({
             textClass="text-xs"
           />
           <div className="min-w-0">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              Signed in as
-            </div>
-            <div className="truncate text-sm font-medium">{name}</div>
-            <div className="text-[11px] text-muted-foreground">
+            <div className="truncate text-sm font-semibold text-ink">{name}</div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">
               {friendlyRoleLabel(role)}
             </div>
           </div>
@@ -219,7 +223,7 @@ export function Sidebar({
         <form action={signOutAction}>
           <button
             type="submit"
-            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="flex w-full items-center gap-3 rounded-[var(--r-sm)] px-3 py-2 text-sm font-medium text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink"
           >
             <LogOut className="h-4 w-4" />
             Sign out
@@ -233,17 +237,17 @@ export function Sidebar({
     <>
       {/* Mobile top bar — only visible below md. Lets the user open the
           drawer and shows the logo so the brand stays present. */}
-      <div className="md:hidden sticky top-0 z-30 flex items-center justify-between border-b border-border bg-card px-4 py-3">
+      <div className="md:hidden sticky top-0 z-30 flex items-center justify-between border-b border-line bg-[color-mix(in_srgb,var(--bone)_82%,transparent)] px-4 py-3 backdrop-blur-md">
         <button
           type="button"
           onClick={() => setOpen(true)}
           aria-label="Open menu"
-          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="rounded-md p-1 text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink"
         >
           <Menu className="h-5 w-5" />
         </button>
         <Logo size="sm" />
-        <div className="w-7" aria-hidden />
+        <ThemeToggle />
       </div>
 
       {/* Backdrop. Click anywhere outside the drawer to close. */}
@@ -258,7 +262,7 @@ export function Sidebar({
       {/* Mobile drawer — slides in from the left when `open`. */}
       <aside
         className={cn(
-          "md:hidden fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col border-r border-border bg-card shadow-xl transition-transform duration-200",
+          "md:hidden fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col border-r border-line bg-[var(--paper)] shadow-xl transition-transform duration-200",
           open ? "translate-x-0" : "-translate-x-full",
         )}
         aria-hidden={!open}
@@ -266,8 +270,8 @@ export function Sidebar({
         {drawerContents}
       </aside>
 
-      {/* Desktop sidebar — unchanged from before, just hidden on small. */}
-      <aside className="hidden md:sticky md:top-0 md:flex md:h-screen md:w-64 md:flex-col md:border-r md:border-border md:bg-card">
+      {/* Desktop sidebar — 248px, paper surface, hidden on small. */}
+      <aside className="hidden md:sticky md:top-0 md:flex md:h-screen md:w-[248px] md:flex-col md:border-r md:border-line md:bg-[var(--paper)]">
         {drawerContents}
       </aside>
     </>

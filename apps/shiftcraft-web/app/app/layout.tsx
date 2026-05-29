@@ -5,6 +5,7 @@ import {
   getUnreadCount,
 } from "~/lib/notifications-feed";
 import { Sidebar } from "~/components/Sidebar";
+import { TopBar } from "~/components/TopBar";
 import {
   NotificationsBell,
   type NotificationPreview,
@@ -51,9 +52,10 @@ export default async function AppLayout({
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Global chrome — only renders on md+ so the existing mobile
             top-bar in Sidebar.tsx isn't doubled up. */}
-        <header className="sticky top-0 z-30 hidden h-12 items-center justify-end border-b border-border bg-card/95 px-4 backdrop-blur md:flex">
-          <NotificationsBell unreadCount={unreadCount} recent={recent} />
-        </header>
+        <TopBar
+          tenantName={membership?.tenant.name ?? null}
+          bell={<NotificationsBell unreadCount={unreadCount} recent={recent} />}
+        />
         <main className="flex-1">{children}</main>
       </div>
     </div>

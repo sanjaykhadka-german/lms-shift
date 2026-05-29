@@ -1,29 +1,90 @@
 @import "tailwindcss";
 @import "@tracey/config/tailwind";
 
+/* ShiftCraft "Workforce Studio" — manual dark mode driven by a `.dark`
+ * class on <html> (set pre-paint in app/layout.tsx). This makes every
+ * existing `dark:` utility respond to the in-app toggle instead of the
+ * OS preference. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @layer base {
   :root {
-    --background: oklch(0.985 0.008 240);
-    --foreground: oklch(0.220 0.012 250);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.220 0.012 250);
-    /* Primary set to violet (~295) for ShiftCraft's sub-brand — sits
-     * outside the cool-blue/green spectrum (LMS, Planning) and outside
-     * the warm amber/orange spectrum, so ShiftCraft reads as clearly
-     * distinct. Background, foreground, muted, border stay cool-neutral
-     * to keep the Tracey parent brand readable. */
-    --primary: oklch(0.520 0.200 295);
-    --primary-foreground: oklch(0.990 0 0);
-    --secondary: oklch(0.950 0.012 240);
-    --secondary-foreground: oklch(0.220 0.012 250);
-    --muted: oklch(0.955 0.010 240);
-    --muted-foreground: oklch(0.540 0.020 245);
-    --accent: oklch(0.760 0.130 295);
-    --accent-foreground: oklch(0.990 0 0);
-    --border: oklch(0.920 0.010 240);
-    --input: oklch(0.920 0.010 240);
-    --ring: oklch(0.520 0.200 295 / 0.6);
-    --radius: 0.5rem;
+    /* ---- Named design tokens (light "bone-paper" theme) ---- */
+    --bone: #f1eadd; /* app canvas */
+    --paper: #fbf7ef; /* cards / panels */
+    --paper-2: #f6f0e4; /* inset / subtle fills */
+    --raise: #ffffff; /* raised segmented / popovers */
+    --ink: #17130f; /* primary text, dark surfaces */
+    --ink-2: #5a5046; /* secondary text */
+    --ink-3: #8b8175; /* tertiary / labels */
+    --line: rgba(23, 19, 15, 0.12); /* borders */
+    --line-soft: rgba(23, 19, 15, 0.07); /* inner dividers */
+
+    /* Accents — theme-independent */
+    --accent: #d6f23e; /* primary action / brand (lime) */
+    --accent-ink: #17130f; /* text/icon ON lime fills */
+    --accent-deep: #a9c422; /* lime hover / emphasis / focus ring */
+    --live: #15916a; /* on-shift / approved / success (emerald) */
+    --warn: #d98324; /* overtime / medium urgency */
+    --danger: #d6492b; /* declined / high urgency */
+
+    --shadow: 0 18px 40px -28px rgba(23, 19, 15, 0.55);
+    --shadow-sm: 0 10px 24px -20px rgba(23, 19, 15, 0.5);
+    --grain: rgba(23, 19, 15, 0.022);
+
+    --r-lg: 20px;
+    --r-md: 14px;
+    --r-sm: 10px;
+
+    /* ---- Legacy semantic vars remapped onto the named tokens so every
+     * existing utility (bg-background/bg-card/bg-primary/border-border…)
+     * re-skins app-wide with no per-file churn. ---- */
+    --background: var(--bone);
+    --foreground: var(--ink);
+    --card: var(--paper);
+    --card-foreground: var(--ink);
+    --primary: var(--accent);
+    --primary-foreground: var(--accent-ink);
+    --secondary: var(--paper-2);
+    --secondary-foreground: var(--ink);
+    --muted: var(--paper-2);
+    --muted-foreground: var(--ink-2);
+    /* NOTE: brand lime is the raw --accent var. The Tailwind `accent`
+     * utility (used for outline/ghost button hovers) is mapped to paper-2
+     * below in @theme inline so those hovers don't turn lime. */
+    --border: var(--line);
+    --input: var(--line);
+    --ring: rgba(169, 196, 34, 0.6);
+    --radius: 0.625rem;
+  }
+
+  /* ---- Dark theme: re-declare named tokens; legacy vars follow. ---- */
+  .dark {
+    --bone: #100d0b;
+    --paper: #1a1512;
+    --paper-2: #221c17;
+    --raise: #241e19;
+    --ink: #f4eee3;
+    --ink-2: #a89c8c;
+    --ink-3: #766b5e;
+    --line: rgba(244, 238, 227, 0.13);
+    --line-soft: rgba(244, 238, 227, 0.07);
+
+    --shadow: 0 24px 50px -28px rgba(0, 0, 0, 0.8);
+    --shadow-sm: 0 12px 28px -20px rgba(0, 0, 0, 0.7);
+    --grain: rgba(244, 238, 227, 0.02);
+  }
+
+  /* Background grain across the whole app canvas. */
+  body {
+    background-color: var(--bone);
+    background-image: radial-gradient(var(--grain) 1px, transparent 1px);
+    background-size: 4px 4px;
+  }
+
+  ::selection {
+    background: var(--accent);
+    color: var(--accent-ink);
   }
 }
 
@@ -38,9 +99,56 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
+
+  /* The `accent` utility = paper-2 (neutral hover surface), NOT brand lime.
+   * Use bg-[var(--accent)] explicitly where you want the lime brand fill. */
+  --color-accent: var(--paper-2);
+  --color-accent-foreground: var(--ink);
+
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+
+  /* Named tokens exposed as Tailwind color utilities (text-ink, bg-paper…) */
+  --color-bone: var(--bone);
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-raise: var(--raise);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-line: var(--line);
+  --color-line-soft: var(--line-soft);
+  --color-accent-brand: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-deep: var(--accent-deep);
+  --color-live: var(--live);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+
+  --radius-sm: var(--r-sm);
+  --radius: var(--r-md);
+  --radius-lg: var(--r-lg);
+
+  /* Fonts — loaded via next/font in app/layout.tsx. Body defaults to Hanken,
+   * display to Bricolage, mono to JetBrains. --font-heading kept as an alias
+   * so existing var(--font-heading) call sites keep working mid-migration. */
+  --font-display: var(--font-bricolage), "Bricolage Grotesque", sans-serif;
+  --font-body: var(--font-hanken), "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-hanken), "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-heading: var(--font-bricolage), "Bricolage Grotesque", sans-serif;
+}
+
+@layer base {
+  /* Pulsing "live" dot used by Badge variant="live" and the top-bar clock. */
+  @keyframes sc-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.3;
+    }
+  }
 }

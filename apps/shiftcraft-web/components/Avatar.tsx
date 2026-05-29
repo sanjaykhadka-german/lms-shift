@@ -37,7 +37,7 @@ export function Avatar({
       <img
         src={image}
         alt=""
-        className={`${sizeClass} flex-shrink-0 rounded-full object-cover`}
+        className={`${sizeClass} flex-shrink-0 rounded-[10px] object-cover`}
       />
     );
   }
@@ -46,7 +46,7 @@ export function Avatar({
   return (
     <div
       aria-hidden
-      className={`${sizeClass} ${textClass} flex flex-shrink-0 items-center justify-center rounded-full font-semibold text-white`}
+      className={`${sizeClass} ${textClass} flex flex-shrink-0 items-center justify-center rounded-[10px] font-display font-semibold text-white`}
       style={{ backgroundColor: colour }}
     >
       {initials}
