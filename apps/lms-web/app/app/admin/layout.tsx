@@ -2,6 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import {
+  Award,
   Building2,
   ClipboardList,
   Cog,
@@ -66,6 +67,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               </SidebarLink>
               <SidebarLink href="/app/admin/training-matrix" icon={Grid3x3}>
                 Training matrix
+              </SidebarLink>
+              <SidebarLink href="/app/admin/certificates" icon={Award}>
+                Certificates
               </SidebarLink>
               <SidebarLink href="/app/admin/whs" icon={HardHat}>
                 WHS register
