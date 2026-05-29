@@ -15,6 +15,7 @@ import { currentMembership, requireUser } from "~/lib/auth/current";
 import { forecastWeek } from "~/lib/labour-forecast";
 import { getManagedLocationIds, scopeArray } from "~/lib/manager-scope";
 import { Button } from "~/components/ui/button";
+import { Badge } from "~/components/ui/badge";
 import { WeeklyLabourForecast } from "~/components/WeeklyLabourForecast";
 import { AreaScheduleView, type AreaShift } from "./_area-view";
 import { EmployeeScheduleView, type EmployeeRow } from "./_employee-view";
@@ -61,10 +62,10 @@ function fmtDayHeader(d: Date): string {
   });
 }
 
-const STATUS_STYLES: Record<string, string> = {
-  draft: "bg-slate-500 text-white",
-  published: "bg-emerald-600 text-white",
-  cancelled: "bg-rose-600 text-white line-through",
+const STATUS_VARIANT: Record<string, "neutral" | "live" | "danger"> = {
+  draft: "neutral",
+  published: "live",
+  cancelled: "danger",
 };
 
 export default async function SchedulePage({
@@ -347,7 +348,7 @@ export default async function SchedulePage({
     <div className="mx-auto max-w-6xl space-y-6 px-6 py-10">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
             Schedule
             <InfoPopover label="About the schedule">
               <p>
@@ -359,44 +360,27 @@ export default async function SchedulePage({
               </p>
             </InfoPopover>
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 text-sm text-ink-2">
             {fmtRange(weekStart, addDays(weekStart, 6))} ·{" "}
             {shifts.length} shift{shifts.length === 1 ? "" : "s"}
             {activeLocation ? ` · ${activeLocation.name}` : ""}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="mr-1 inline-flex overflow-hidden rounded-md border border-border">
-            <Link
-              href={`/app/schedule${qs({ view: "day" })}`}
-              className={`px-3 py-1.5 text-xs font-medium ${
-                view === "day"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-background hover:bg-muted"
-              }`}
-            >
-              Day
-            </Link>
-            <Link
-              href={`/app/schedule${qs({ view: "area" })}`}
-              className={`px-3 py-1.5 text-xs font-medium ${
-                view === "area"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-background hover:bg-muted"
-              }`}
-            >
-              Area
-            </Link>
-            <Link
-              href={`/app/schedule${qs({ view: "employee" })}`}
-              className={`px-3 py-1.5 text-xs font-medium ${
-                view === "employee"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-background hover:bg-muted"
-              }`}
-            >
-              Employee
-            </Link>
+          <div className="mr-1 inline-flex gap-0.5 rounded-[var(--r-sm)] border border-line bg-[var(--paper-2)] p-0.5">
+            {(["day", "area", "employee"] as const).map((v) => (
+              <Link
+                key={v}
+                href={`/app/schedule${qs({ view: v })}`}
+                className={`rounded-[calc(var(--r-sm)-3px)] px-3 py-1.5 text-xs font-semibold capitalize transition-colors ${
+                  view === v
+                    ? "bg-[var(--raise)] text-ink shadow-[var(--shadow-sm)] dark:bg-[var(--accent)] dark:text-[var(--accent-ink)]"
+                    : "text-ink-2 hover:text-ink"
+                }`}
+              >
+                {v}
+              </Link>
+            ))}
           </div>
           <Button asChild variant="outline" size="sm">
             <Link href={`/app/schedule${qs({ week: prevWeek })}`}>← Prev</Link>
@@ -463,13 +447,13 @@ export default async function SchedulePage({
       </div>
 
       {showCopyFlash && (
-        <div className="rounded-md border-2 border-emerald-500/60 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900 dark:border-emerald-500/50 dark:bg-emerald-950/50 dark:text-emerald-100">
+        <div className="rounded-[var(--r-sm)] border border-[color-mix(in_srgb,var(--live)_45%,transparent)] bg-[color-mix(in_srgb,var(--live)_10%,transparent)] px-4 py-2 text-sm font-medium text-ink">
           {copiedCount > 0 ? (
             <>
               Copied {copiedCount} shift{copiedCount === 1 ? "" : "s"} into
               this week as drafts.
               {skippedCount > 0 && (
-                <span className="text-emerald-800/80 dark:text-emerald-200/80">
+                <span className="text-ink-2">
                   {" "}
                   Skipped {skippedCount} that already had a matching shift.
                 </span>
@@ -488,7 +472,7 @@ export default async function SchedulePage({
 
       {locations.length > 1 && (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs uppercase tracking-wider text-muted-foreground">
+          <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-3">
             Location:
           </span>
           <Button
@@ -545,15 +529,15 @@ export default async function SchedulePage({
         {days.map((d) => (
           <section
             key={d.date.toISOString()}
-            className="rounded-lg border border-border bg-card shadow-sm"
+            className="rounded-[var(--r-lg)] border border-line bg-[var(--paper)] shadow-[var(--shadow-sm)]"
           >
-            <div className="border-b border-border px-4 py-2 text-sm font-medium">
+            <div className="border-b border-line-soft px-4 py-2.5 font-display text-sm font-semibold tracking-[-0.01em] text-ink">
               {fmtDayHeader(d.date)}
             </div>
             {d.shifts.length === 0 ? (
-              <p className="px-4 py-3 text-xs text-muted-foreground">No shifts</p>
+              <p className="px-4 py-3 text-xs text-ink-3">No shifts</p>
             ) : (
-              <ul className="divide-y divide-border">
+              <ul className="divide-y divide-line-soft">
                 {d.shifts.map((s) => (
                   <li
                     key={s.id}
@@ -566,7 +550,7 @@ export default async function SchedulePage({
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2 text-sm font-medium">
+                        <div className="flex items-center gap-2 text-sm font-medium text-ink">
                           {s.locationColor && (
                             <span
                               aria-hidden
@@ -574,28 +558,26 @@ export default async function SchedulePage({
                               style={{ backgroundColor: s.locationColor }}
                             />
                           )}
-                          <span>
-                            {fmtTime(s.startsAt)} – {fmtTime(s.endsAt)} ·{" "}
-                            {s.role}
+                          <span className="font-mono tabular-nums">
+                            {fmtTime(s.startsAt)} – {fmtTime(s.endsAt)}
                           </span>
+                          <span className="text-ink-2">· {s.role}</span>
                         </div>
-                        <div className="truncate text-xs text-muted-foreground">
+                        <div className="truncate text-xs text-ink-2">
                           {s.locationName ?? "—"}
                           {" · "}
                           {s.acceptedCount} accepted
                           {s.offeredCount > 0 ? ` · ${s.offeredCount} pending` : ""}
                         </div>
                       </div>
-                      <span
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${STATUS_STYLES[s.status] ?? ""}`}
-                      >
+                      <Badge variant={STATUS_VARIANT[s.status] ?? "neutral"} size="sm">
                         {s.status}
-                      </span>
+                      </Badge>
                     </div>
                     <div className="mt-2">
                       <Link
                         href={`/app/schedule/${s.id}/edit`}
-                        className="text-xs text-primary hover:underline"
+                        className="font-mono text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-2 hover:text-ink"
                       >
                         Edit →
                       </Link>
@@ -610,7 +592,7 @@ export default async function SchedulePage({
       )}
 
       {/* ─── Bottom status strip ─── */}
-      <section className="rounded-lg border border-border bg-card px-4 py-3 shadow-sm">
+      <section className="rounded-[var(--r-lg)] border border-line bg-[var(--paper)] px-4 py-3 shadow-[var(--shadow-sm)]">
         <ul className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs">
           <StatusPill
             label="Published"
@@ -632,7 +614,7 @@ export default async function SchedulePage({
             value={stripCounts.cancelled}
             tone={stripCounts.cancelled > 0 ? "rose" : "muted"}
           />
-          <span className="hidden h-3 border-r border-border sm:block" />
+          <span className="hidden h-3 border-r border-line sm:block" />
           <StatusPill
             label="Swaps pending"
             value={stripCounts.swapsPending}
@@ -663,21 +645,22 @@ function StatusPill({
   value: number;
   tone: "emerald" | "amber" | "rose" | "blue" | "muted";
 }) {
-  const dot =
-    tone === "emerald"
-      ? "bg-emerald-500"
-      : tone === "amber"
-        ? "bg-amber-500"
-        : tone === "rose"
-          ? "bg-rose-500"
-          : tone === "blue"
-            ? "bg-blue-500"
-            : "bg-slate-400";
+  const dot: Record<typeof tone, string> = {
+    emerald: "var(--live)",
+    amber: "var(--warn)",
+    rose: "var(--danger)",
+    blue: "var(--accent-deep)",
+    muted: "var(--ink-3)",
+  };
   return (
     <li className="flex items-center gap-1.5">
-      <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${dot}`} />
-      <span className="font-semibold tabular-nums">{value}</span>
-      <span className="text-muted-foreground">{label}</span>
+      <span
+        aria-hidden
+        className="h-1.5 w-1.5 rounded-full"
+        style={{ backgroundColor: dot[tone] }}
+      />
+      <span className="font-mono font-semibold tabular-nums text-ink">{value}</span>
+      <span className="text-ink-2">{label}</span>
     </li>
   );
 }

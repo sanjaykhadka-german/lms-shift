@@ -23,9 +23,9 @@ interface AreaEmployee {
 }
 
 const STATUS_DOT: Record<string, string> = {
-  draft: "bg-slate-400",
-  published: "bg-emerald-500",
-  cancelled: "bg-rose-500",
+  draft: "var(--ink-3)",
+  published: "var(--live)",
+  cancelled: "var(--danger)",
 };
 
 const WEEKDAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -181,9 +181,11 @@ export function AreaScheduleView({
                         <div className="flex items-center gap-1 font-medium tabular-nums">
                           <span
                             aria-hidden
-                            className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${
-                              STATUS_DOT[s.status] ?? "bg-slate-400"
-                            }`}
+                            className="h-1.5 w-1.5 flex-shrink-0 rounded-full"
+                            style={{
+                              backgroundColor:
+                                STATUS_DOT[s.status] ?? "var(--ink-3)",
+                            }}
                           />
                           {fmtTime24(s.startsAt)} – {fmtTime24(s.endsAt)}
                         </div>
