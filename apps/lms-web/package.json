@@ -17,7 +17,6 @@
     "cron:whs-reminders": "tsx scripts/run-whs-reminders.ts",
     "icons:pwa": "node scripts/generate-pwa-icons.mjs",
     "check-tenant-scope": "node scripts/check-tenant-scope.mjs",
-    "check-cli-rls-scope": "node scripts/check-cli-rls-scope.mjs",
     "setup:test-rls-role": "node scripts/setup-test-rls-role.mjs"
   },
   "dependencies": {
