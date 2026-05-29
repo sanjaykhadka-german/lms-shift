@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Check } from "lucide-react";
+import { Badge } from "~/components/ui/badge";
 
 // ShiftCraft pricing — positioned above the LMS ($19/$39) because the
 // workforce surface carries more operational scope: live punch + kiosk +
@@ -82,31 +83,33 @@ export function Pricing() {
   const [billing, setBilling] = useState<Billing>("monthly");
 
   return (
-    <section id="pricing" className="border-y border-border bg-card/30">
+    <section id="pricing" className="border-y border-line bg-[var(--paper-2)]/40">
       <div className="mx-auto max-w-6xl px-6 py-20">
         <div className="mx-auto max-w-2xl text-center">
-          <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+          <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-3">
             Pricing
           </div>
-          <h2
-            className="mt-2 text-3xl tracking-tight md:text-4xl"
-            style={{
-              fontFamily: "var(--font-heading), ui-serif, Georgia, serif",
-            }}
-          >
-            Priced per employee. <span className="italic text-primary">14-day free trial.</span>
+          <h2 className="mt-2 font-display text-3xl font-semibold tracking-[-0.02em] text-ink md:text-4xl">
+            Priced per employee.{" "}
+            <span className="relative inline-block">
+              <span className="relative z-10">14-day free trial.</span>
+              <span
+                aria-hidden
+                className="absolute inset-x-[-4px] bottom-1 z-0 h-3 -rotate-1 rounded-[3px] bg-[var(--accent)]"
+              />
+            </span>
           </h2>
-          <p className="mt-3 text-muted-foreground">
+          <p className="mt-3 text-ink-2">
             Pay only when your team's on board. Switch to annual to save 20%.
           </p>
-          <div className="mt-6 inline-flex items-center rounded-full border border-border p-1 text-sm">
+          <div className="mt-6 inline-flex items-center rounded-full border border-line bg-[var(--paper)] p-1 text-sm">
             <button
               type="button"
               onClick={() => setBilling("monthly")}
               className={
                 billing === "monthly"
-                  ? "rounded-full bg-primary px-4 py-1.5 font-medium text-primary-foreground"
-                  : "rounded-full px-4 py-1.5 text-muted-foreground hover:text-foreground"
+                  ? "rounded-full bg-[var(--ink)] px-4 py-1.5 font-semibold text-[var(--paper)]"
+                  : "rounded-full px-4 py-1.5 text-ink-2 hover:text-ink"
               }
             >
               Monthly
@@ -116,14 +119,14 @@ export function Pricing() {
               onClick={() => setBilling("annual")}
               className={
                 billing === "annual"
-                  ? "rounded-full bg-primary px-4 py-1.5 font-medium text-primary-foreground"
-                  : "rounded-full px-4 py-1.5 text-muted-foreground hover:text-foreground"
+                  ? "rounded-full bg-[var(--ink)] px-4 py-1.5 font-semibold text-[var(--paper)]"
+                  : "rounded-full px-4 py-1.5 text-ink-2 hover:text-ink"
               }
             >
               Annual
-              <span className="ml-2 inline-flex items-center rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700">
+              <Badge variant="live" size="sm" className="ml-2">
                 Save 20%
-              </span>
+              </Badge>
             </button>
           </div>
         </div>
