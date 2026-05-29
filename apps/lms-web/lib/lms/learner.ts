@@ -35,7 +35,7 @@ import {
   type ScoreResult,
 } from "./scoring";
 import { PASS_THRESHOLD } from "~/lib/site-config";
-import { notifyAttempt } from "./notify";
+import { notifyAttempt, notifyLearnerCertificate } from "./notify";
 import { createNotifications } from "./notifications";
 import { isEffectivelyActive } from "./employee-status";
 
@@ -580,6 +580,17 @@ export async function submitAttempt(opts: {
     score: score.percent,
     passed,
   });
+
+  // On a pass, also email the learner their certificate link.
+  if (passed) {
+    void notifyLearnerCertificate({
+      learnerEmail: opts.lmsUser.email,
+      learnerName: opts.lmsUser.name,
+      moduleTitle: opts.module.title,
+      moduleId: opts.module.id,
+      score: score.percent,
+    });
+  }
 
   // Mirror the email summary as in-app notifs to tenant admins/owners.
   void (async () => {

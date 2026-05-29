@@ -51,3 +51,28 @@ export async function notifyAttempt(opts: {
     console.error("notifyAttempt failed", err);
   }
 }
+
+// Emails the LEARNER (not owners) when they pass a module, with a link to view
+// and print their certificate. Fire-and-forget; never blocks the attempt flow.
+export async function notifyLearnerCertificate(opts: {
+  learnerEmail: string;
+  learnerName: string;
+  moduleTitle: string;
+  moduleId: number;
+  score: number;
+}): Promise<void> {
+  if (!apiKey) return;
+  if (isReservedTestRecipient(opts.learnerEmail)) return;
+  const url = `${siteConfig.url}/app/my/certificates/${opts.moduleId}`;
+  const subject = `[${siteConfig.name}] Your certificate: ${opts.moduleTitle}`;
+  const text =
+    `Congratulations ${opts.learnerName}!\n\n` +
+    `You passed "${opts.moduleTitle}" with a score of ${opts.score}%. ` +
+    `You've earned a certificate of completion.\n\n` +
+    `View and print it here:\n${url}`;
+  try {
+    await client().emails.send({ from, to: opts.learnerEmail, subject, text });
+  } catch (err) {
+    console.error("notifyLearnerCertificate failed", err);
+  }
+}
