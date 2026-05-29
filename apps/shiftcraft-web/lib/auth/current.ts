@@ -56,6 +56,18 @@ export async function requireUser(): Promise<CurrentUser> {
   return u;
 }
 
+/**
+ * Requires a signed-in user who belongs to a tenant. Redirects to /sign-in if
+ * not authenticated, or to /app (the dashboard, which explains how to create a
+ * workspace in the LMS) if the user has no membership yet.
+ */
+export async function requireMembership(): Promise<Membership & { user: CurrentUser }> {
+  const user = await requireUser();
+  const m = await currentMembership();
+  if (!m) redirect("/app");
+  return { ...m, user };
+}
+
 export async function currentMembership(): Promise<Membership | null> {
   const u = await currentUser();
   if (!u) return null;

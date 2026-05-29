@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, LogOut } from "lucide-react";
+import { LayoutDashboard, LogOut, MapPin } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Logo } from "./Logo";
 import { signOutAction } from "~/app/app/_actions";
 
 const NAV = [
   { href: "/app", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/app/locations", label: "Locations", icon: MapPin },
 ];
 
 export function Sidebar({ name, role }: { name: string; role: string }) {
@@ -21,7 +22,9 @@ export function Sidebar({ name, role }: { name: string; role: string }) {
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4">
         {NAV.map((item) => {
           const active =
-            pathname === item.href || pathname.startsWith(item.href + "/");
+            item.href === "/app"
+              ? pathname === "/app"
+              : pathname === item.href || pathname.startsWith(item.href + "/");
           const Icon = item.icon;
           return (
             <Link
