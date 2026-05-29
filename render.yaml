@@ -1,0 +1,116 @@
+services:
+  # ─── LMS (learning module) ───
+  - type: web
+    name: lms-web
+    runtime: node
+    plan: free
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @tracey/db run migrate && pnpm --filter lms-web build
+    startCommand: pnpm --filter lms-web start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: TZ
+        value: Australia/Sydney
+      - key: NODE_VERSION
+        value: "22.13.0"
+      # Supabase Postgres — runtime uses the transaction pooler (port 6543);
+      # migrations use the session/direct URL (DIRECT_URL, port 5432).
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        value: onboarding@resend.dev
+      - key: MAIL_FROM_NAME
+        value: Tracey
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_STARTER_MONTHLY
+        sync: false
+      - key: STRIPE_PRICE_STARTER_ANNUAL
+        sync: false
+      - key: STRIPE_PRICE_PRO_MONTHLY
+        sync: false
+      - key: STRIPE_PRICE_PRO_ANNUAL
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+      # Comma-separated emails. Members of this list see the /platform
+      # super-admin surface. Keep tightly scoped to actual operators.
+      - key: PLATFORM_ADMIN_EMAILS
+        sync: false
+
+  # ─── ShiftCraft ───
+  - type: web
+    name: shiftcraft-web
+    runtime: node
+    plan: free
+    autoDeploy: false
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter shiftcraft-web build
+    startCommand: pnpm --filter shiftcraft-web start
+    envVars:
+      - key: TZ
+        value: Australia/Sydney
+      - key: NODE_VERSION
+        value: "22.13.0"
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+
+  - type: cron
+    name: lms-stripe-reconcile
+    runtime: node
+    plan: free
+    schedule: "0 3 * * *"
+    buildCommand: corepack enable && pnpm install --frozen-lockfile
+    startCommand: pnpm --filter lms-web run reconcile:stripe
+    envVars:
+      - key: TZ
+        value: Australia/Sydney
+      - key: NODE_VERSION
+        value: "22.13.0"
+      - key: DATABASE_URL
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+
+  # Daily WHS expiry reminder pass. Iterates every tenant.
+  - type: cron
+    name: lms-whs-reminders
+    runtime: node
+    plan: free
+    schedule: "0 20 * * *"  # 20:00 UTC = 06:00 Australia/Sydney
+    buildCommand: corepack enable && pnpm install --frozen-lockfile
+    startCommand: pnpm --filter lms-web run cron:whs-reminders
+    envVars:
+      - key: TZ
+        value: Australia/Sydney
+      - key: NODE_VERSION
+        value: "22.13.0"
+      - key: DATABASE_URL
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        value: onboarding@resend.dev
+      - key: MAIL_FROM_NAME
+        value: Tracey

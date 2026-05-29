@@ -1,0 +1,34 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+.env
+instance/
+*.db
+*.sqlite
+*.sqlite3
+uploads/
+static/uploads/
+# Next.js dynamic route folder, not user uploads
+!apps/lms-web/app/uploads/
+.DS_Store
+.idea/
+.vscode/
+.pytest_cache/
+playwright-report/
+test-results/
+
+# Node / Next.js / monorepo (Tracey)
+node_modules/
+.next/
+.turbo/
+dist/
+*.tsbuildinfo
+.env.local
+.env.*.local
+coverage/
+
+# Phase 7b — per-tenant pg_dump backups (timestamped, never committed)
+backups/

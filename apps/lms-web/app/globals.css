@@ -1,0 +1,110 @@
+@import "tailwindcss";
+@import "@tracey/config/tailwind";
+
+@layer base {
+  :root {
+    /* Warm parchment — page surface */
+    --background: oklch(0.930 0.025 85);
+    /* Deepened ink for stronger contrast on parchment */
+    --foreground: oklch(0.205 0.012 60);
+
+    /* Warm pink-cream cards — off-white with a subtle warm tint, no yellow */
+    --card: oklch(0.970 0.025 30);
+    --card-foreground: oklch(0.205 0.012 60);
+    --popover: oklch(0.970 0.025 30);
+    --popover-foreground: oklch(0.205 0.012 60);
+
+    /* Brand red — UNCHANGED */
+    --primary: oklch(0.385 0.158 28);
+    --primary-foreground: oklch(0.985 0 0);
+
+    /* Slightly deeper parchment for hover/secondary surfaces */
+    --secondary: oklch(0.900 0.028 85);
+    --secondary-foreground: oklch(0.205 0.012 60);
+    --muted: oklch(0.900 0.028 85);
+    /* Deepened from 0.553 to 0.495 — needed to pass 4.5:1 on parchment */
+    --muted-foreground: oklch(0.495 0.020 70);
+
+    /* Brand orange accent — UNCHANGED */
+    --accent: oklch(0.666 0.179 58);
+    --accent-foreground: oklch(0.985 0 0);
+
+    --destructive: oklch(0.577 0.245 27.325);
+    --destructive-foreground: oklch(0.985 0 0);
+
+    /* Warm tan border that reads against parchment */
+    --border: oklch(0.860 0.025 80);
+    --input: oklch(0.860 0.025 80);
+
+    --ring: oklch(0.385 0.158 28 / 0.6);
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: oklch(0.183 0.005 50);
+    --foreground: oklch(0.970 0.008 80);
+    --card: oklch(0.216 0.006 56);
+    --card-foreground: oklch(0.970 0.008 80);
+    --popover: oklch(0.216 0.006 56);
+    --popover-foreground: oklch(0.970 0.008 80);
+    --primary: oklch(0.55 0.18 28);
+    --primary-foreground: oklch(0.985 0 0);
+    --secondary: oklch(0.27 0.005 60);
+    --secondary-foreground: oklch(0.970 0.008 80);
+    --muted: oklch(0.27 0.005 60);
+    --muted-foreground: oklch(0.708 0.01 60);
+    --accent: oklch(0.74 0.17 58);
+    --accent-foreground: oklch(0.183 0.005 50);
+    --destructive: oklch(0.396 0.141 25.723);
+    --destructive-foreground: oklch(0.970 0.008 80);
+    --border: oklch(0.27 0.005 60);
+    --input: oklch(0.27 0.005 60);
+    --ring: oklch(0.55 0.18 28 / 0.6);
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+@layer base {
+  * {
+    @apply border-[color:var(--border)];
+  }
+  body {
+    @apply bg-[color:var(--background)] text-[color:var(--foreground)] antialiased;
+    font-family: var(--font-sans);
+  }
+  h1, h2, h3, h4 {
+    font-family: var(--font-heading), ui-serif, Georgia, serif;
+    letter-spacing: -0.01em;
+  }
+}
+
+/* Pin form controls that explicitly use bg-transparent (the <Input> primitive
+   and raw form <select>s) to the card surface, so the UA doesn't paint them
+   white. Scoped to [class*="bg-transparent"] so coloured controls like the
+   status picker (bg-emerald-600) keep their intended background. */
+input[class*="bg-transparent"]:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="color"]):not([type="range"]):not([type="image"]):not([type="submit"]):not([type="button"]):not([type="reset"]),
+select[class*="bg-transparent"],
+textarea[class*="bg-transparent"] {
+  background-color: var(--card) !important;
+}

@@ -1,0 +1,9 @@
+{
+  "extends": "@tracey/config/tsconfig.base",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "./src",
+    "jsx": "react-jsx"
+  },
+  "include": ["src/**/*"]
+}
