@@ -25,6 +25,17 @@ import {
   startOfWeek,
 } from "~/lib/clock";
 import { listDailySales, sumGrossSales } from "~/lib/daily-sales";
+import { getHolidaysForTenant } from "~/lib/holidays";
+import { getTenantAwardProfile } from "~/lib/award-profile";
+import {
+  _parseAwardProfile,
+  classifyEmployeeWeek,
+  computeAwardCost,
+  mergeAwardProfiles,
+  resolvePenaltyMultipliers,
+  roundCents,
+  type AwardProfileOverrides,
+} from "~/lib/timesheet-classifier";
 import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "Reports · ShiftCraft" };
@@ -137,6 +148,7 @@ export default async function ReportsPage({
             hourlyRate: scEmployees.hourlyRate,
             departmentId: scEmployees.departmentId,
             departmentName: scDepartments.name,
+            awardProfile: scEmployees.awardProfile,
           })
           .from(scEmployees)
           .leftJoin(
@@ -153,6 +165,7 @@ export default async function ReportsPage({
     ]);
   const rateByUser = new Map<string, number>();
   const deptByUser = new Map<string, string | null>();
+  const awardProfileByUser = new Map<string, AwardProfileOverrides>();
   for (const r of employeeRates) {
     if (!r.appUserId) continue;
     if (r.hourlyRate) {
@@ -160,6 +173,7 @@ export default async function ReportsPage({
       if (Number.isFinite(n)) rateByUser.set(r.appUserId, n);
     }
     deptByUser.set(r.appUserId, r.departmentName);
+    awardProfileByUser.set(r.appUserId, _parseAwardProfile(r.awardProfile));
   }
 
   // Distinct department names to populate the filter dropdown.
@@ -423,6 +437,95 @@ export default async function ReportsPage({
   const peopleWithoutRate = peopleRows.filter(
     (r) => r.thisWorkMs > 0 && r.hourlyRate == null,
   ).length;
+
+  // ─── AUDIT.md #9 — award-derived wage cost (OT + penalty aware) ─────
+  // The base "Actual wage cost" above is rate × hours. This variant runs
+  // each employee's per-day minutes through the same classifier +
+  // computeAwardCost the Timesheets page uses, so wages-vs-sales can show
+  // a penalty/overtime-aware figure beside the flat one. Reuses the
+  // tenant award profile merged with each employee's override.
+  const [tenantAward, holidaysThisArr, holidaysPrevArr] = await Promise.all([
+    getTenantAwardProfile(tenantId),
+    getHolidaysForTenant(
+      tenantId,
+      thisStartIso,
+      fmtIsoDate(addDays(thisWeekStart, 6)),
+    ),
+    getHolidaysForTenant(
+      tenantId,
+      prevStartIso,
+      fmtIsoDate(addDays(prevWeekStart, 6)),
+    ),
+  ]);
+  const holidaysThis = new Set(holidaysThisArr.map((h) => h.date));
+  const holidaysPrev = new Set(holidaysPrevArr.map((h) => h.date));
+
+  function perDayMsByUser(
+    events: typeof thisEventsFiltered,
+    weekStart: Date,
+    weekEnd: Date,
+  ): Map<string, number[]> {
+    const byUser = new Map<string, typeof events>();
+    for (const e of events) {
+      const arr = byUser.get(e.appUserId) ?? [];
+      arr.push(e);
+      byUser.set(e.appUserId, arr);
+    }
+    const out = new Map<string, number[]>();
+    for (const [uid, evs] of byUser) {
+      const perDay = Array.from({ length: 7 }, () => 0);
+      for (const seg of deriveSegments(evs, weekEnd)) {
+        if (seg.kind !== "work") continue;
+        for (const chunk of splitSegmentByDay(seg)) {
+          const di = Math.floor(
+            (chunk.startedAt.getTime() - weekStart.getTime()) / 86_400_000,
+          );
+          if (di >= 0 && di < 7) {
+            perDay[di]! += chunk.endedAt.getTime() - chunk.startedAt.getTime();
+          }
+        }
+      }
+      out.set(uid, perDay);
+    }
+    return out;
+  }
+
+  function sumAwardCost(
+    perDayByUser: Map<string, number[]>,
+    weekStart: Date,
+    holidaySet: Set<string>,
+  ): number {
+    let total = 0;
+    for (const [uid, perDay] of perDayByUser) {
+      const rate = rateByUser.get(uid);
+      if (rate == null || perDay.every((ms) => ms === 0)) continue;
+      const eff = mergeAwardProfiles(tenantAward, awardProfileByUser.get(uid));
+      const breakdown = classifyEmployeeWeek(
+        weekStart,
+        perDay,
+        holidaySet,
+        eff.thresholds,
+      );
+      total += computeAwardCost(breakdown, rate, {
+        policy: eff.costPolicy,
+        penaltyMultipliers: resolvePenaltyMultipliers(eff.penaltyMultipliers),
+        overtimeMultiplier: eff.overtimeMultiplier,
+        doubleOvertimeMultiplier: eff.doubleOvertimeMultiplier,
+      }).totalCost;
+    }
+    return roundCents(total);
+  }
+
+  const totalAwardCostThis = sumAwardCost(
+    perDayMsByUser(thisEventsFiltered, thisWeekStart, thisWeekEnd),
+    thisWeekStart,
+    holidaysThis,
+  );
+  const totalAwardCostPrev = sumAwardCost(
+    perDayMsByUser(prevEventsFiltered, prevWeekStart, prevWeekEnd),
+    prevWeekStart,
+    holidaysPrev,
+  );
 
   // AUDIT.md #9 — Hours by department rollup. Sum each user's hours
   // into their department bucket using the deptByUser map already
@@ -700,7 +803,7 @@ export default async function ReportsPage({
             </p>
           </div>
         ) : (
-          <div className="grid gap-4 p-5 sm:grid-cols-3">
+          <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4">
             <WagesSalesStat
               label="Gross sales"
               value={fmtMoney(totalSalesThis)}
@@ -709,7 +812,7 @@ export default async function ReportsPage({
               fmtDelta={(d) => fmtMoney(Math.abs(d))}
             />
             <WagesSalesStat
-              label="Actual wage cost"
+              label="Wage cost (base)"
               value={fmtMoney(totalWageCostThis)}
               previousValue={totalWageCostPrev}
               currentValue={totalWageCostThis}
@@ -718,6 +821,18 @@ export default async function ReportsPage({
                 peopleWithoutRate > 0
                   ? `${peopleWithoutRate} without rate`
                   : undefined
+              }
+            />
+            <WagesSalesStat
+              label="Wage cost (award)"
+              value={fmtMoney(totalAwardCostThis)}
+              previousValue={totalAwardCostPrev}
+              currentValue={totalAwardCostThis}
+              fmtDelta={(d) => fmtMoney(Math.abs(d))}
+              note={
+                totalSalesThis > 0
+                  ? `${((totalAwardCostThis / totalSalesThis) * 100).toFixed(1)}% of sales`
+                  : "OT + penalty aware"
               }
             />
             <LabourCostRatio
@@ -729,8 +844,9 @@ export default async function ReportsPage({
           </div>
         )}
         <div className="border-t border-border bg-muted/30 px-5 py-2 text-[10px] uppercase tracking-wider text-muted-foreground">
-          Cost uses base rate × hours from clock activity. For
-          award-derived totals (OT + penalty rates), see Timesheets.
+          Base = rate × hours. Award = OT + penalty/public-holiday rates
+          via your award profile (the same engine as Timesheets). The
+          labour-cost % uses the base figure.
         </div>
       </section>
 

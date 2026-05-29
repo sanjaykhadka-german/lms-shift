@@ -204,7 +204,7 @@ Recommended Phase 2 housing: new `packages/award` package with a pure rules engi
 
 **Missing**
 - **Read-back of finalised payroll gross/net** (depends on Feature 5)
-- **Award-derived wages-vs-sales variant** — current card uses base rate × hours; the OT/penalty-aware variant would reuse the classifier shipped in #3b
+- ✅ **Award-derived wages-vs-sales variant** (2026-05-29) — the Wages-vs-sales card now shows a "Wage cost (award)" stat alongside the base figure, computed by running each employee's per-day clock minutes through the same `classifyEmployeeWeek` + `computeAwardCost` engine as Timesheets (tenant award profile merged with per-employee overrides; OT + penalty/public-holiday aware). Week-over-week delta + award-based labour-cost % included. Base figure retained; the headline labour-cost % still uses base.
 
 ---
 
