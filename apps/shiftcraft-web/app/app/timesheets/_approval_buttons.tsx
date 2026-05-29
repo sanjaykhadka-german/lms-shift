@@ -57,7 +57,7 @@ export function ApprovalButtons({
           type="button"
           disabled={pending}
           onClick={() => submit(approveTimesheetAction)}
-          className="rounded-md bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
+          className="rounded-md bg-[var(--live)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white transition-colors hover:bg-[color-mix(in_srgb,var(--live)_85%,black)] disabled:opacity-50"
         >
           Approve
         </button>
@@ -71,7 +71,7 @@ export function ApprovalButtons({
               notes: "Flagged by manager — please review punches.",
             })
           }
-          className="rounded-md bg-amber-500 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white transition-colors hover:bg-amber-600 disabled:opacity-50"
+          className="rounded-md bg-[var(--warn)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white transition-colors hover:bg-[color-mix(in_srgb,var(--warn)_85%,black)] disabled:opacity-50"
         >
           Dispute
         </button>
@@ -97,7 +97,7 @@ export function ApprovalButtons({
             }
             submit(clearTimesheetApprovalAction, { reason: trimmed });
           }}
-          className="rounded-md border border-rose-600 bg-rose-600/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-rose-600 transition-colors hover:bg-rose-600/20 disabled:opacity-50"
+          className="rounded-md border border-[var(--danger)] bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--danger)] transition-colors hover:bg-[color-mix(in_srgb,var(--danger)_18%,transparent)] disabled:opacity-50"
         >
           Reopen
         </button>

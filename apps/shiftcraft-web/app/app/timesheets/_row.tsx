@@ -113,19 +113,19 @@ export interface RowProps {
 const ANOMALY_LABEL: Record<AnomalyKind, { label: string; classes: string }> = {
   overtime_week: {
     label: "Overtime",
-    classes: "bg-amber-500 text-white",
+    classes: "bg-[var(--warn)] text-white",
   },
   long_shift: {
     label: "Long shift",
-    classes: "bg-amber-500 text-white",
+    classes: "bg-[var(--warn)] text-white",
   },
   no_clockout: {
     label: "No clock-out",
-    classes: "bg-rose-600 text-white",
+    classes: "bg-[var(--danger)] text-white",
   },
   no_show: {
     label: "No-show",
-    classes: "bg-red-600 text-white",
+    classes: "bg-[var(--danger)] text-white",
   },
 };
 
@@ -284,7 +284,7 @@ export function TimesheetRow({
             <div>{costDisplay}</div>
             {!awardCostMatchesFlat ? (
               <div
-                className="text-[10px] text-amber-600"
+                className="text-[10px] text-[var(--warn)]"
                 title="Award-derived using OT × penalty multipliers under the default 'max' policy. Per-tenant policy override pending."
               >
                 {awardCostDisplay} award
@@ -316,9 +316,9 @@ export function TimesheetRow({
                       <span
                         className={
                           d.deltaTone === "amber"
-                            ? "font-medium text-amber-600"
+                            ? "font-medium text-[var(--warn)]"
                             : d.deltaTone === "emerald"
-                              ? "font-medium text-emerald-600"
+                              ? "font-medium text-[var(--live)]"
                               : "text-muted-foreground"
                         }
                       >
@@ -349,8 +349,8 @@ export function TimesheetRow({
                           key={i}
                           className={
                             s.kind === "work"
-                              ? "inline-flex items-center gap-1.5 rounded-md bg-emerald-600/10 px-2 py-1 font-mono tabular-nums text-emerald-700 dark:text-emerald-400"
-                              : "inline-flex items-center gap-1.5 rounded-md bg-amber-500/10 px-2 py-1 font-mono tabular-nums text-amber-700 dark:text-amber-400"
+                              ? "inline-flex items-center gap-1.5 rounded-md bg-[color-mix(in_srgb,var(--live)_12%,transparent)] px-2 py-1 font-mono tabular-nums text-[var(--live)]"
+                              : "inline-flex items-center gap-1.5 rounded-md bg-[color-mix(in_srgb,var(--warn)_12%,transparent)] px-2 py-1 font-mono tabular-nums text-[var(--warn)]"
                           }
                         >
                           {s.selfieEventId ? (

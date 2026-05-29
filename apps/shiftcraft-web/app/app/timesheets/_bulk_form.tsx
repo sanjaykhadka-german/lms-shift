@@ -56,14 +56,14 @@ export function BulkSelectionForm({
           <button
             type="submit"
             formAction={bulkApproveAction}
-            className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-white hover:bg-emerald-700"
+            className="rounded-md bg-[var(--live)] px-3 py-1 text-xs font-semibold uppercase tracking-wider text-white hover:bg-[color-mix(in_srgb,var(--live)_85%,black)]"
           >
             Approve {selectedCount}
           </button>
           <button
             type="submit"
             formAction={bulkDisputeAction}
-            className="rounded-md bg-amber-500 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-white hover:bg-amber-600"
+            className="rounded-md bg-[var(--warn)] px-3 py-1 text-xs font-semibold uppercase tracking-wider text-white hover:bg-[color-mix(in_srgb,var(--warn)_85%,black)]"
           >
             Dispute {selectedCount}
           </button>

@@ -19,6 +19,7 @@ import {
 } from "@tracey/db";
 import { currentMembership, currentUser } from "~/lib/auth/current";
 import { Button } from "~/components/ui/button";
+import { Badge } from "~/components/ui/badge";
 import { isAtLeastManager } from "~/lib/roles";
 import {
   addDays,
@@ -846,7 +847,7 @@ export default async function TimesheetsPage({
     <div className="mx-auto max-w-6xl space-y-6 px-6 py-10">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
             Timesheets
             <InfoPopover label="About timesheets">
               <p>
@@ -874,7 +875,7 @@ export default async function TimesheetsPage({
               ← Previous
             </Link>
           </Button>
-          <span className="rounded-md border border-border bg-card px-3 py-1 text-sm font-medium">
+          <span className="rounded-[var(--r-sm)] border border-line bg-[var(--paper-2)] px-3 py-1 font-display text-sm font-semibold tracking-[-0.01em] text-ink">
             {weekLabel}
           </span>
           <Button asChild variant="outline" size="sm">
@@ -987,7 +988,7 @@ export default async function TimesheetsPage({
             ) : null}
             <label
               htmlFor="dept-filter"
-              className="text-xs uppercase tracking-wider text-muted-foreground"
+              className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-3"
             >
               Department:
             </label>
@@ -1272,25 +1273,24 @@ function ApprovalCell({
   canManage: boolean;
   hasActivity: boolean;
 }) {
-  const chipBase =
-    "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider";
   const badge =
     status === "approved" ? (
       // Audit #4 — approved week is read-only. The "Locked" wording +
       // the gated edit affordances in TimesheetRow communicate the
       // state at both glance and interaction levels.
-      <span
-        className={`${chipBase} bg-emerald-600 text-white`}
+      <Badge
+        variant="live"
+        size="sm"
         title="Approved — clock-event edits are locked. Use Reopen to unlock."
       >
         Approved · Locked
-      </span>
+      </Badge>
     ) : status === "disputed" ? (
-      <span className={`${chipBase} bg-amber-500 text-white`}>Disputed</span>
+      <Badge variant="warn" size="sm">Disputed</Badge>
     ) : hasActivity ? (
-      <span className={`${chipBase} bg-slate-500 text-white`}>Pending</span>
+      <Badge variant="neutral" size="sm">Pending</Badge>
     ) : (
-      <span className="text-[10px] text-muted-foreground/60">—</span>
+      <span className="text-[10px] text-ink-3">—</span>
     );
 
   if (!canManage) {
@@ -1345,13 +1345,13 @@ function StatCard({
 }) {
   const hintClass =
     hintTone === "amber"
-      ? "text-amber-600"
+      ? "text-[var(--warn)]"
       : hintTone === "emerald"
-        ? "text-emerald-600"
+        ? "text-[var(--live)]"
         : "text-muted-foreground";
   return (
-    <div className="rounded-md border border-border bg-card p-4">
-      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+    <div className="rounded-[var(--r-md)] border border-line bg-[var(--paper)] p-4">
+      <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
         {label}
       </div>
       <div className="mt-1 font-mono text-2xl font-semibold tabular-nums">

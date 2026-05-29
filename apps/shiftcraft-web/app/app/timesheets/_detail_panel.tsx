@@ -53,9 +53,9 @@ export interface TimesheetDetailPanelProps {
 }
 
 const STATUS_BADGE: Record<"approved" | "disputed" | "pending", string> = {
-  approved: "bg-emerald-600 text-white",
-  disputed: "bg-rose-600 text-white",
-  pending: "bg-slate-500 text-white",
+  approved: "bg-[var(--live)] text-white",
+  disputed: "bg-[var(--danger)] text-white",
+  pending: "bg-[var(--ink-3)] text-white",
 };
 
 const ANOMALY_HINT: Record<AnomalyKind, string> = {
@@ -184,7 +184,7 @@ export function TimesheetDetailPanel(props: TimesheetDetailPanelProps) {
         <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
           {/* Anomaly callout */}
           {props.anomalies.length > 0 ? (
-            <section className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+            <section className="rounded-md border border-[color-mix(in_srgb,var(--warn)_40%,transparent)] bg-[color-mix(in_srgb,var(--warn)_12%,transparent)] px-3 py-2 text-xs text-[var(--warn)]">
               <div className="font-semibold uppercase tracking-wider text-[10px]">
                 Anomalies
               </div>
@@ -228,9 +228,9 @@ export function TimesheetDetailPanel(props: TimesheetDetailPanelProps) {
                         <span
                           className={
                             d.deltaTone === "amber"
-                              ? "font-medium text-amber-600"
+                              ? "font-medium text-[var(--warn)]"
                               : d.deltaTone === "emerald"
-                                ? "font-medium text-emerald-600"
+                                ? "font-medium text-[var(--live)]"
                                 : "text-muted-foreground"
                           }
                         >
@@ -245,8 +245,8 @@ export function TimesheetDetailPanel(props: TimesheetDetailPanelProps) {
                             key={i}
                             className={
                               s.kind === "work"
-                                ? "inline-flex items-center gap-1.5 rounded-md bg-emerald-600/10 px-2 py-1 font-mono tabular-nums text-[11px] text-emerald-700 dark:text-emerald-400"
-                                : "inline-flex items-center gap-1.5 rounded-md bg-amber-500/10 px-2 py-1 font-mono tabular-nums text-[11px] text-amber-700 dark:text-amber-400"
+                                ? "inline-flex items-center gap-1.5 rounded-md bg-[color-mix(in_srgb,var(--live)_12%,transparent)] px-2 py-1 font-mono tabular-nums text-[11px] text-[var(--live)]"
+                                : "inline-flex items-center gap-1.5 rounded-md bg-[color-mix(in_srgb,var(--warn)_12%,transparent)] px-2 py-1 font-mono tabular-nums text-[11px] text-[var(--warn)]"
                             }
                           >
                             {s.selfieEventId ? (
@@ -531,7 +531,7 @@ function CtaButton({
     tone === "primary"
       ? "rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
       : tone === "destructive"
-        ? "rounded-md bg-rose-600 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+        ? "rounded-md bg-[var(--danger)] px-3 py-2 text-sm font-semibold text-white hover:bg-[color-mix(in_srgb,var(--danger)_85%,black)] disabled:opacity-50"
         : "rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50";
   return (
     <button

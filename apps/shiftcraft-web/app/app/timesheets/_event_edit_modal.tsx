@@ -243,7 +243,7 @@ function VoidButton({ onDone }: { onDone: () => void }) {
       <button
         type="button"
         onClick={() => setConfirming(true)}
-        className="rounded-md border border-red-600/40 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+        className="rounded-md border border-[color-mix(in_srgb,var(--danger)_40%,transparent)] px-3 py-2 text-sm font-medium text-[var(--danger)] hover:bg-[color-mix(in_srgb,var(--danger)_10%,transparent)]"
       >
         Void
       </button>
@@ -260,7 +260,7 @@ function VoidButton({ onDone }: { onDone: () => void }) {
         await voidClockEventAction(formData);
         onDone();
       }}
-      className="w-full rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
+      className="w-full rounded-md bg-[var(--danger)] px-3 py-2 text-sm font-semibold text-white hover:bg-[color-mix(in_srgb,var(--danger)_85%,black)]"
     >
       Confirm void
     </button>
