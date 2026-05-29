@@ -87,7 +87,7 @@ export function NotificationsBell({
         {safe > 0 ? (
           <span
             aria-hidden
-            className="absolute -right-0.5 -top-0.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-bold leading-none tabular-nums text-white"
+            className="absolute -right-0.5 -top-0.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-[var(--danger)] px-1 text-[10px] font-bold leading-none tabular-nums text-white"
           >
             {safe > 99 ? "99+" : safe}
           </span>
@@ -104,7 +104,7 @@ export function NotificationsBell({
               Notifications
             </span>
             {safe > 0 ? (
-              <span className="rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-white">
+              <span className="rounded-full bg-[var(--danger)] px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-white">
                 {safe} unread
               </span>
             ) : null}
@@ -118,7 +118,7 @@ export function NotificationsBell({
               {recent.map((n) => (
                 <li
                   key={n.id}
-                  className={n.readAt ? "" : "bg-rose-500/5"}
+                  className={n.readAt ? "" : "bg-[color-mix(in_srgb,var(--danger)_6%,transparent)]"}
                 >
                   <Link
                     href={n.actionUrl ?? "/app/notifications"}
@@ -129,7 +129,7 @@ export function NotificationsBell({
                       {!n.readAt ? (
                         <span
                           aria-hidden
-                          className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-rose-600"
+                          className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[var(--danger)]"
                         />
                       ) : (
                         <span aria-hidden className="mt-1.5 h-1.5 w-1.5 flex-shrink-0" />

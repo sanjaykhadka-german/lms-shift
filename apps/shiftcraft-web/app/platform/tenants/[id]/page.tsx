@@ -39,26 +39,26 @@ function fmtDate(d: Date | null | undefined): string {
 }
 
 const STATUS_BADGE: Record<string, string> = {
-  owner: "bg-indigo-600 text-white",
-  admin: "bg-blue-600 text-white",
-  member: "bg-slate-500 text-white",
+  owner: "bg-[var(--accent)] text-[var(--accent-ink)]",
+  admin: "bg-[var(--accent-deep)] text-[var(--accent-ink)]",
+  member: "bg-[var(--ink-3)] text-white",
 };
 
 function kioskBadge(d: {
   revokedAt: Date | null;
   pairedAt: Date | null;
 }): { label: string; classes: string } {
-  if (d.revokedAt) return { label: "Revoked", classes: "bg-slate-500 text-white" };
-  if (d.pairedAt) return { label: "Active", classes: "bg-emerald-600 text-white" };
-  return { label: "Awaiting pair", classes: "bg-blue-600 text-white" };
+  if (d.revokedAt) return { label: "Revoked", classes: "bg-[var(--ink-3)] text-white" };
+  if (d.pairedAt) return { label: "Active", classes: "bg-[var(--live)] text-white" };
+  return { label: "Awaiting pair", classes: "bg-[var(--accent-deep)] text-[var(--accent-ink)]" };
 }
 
 function actionTone(action: string): string {
   if (action.endsWith(".deleted") || action.endsWith(".revoked")) {
-    return "bg-red-600 text-white";
+    return "bg-[var(--danger)] text-white";
   }
-  if (action.endsWith(".approved")) return "bg-emerald-600 text-white";
-  if (action.endsWith(".disputed")) return "bg-amber-500 text-white";
+  if (action.endsWith(".approved")) return "bg-[var(--live)] text-white";
+  if (action.endsWith(".disputed")) return "bg-[var(--warn)] text-white";
   if (
     action.endsWith(".created") ||
     action.endsWith(".added") ||
@@ -66,9 +66,9 @@ function actionTone(action: string): string {
     action.endsWith(".paired") ||
     action.endsWith(".restored")
   ) {
-    return "bg-blue-600 text-white";
+    return "bg-[var(--accent-deep)] text-[var(--accent-ink)]";
   }
-  return "bg-slate-500 text-white";
+  return "bg-[var(--ink-3)] text-white";
 }
 
 export default async function PlatformTenantDetail({
@@ -226,7 +226,7 @@ export default async function PlatformTenantDetail({
         >
           ← All tenants
         </Link>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+        <h1 className="mt-1 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
           {tenant.name}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -294,7 +294,7 @@ export default async function PlatformTenantDetail({
                     </div>
                     <div className="text-xs text-muted-foreground">
                       {expired ? (
-                        <span className="text-amber-600">Expired</span>
+                        <span className="text-[var(--warn)]">Expired</span>
                       ) : (
                         <>Expires {fmtDate(inv.expiresAt)}</>
                       )}
@@ -340,7 +340,7 @@ export default async function PlatformTenantDetail({
                         {b.label}
                       </span>
                       {!k.requireSelfie ? (
-                        <span className="inline-flex items-center rounded-full bg-slate-500 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
+                        <span className="inline-flex items-center rounded-full bg-[var(--ink-3)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
                           Selfie off
                         </span>
                       ) : null}

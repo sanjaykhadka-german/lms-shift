@@ -15,17 +15,17 @@ interface Props {
 }
 
 const TONE_BG: Record<CountdownTone, string> = {
-  upcoming: "border-blue-200 bg-card dark:border-blue-900/40",
-  imminent: "border-amber-500/60 bg-amber-50 dark:border-amber-500/50 dark:bg-amber-950/30",
-  working: "border-emerald-500/60 bg-emerald-50 dark:border-emerald-500/50 dark:bg-emerald-950/30",
-  finished: "border-slate-300 bg-card dark:border-slate-700",
+  upcoming: "border-[color-mix(in_srgb,var(--accent-deep)_30%,transparent)] bg-card",
+  imminent: "border-[color-mix(in_srgb,var(--warn)_50%,transparent)] bg-[color-mix(in_srgb,var(--warn)_10%,transparent)]",
+  working: "border-[color-mix(in_srgb,var(--live)_50%,transparent)] bg-[color-mix(in_srgb,var(--live)_10%,transparent)]",
+  finished: "border-line bg-card",
 };
 
 const TONE_CHIP: Record<CountdownTone, string> = {
-  upcoming: "bg-blue-600 text-white",
-  imminent: "bg-amber-500 text-white",
-  working: "bg-emerald-600 text-white",
-  finished: "bg-slate-500 text-white",
+  upcoming: "bg-[var(--accent-deep)] text-[var(--accent-ink)]",
+  imminent: "bg-[var(--warn)] text-white",
+  working: "bg-[var(--live)] text-white",
+  finished: "bg-[var(--ink-3)] text-white",
 };
 
 function fmtRange(startsAt: Date, endsAt: Date): string {

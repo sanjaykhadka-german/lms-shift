@@ -18,19 +18,19 @@ function budgetChip(cost: number, budget: number): {
 } {
   if (cost > budget) {
     return {
-      className: "bg-rose-600 text-white",
+      className: "bg-[var(--danger)] text-white",
       label: `${fmtMoney(cost - budget)} over`,
     };
   }
   // Within 10% of the cap → amber "tight" warning.
   if (cost >= budget * 0.9) {
     return {
-      className: "bg-amber-500 text-white",
+      className: "bg-[var(--warn)] text-white",
       label: `${fmtMoney(budget - cost)} left`,
     };
   }
   return {
-    className: "bg-emerald-600 text-white",
+    className: "bg-[var(--live)] text-white",
     label: `${fmtMoney(budget - cost)} left`,
   };
 }
@@ -98,10 +98,10 @@ export function WeeklyLabourForecast({ forecast }: Props) {
           <div
             className={`h-full rounded-full ${
               totalCost > (weeklyBudgetTotal ?? 0)
-                ? "bg-rose-600"
+                ? "bg-[var(--danger)]"
                 : weeklyPct >= 90
-                  ? "bg-amber-500"
-                  : "bg-emerald-600"
+                  ? "bg-[var(--warn)]"
+                  : "bg-[var(--live)]"
             }`}
             style={{ width: `${weeklyPct}%` }}
           />
@@ -123,9 +123,9 @@ export function WeeklyLabourForecast({ forecast }: Props) {
                   key={label}
                   className={`rounded-md border px-1.5 py-1 text-center ${
                     over
-                      ? "border-rose-600/40 bg-rose-600/10"
+                      ? "border-[color-mix(in_srgb,var(--danger)_40%,transparent)] bg-[color-mix(in_srgb,var(--danger)_10%,transparent)]"
                       : tight
-                        ? "border-amber-500/40 bg-amber-500/10"
+                        ? "border-[color-mix(in_srgb,var(--warn)_40%,transparent)] bg-[color-mix(in_srgb,var(--warn)_10%,transparent)]"
                         : "border-border"
                   }`}
                   title={`${label}: ${fmtMoney(cost)} of ${fmtMoney(dailyBudgetTotal)}`}
@@ -136,9 +136,9 @@ export function WeeklyLabourForecast({ forecast }: Props) {
                   <div
                     className={`text-xs font-semibold tabular-nums ${
                       over
-                        ? "text-rose-600"
+                        ? "text-[var(--danger)]"
                         : tight
-                          ? "text-amber-600"
+                          ? "text-[var(--warn)]"
                           : "text-foreground"
                     }`}
                   >
@@ -193,13 +193,13 @@ export function WeeklyLabourForecast({ forecast }: Props) {
       {hasCaveats && (
         <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
           {uncoveredCount > 0 && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-rose-600 px-2 py-0.5 font-medium text-white">
+            <span className="inline-flex items-center gap-1 rounded-full bg-[var(--danger)] px-2 py-0.5 font-medium text-white">
               {uncoveredCount} uncovered shift
               {uncoveredCount === 1 ? "" : "s"}
             </span>
           )}
           {missingRateCount > 0 && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500 px-2 py-0.5 font-medium text-white">
+            <span className="inline-flex items-center gap-1 rounded-full bg-[var(--warn)] px-2 py-0.5 font-medium text-white">
               {missingRateCount} accepted shift
               {missingRateCount === 1 ? "" : "s"} with no rate set
             </span>

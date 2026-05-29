@@ -116,7 +116,7 @@ export default async function PlatformTenantsPage() {
   return (
     <div className="mx-auto max-w-[1800px] space-y-6 px-4 py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Tenants</h1>
+        <h1 className="font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">Tenants</h1>
         <p className="text-sm text-muted-foreground">
           All workspaces using ShiftCraft. Numbers are live from each tenant's
           schema.
@@ -167,7 +167,7 @@ export default async function PlatformTenantsPage() {
                     </td>
                     <td className="px-4 py-3 capitalize">{r.plan}</td>
                     <td className="px-4 py-3">
-                      <span className="inline-flex items-center rounded-full bg-slate-500 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white">
+                      <span className="inline-flex items-center rounded-full bg-[var(--ink-3)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white">
                         {r.status}
                       </span>
                     </td>

@@ -125,7 +125,7 @@ export function SelfieCapture({
             <button
               type="button"
               onClick={onSkip}
-              className="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500"
+              className="rounded-md bg-[var(--warn)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--warn)]"
             >
               Punch anyway
             </button>

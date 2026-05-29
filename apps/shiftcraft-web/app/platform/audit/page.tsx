@@ -20,10 +20,10 @@ function fmtWhen(d: Date): string {
 
 function actionTone(action: string): string {
   if (action.endsWith(".deleted") || action.endsWith(".revoked")) {
-    return "bg-red-600 text-white";
+    return "bg-[var(--danger)] text-white";
   }
-  if (action.endsWith(".approved")) return "bg-emerald-600 text-white";
-  if (action.endsWith(".disputed")) return "bg-amber-500 text-white";
+  if (action.endsWith(".approved")) return "bg-[var(--live)] text-white";
+  if (action.endsWith(".disputed")) return "bg-[var(--warn)] text-white";
   if (
     action.endsWith(".created") ||
     action.endsWith(".added") ||
@@ -31,9 +31,9 @@ function actionTone(action: string): string {
     action.endsWith(".paired") ||
     action.endsWith(".restored")
   ) {
-    return "bg-blue-600 text-white";
+    return "bg-[var(--accent-deep)] text-[var(--accent-ink)]";
   }
-  return "bg-slate-500 text-white";
+  return "bg-[var(--ink-3)] text-white";
 }
 
 export default async function PlatformAuditPage({
@@ -116,7 +116,7 @@ export default async function PlatformAuditPage({
   return (
     <div className="mx-auto max-w-[1400px] space-y-6 px-4 py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Audit log</h1>
+        <h1 className="font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">Audit log</h1>
         <p className="text-sm text-muted-foreground">
           Cross-tenant activity recorded in <code>app.audit_events</code>.
           Default scope is ShiftCraft actions only.
