@@ -15,6 +15,7 @@ import {
   lmsUsers,
 } from "@tracey/db";
 import { requireAdmin } from "~/lib/auth/admin";
+import { listEarnedCertificates } from "~/lib/lms/certificates";
 import { formatDate as fmtDateInTz } from "~/lib/format/datetime";
 import { tenantWhere } from "~/lib/lms/tenant-scope";
 import { Badge } from "~/components/ui/badge";
@@ -264,6 +265,7 @@ export default async function EmployeeDetailPage({
   });
 
   const recentAttempts = dedupedAttempts.slice(0, 20);
+  const certificates = await listEarnedCertificates(userId, tid);
 
   return (
     <div className="space-y-6">
@@ -438,6 +440,34 @@ export default async function EmployeeDetailPage({
                 </tbody>
               </table>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {certificates.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Certificates ({certificates.length})</CardTitle>
+          </CardHeader>
+          <CardContent className="divide-y divide-[color:var(--border)] p-0">
+            {certificates.map((c) => (
+              <div
+                key={c.moduleId}
+                className="flex items-center justify-between gap-4 px-6 py-3"
+              >
+                <div>
+                  <div className="text-sm font-medium">{c.moduleTitle}</div>
+                  <div className="text-xs text-[color:var(--muted-foreground)]">
+                    Passed {formatDate(c.passedAt)} · {c.score}%
+                  </div>
+                </div>
+                <Button asChild variant="outline" size="sm">
+                  <Link href={`/app/admin/employees/${userId}/certificate/${c.moduleId}`}>
+                    Certificate
+                  </Link>
+                </Button>
+              </div>
+            ))}
           </CardContent>
         </Card>
       )}
