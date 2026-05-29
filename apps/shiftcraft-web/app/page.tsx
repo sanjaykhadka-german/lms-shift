@@ -144,8 +144,11 @@ export default function MarketingHome() {
               </div>
             </div>
 
-            {/* Dark product-preview card */}
-            <div className="relative rounded-[var(--r-lg)] border border-[rgba(244,238,227,0.13)] bg-[var(--ink)] p-6 text-[#f4eee3] shadow-[var(--shadow)]">
+            {/* Dark product-preview card — pinned to a fixed dark surface so
+                it stays dark in BOTH themes. Using var(--ink) here flipped the
+                background to light in dark mode, hiding the hardcoded light
+                text. */}
+            <div className="relative rounded-[var(--r-lg)] border border-[rgba(244,238,227,0.13)] bg-[#17130f] p-6 text-[#f4eee3] shadow-[var(--shadow)]">
               <div className="mb-5 flex gap-1.5">
                 <span className="h-2.5 w-2.5 rounded-full bg-[#f4eee3]/20" />
                 <span className="h-2.5 w-2.5 rounded-full bg-[#f4eee3]/20" />
@@ -224,7 +227,7 @@ export default function MarketingHome() {
                   key={title}
                   className={`rounded-[var(--r-lg)] border p-6 shadow-[var(--shadow-sm)] ${
                     dark
-                      ? "border-[rgba(244,238,227,0.13)] bg-[var(--ink)] text-[#f4eee3] md:col-span-2"
+                      ? "border-[rgba(244,238,227,0.13)] bg-[#17130f] text-[#f4eee3] md:col-span-2"
                       : "border-line bg-[var(--paper)]"
                   }`}
                 >
@@ -246,7 +249,7 @@ export default function MarketingHome() {
 
       {/* CTA dark card */}
       <section className="mx-auto max-w-5xl px-6 py-20">
-        <div className="relative overflow-hidden rounded-[var(--r-lg)] bg-[var(--ink)] px-8 py-16 text-center text-[#f4eee3] shadow-[var(--shadow)]">
+        <div className="relative overflow-hidden rounded-[var(--r-lg)] bg-[#17130f] px-8 py-16 text-center text-[#f4eee3] shadow-[var(--shadow)]">
           <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#766b5e]">
             01 / Try it
           </div>

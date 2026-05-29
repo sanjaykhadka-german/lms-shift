@@ -27,7 +27,7 @@ export function AuthShell({
   return (
     <div className="grid min-h-screen lg:grid-cols-[1.05fr_1fr]">
       {/* Ink aside */}
-      <aside className="relative hidden flex-col justify-between overflow-hidden bg-[var(--ink)] p-12 text-[#f4eee3] lg:flex">
+      <aside className="relative hidden flex-col justify-between overflow-hidden bg-[#17130f] p-12 text-[#f4eee3] lg:flex">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 opacity-[0.6]"
