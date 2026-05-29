@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { forTenant } from "@tracey/db";
 import {
   getAssignmentForLearner,
   getModuleForAssignment,
@@ -9,13 +10,14 @@ import {
 } from "~/lib/lms/learner";
 import { getAuthorAccess } from "~/lib/auth/author";
 import { logAuditEvent } from "~/lib/audit";
+import { createNotification } from "~/lib/lms/notifications";
 import { scoreAttempt, type AnswersMap, type QuizQuestion } from "~/lib/lms/scoring";
 
 export async function submitQuizAction(formData: FormData): Promise<void> {
   const moduleId = parseInt(String(formData.get("moduleId") ?? ""), 10);
   if (!Number.isFinite(moduleId)) throw new Error("Bad moduleId");
 
-  const { lmsUser, traceyTenantId } = await requireLearner();
+  const { lmsUser, traceyTenantId, traceyUserId } = await requireLearner();
   const row = await getAssignmentForLearner(lmsUser.id, moduleId, traceyTenantId);
   if (!row) throw new Error("Assignment not found");
 
@@ -64,6 +66,20 @@ export async function submitQuizAction(formData: FormData): Promise<void> {
     assignment: row.assignment,
     answers,
   });
+
+  // Passing earns a certificate — ring the learner's bell with a link to it.
+  // Best-effort (createNotification swallows errors), so it never blocks the
+  // redirect to the result page.
+  if (result.passed) {
+    await createNotification(forTenant(traceyTenantId), {
+      recipientUserId: traceyUserId,
+      kind: "certificate.earned",
+      title: `Certificate earned: ${mod.title}`,
+      body: `You passed with ${result.score.percent}%. View your certificate.`,
+      actionUrl: `/app/my/certificates/${mod.id}`,
+    });
+  }
+
   redirect(`/app/my/results/${result.attemptId}`);
 }
 
