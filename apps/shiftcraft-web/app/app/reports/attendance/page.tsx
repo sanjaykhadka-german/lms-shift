@@ -301,7 +301,7 @@ export default async function AttendanceReportPage({
     <div className="mx-auto max-w-6xl space-y-6 px-6 py-10">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
             Attendance
             <InfoPopover label="About the attendance report">
               <p>
@@ -452,10 +452,10 @@ export default async function AttendanceReportPage({
                     r.scheduled === 0
                       ? "text-muted-foreground"
                       : pctNum >= 0.9
-                        ? "text-emerald-600"
+                        ? "text-[var(--live)]"
                         : pctNum >= 0.75
-                          ? "text-amber-600"
-                          : "text-rose-600";
+                          ? "text-[var(--warn)]"
+                          : "text-[var(--danger)]";
                   return (
                     <tr key={r.userId}>
                       <td className="px-4 py-2">
@@ -491,7 +491,7 @@ export default async function AttendanceReportPage({
                       </td>
                       <td className="px-3 py-2 font-mono tabular-nums">
                         {r.noShows > 0 ? (
-                          <span className="font-semibold text-rose-600">
+                          <span className="font-semibold text-[var(--danger)]">
                             {r.noShows}
                           </span>
                         ) : (
@@ -501,7 +501,7 @@ export default async function AttendanceReportPage({
                       <td className="px-3 py-2 font-mono tabular-nums">
                         {r.lateCount > 0 ? (
                           <span>
-                            <span className="font-semibold text-amber-600">
+                            <span className="font-semibold text-[var(--warn)]">
                               {r.lateCount}
                             </span>{" "}
                             <span className="text-xs text-muted-foreground">
@@ -514,7 +514,7 @@ export default async function AttendanceReportPage({
                       </td>
                       <td className="px-3 py-2 font-mono tabular-nums">
                         {r.unapprovedOtMs > 0 ? (
-                          <span className="font-semibold text-amber-600">
+                          <span className="font-semibold text-[var(--warn)]">
                             {fmtMinutes(r.unapprovedOtMs)}
                           </span>
                         ) : (
@@ -562,11 +562,11 @@ function StatCard({
 }) {
   const cls =
     tone === "emerald"
-      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+      ? "border-[color-mix(in_srgb,var(--live)_40%,transparent)] bg-[color-mix(in_srgb,var(--live)_10%,transparent)] text-[var(--live)]"
       : tone === "amber"
-        ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+        ? "border-[color-mix(in_srgb,var(--warn)_40%,transparent)] bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] text-[var(--warn)]"
         : tone === "rose"
-          ? "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300"
+          ? "border-[color-mix(in_srgb,var(--danger)_40%,transparent)] bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] text-[var(--danger)]"
           : tone === "muted"
             ? "border-border bg-card text-muted-foreground"
             : "border-border bg-card";

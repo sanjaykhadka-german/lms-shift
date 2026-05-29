@@ -68,7 +68,7 @@ function deltaCell(thisMs: number, prevMs: number) {
   const sign = diff > 0 ? "+" : "−";
   const cls =
     diff > 0
-      ? "text-emerald-600 dark:text-emerald-400"
+      ? "text-[var(--live)]"
       : "text-[color:var(--destructive)]";
   return (
     <span className={`text-xs font-medium tabular-nums ${cls}`}>
@@ -513,7 +513,7 @@ export default async function ReportsPage({
     <div className="mx-auto max-w-6xl space-y-8 px-6 py-10">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
             Reports
             <InfoPopover label="About reports">
               <p>
@@ -1007,7 +1007,7 @@ function WageKpi({
   const positive = deltaAmount > 0;
   const negative = deltaAmount < 0;
   const cls = positive
-    ? "text-emerald-600 dark:text-emerald-400"
+    ? "text-[var(--live)]"
     : negative
       ? "text-[color:var(--destructive)]"
       : "text-muted-foreground";
@@ -1050,7 +1050,7 @@ function WagesSalesStat({
   const diff = currentValue - previousValue;
   const cls =
     diff > 0
-      ? "text-emerald-600 dark:text-emerald-400"
+      ? "text-[var(--live)]"
       : diff < 0
         ? "text-[color:var(--destructive)]"
         : "text-muted-foreground";
@@ -1107,7 +1107,7 @@ function LabourCostRatio({
     diff == null || diff === 0
       ? "text-muted-foreground"
       : diff < 0
-        ? "text-emerald-600 dark:text-emerald-400"
+        ? "text-[var(--live)]"
         : "text-[color:var(--destructive)]";
   const sign = diff == null ? "" : diff === 0 ? "±" : diff > 0 ? "+" : "−";
   return (
@@ -1178,7 +1178,7 @@ function CostVariance({
     diff > 0
       ? "text-[color:var(--destructive)]"
       : diff < 0
-        ? "text-emerald-600 dark:text-emerald-400"
+        ? "text-[var(--live)]"
         : "text-muted-foreground";
   const sign = diff === 0 ? "±" : diff > 0 ? "+" : "−";
   const pct = scheduled > 0 ? (diff / scheduled) * 100 : null;
@@ -1223,7 +1223,7 @@ function Kpi({
       ? "±0"
       : `${delta > 0 ? "+" : "−"}${fmtHours(Math.abs(delta))}`;
   const cls = positive
-    ? "text-emerald-600 dark:text-emerald-400"
+    ? "text-[var(--live)]"
     : negative
       ? "text-[color:var(--destructive)]"
       : "text-muted-foreground";

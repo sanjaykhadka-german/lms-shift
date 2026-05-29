@@ -145,7 +145,7 @@ export default async function BirthdaysAnniversariesPage({
     <div className="mx-auto max-w-5xl space-y-6 px-6 py-10">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
             Birthdays & anniversaries
             <InfoPopover label="About employee milestones">
               <p>
