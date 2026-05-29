@@ -45,6 +45,11 @@ export default async function ResultPage({
           <Button asChild variant="outline">
             <Link href={`/app/my/modules/${module.id}`}>Back to module</Link>
           </Button>
+          {passed && (
+            <Button asChild variant="outline">
+              <Link href={`/app/my/certificates/${module.id}`}>Get certificate</Link>
+            </Button>
+          )}
           <Button asChild>
             <Link href="/app/my/modules">My training</Link>
           </Button>

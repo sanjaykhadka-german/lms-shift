@@ -50,6 +50,11 @@ export default async function MyModulesPage() {
             01 / Your training
           </span>
         }
+        actions={
+          <Button asChild variant="outline">
+            <Link href="/app/my/certificates">My certificates</Link>
+          </Button>
+        }
       />
 
       {total === 0 ? (
