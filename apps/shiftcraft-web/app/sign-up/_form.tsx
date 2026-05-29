@@ -45,7 +45,7 @@ export function SignUpForm({
         errors={state.status === "error" ? state.fieldErrors?.password : undefined}
       />
       {state.status === "error" && !state.fieldErrors && (
-        <p className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-700">
+        <p className="rounded-[var(--r-sm)] border border-[var(--danger)]/40 bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] px-3 py-2 text-sm text-[var(--danger)]">
           {state.message}
         </p>
       )}
@@ -89,7 +89,7 @@ function Field({
         aria-invalid={errors ? true : undefined}
       />
       {errors && errors.length > 0 ? (
-        <p className="text-xs text-red-600">{errors[0]}</p>
+        <p className="text-xs text-[var(--danger)]">{errors[0]}</p>
       ) : hint ? (
         <p className="text-xs text-muted-foreground">{hint}</p>
       ) : null}
@@ -121,7 +121,7 @@ function PasswordField({
         aria-invalid={errors ? true : undefined}
       />
       {errors && errors.length > 0 ? (
-        <p className="text-xs text-red-600">{errors[0]}</p>
+        <p className="text-xs text-[var(--danger)]">{errors[0]}</p>
       ) : hint ? (
         <p className="text-xs text-muted-foreground">{hint}</p>
       ) : null}
