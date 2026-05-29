@@ -74,7 +74,7 @@ export function DepartmentForm({ mode, departmentId, defaultValues }: Props) {
           {pending ? pendingLabel : submitLabel}
         </Button>
         {state.status === "ok" && (
-          <p className="text-xs text-emerald-600">{state.message}</p>
+          <p className="text-xs text-[var(--live)]">{state.message}</p>
         )}
         {state.status === "error" && !state.fieldErrors && (
           <p className="text-xs text-[color:var(--destructive)]">

@@ -54,7 +54,7 @@ export default async function NewEmployeePage({
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Add employee</h1>
+          <h1 className="font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">Add employee</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Add someone to your ShiftCraft roster. Full-time, part-time and
             casual staff with an email will trigger a "suggest as learner"

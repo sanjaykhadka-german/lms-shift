@@ -63,7 +63,7 @@ export default async function LocationsPage({
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
           Locations
           <InfoPopover label="About locations">
             <p>
@@ -144,7 +144,7 @@ export default async function LocationsPage({
                 </div>
                 <div className="flex items-center gap-3">
                   {loc.dailyWageBudget != null && (
-                    <span className="hidden whitespace-nowrap rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white sm:inline">
+                    <span className="hidden whitespace-nowrap rounded-full bg-[var(--accent-deep)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--accent-ink)] sm:inline">
                       ${Math.round(Number(loc.dailyWageBudget)).toLocaleString()}/day budget
                     </span>
                   )}

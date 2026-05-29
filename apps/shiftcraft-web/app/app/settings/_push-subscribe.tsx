@@ -158,7 +158,7 @@ export function PushSubscribeButton({
   if (status === "subscribed") {
     return (
       <div className="flex flex-wrap items-center gap-2">
-        <span className="inline-flex items-center rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white">
+        <span className="inline-flex items-center rounded-full bg-[var(--live)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white">
           Enabled on this device
         </span>
         <Button onClick={handleDisable} size="sm" variant="outline">

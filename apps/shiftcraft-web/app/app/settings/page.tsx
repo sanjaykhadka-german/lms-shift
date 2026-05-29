@@ -49,7 +49,7 @@ export default async function SettingsPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
           Settings
           <InfoPopover label="About settings">
             <p>
@@ -211,8 +211,8 @@ async function renderEmailPrefs(userId: string, tenantId: string) {
                   className={
                     "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider " +
                     (enabled
-                      ? "bg-emerald-600 text-white"
-                      : "bg-slate-500 text-white")
+                      ? "bg-[var(--live)] text-white"
+                      : "bg-[var(--ink-3)] text-white")
                   }
                 >
                   {enabled ? "On" : "Off"}

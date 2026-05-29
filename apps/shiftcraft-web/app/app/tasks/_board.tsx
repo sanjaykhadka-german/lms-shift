@@ -45,10 +45,10 @@ const COLUMNS: Array<{ status: TaskStatus; label: string }> = [
 
 // Solid-fill badges for clear contrast under the app's themed palette.
 const PRIORITY_BADGE: Record<TaskPriority, string> = {
-  low: "bg-slate-400 text-white",
-  normal: "bg-blue-600 text-white",
-  high: "bg-amber-500 text-white",
-  urgent: "bg-red-600 text-white",
+  low: "bg-[var(--ink-3)] text-white",
+  normal: "bg-[var(--accent-deep)] text-[var(--accent-ink)]",
+  high: "bg-[var(--warn)] text-white",
+  urgent: "bg-[var(--danger)] text-white",
 };
 
 function fmtDue(due: string | null): string | null {

@@ -103,7 +103,7 @@ export default async function CoveragePage() {
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-10">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
             Coverage gaps
             <InfoPopover label="About coverage gaps">
               <p>
@@ -146,21 +146,21 @@ export default async function CoveragePage() {
           {Array.from(groups.entries()).map(([day, dayRows]) => (
             <section
               key={day}
-              className="overflow-hidden rounded-lg border border-amber-200 bg-card shadow-sm dark:border-amber-900/40"
+              className="overflow-hidden rounded-lg border border-[color-mix(in_srgb,var(--warn)_35%,transparent)] bg-card shadow-sm"
             >
-              <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-5 py-3 dark:border-amber-900/40 dark:bg-amber-900/20">
+              <div className="flex items-center justify-between border-b border-[color-mix(in_srgb,var(--warn)_35%,transparent)] bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] px-5 py-3">
                 <div className="flex items-center gap-2">
                   <span
                     aria-hidden
-                    className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-amber-200 text-[10px] font-bold text-amber-900 dark:bg-amber-800/60 dark:text-amber-100"
+                    className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--warn)_25%,transparent)] text-[10px] font-bold text-[var(--warn)]"
                   >
                     !
                   </span>
-                  <h2 className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                  <h2 className="text-sm font-semibold text-[var(--warn)]">
                     {day}
                   </h2>
                 </div>
-                <span className="text-xs font-medium text-amber-800 dark:text-amber-300">
+                <span className="text-xs font-medium text-[var(--warn)]">
                   {dayRows.length} gap{dayRows.length === 1 ? "" : "s"}
                 </span>
               </div>

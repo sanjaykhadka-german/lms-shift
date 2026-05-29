@@ -24,12 +24,12 @@ function fmtWhen(d: Date): string {
 
 function actionTone(action: string): string {
   // Solid badges for clear readability under the v4 themed palette.
-  if (action.endsWith(".deleted")) return "bg-red-600 text-white";
-  if (action.endsWith(".approved")) return "bg-emerald-600 text-white";
-  if (action.endsWith(".disputed")) return "bg-amber-500 text-white";
+  if (action.endsWith(".deleted")) return "bg-[var(--danger)] text-white";
+  if (action.endsWith(".approved")) return "bg-[var(--live)] text-white";
+  if (action.endsWith(".disputed")) return "bg-[var(--warn)] text-white";
   if (action.endsWith(".created") || action.endsWith(".added"))
-    return "bg-blue-600 text-white";
-  return "bg-slate-500 text-white";
+    return "bg-[var(--accent-deep)] text-[var(--accent-ink)]";
+  return "bg-[var(--ink-3)] text-white";
 }
 
 function parseDate(raw: string | undefined, endOfDay: boolean): Date | null {
@@ -128,7 +128,7 @@ export default async function AuditPage({
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
           Audit log
           <InfoPopover label="About the audit log">
             <p>

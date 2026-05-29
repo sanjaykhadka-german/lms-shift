@@ -65,7 +65,7 @@ export default async function AnnouncementsPage({
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
           Announcements
           <InfoPopover label="About announcements">
             <p>
@@ -97,7 +97,7 @@ export default async function AnnouncementsPage({
       )}
 
       {added === "1" && (
-        <div className="rounded-md border-2 border-emerald-500/60 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900 dark:border-emerald-500/50 dark:bg-emerald-950/50 dark:text-emerald-100">
+        <div className="rounded-[var(--r-sm)] border border-[color-mix(in_srgb,var(--live)_45%,transparent)] bg-[color-mix(in_srgb,var(--live)_10%,transparent)] px-4 py-2 text-sm font-medium text-ink">
           Announcement posted.
         </div>
       )}
@@ -128,18 +128,18 @@ export default async function AnnouncementsPage({
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="text-sm font-semibold">{r.title}</h3>
                         {r.pinned && !expired && (
-                          <span className="inline-flex items-center rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
+                          <span className="inline-flex items-center rounded-full bg-[var(--warn)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
                             Pinned
                           </span>
                         )}
                         {expired && (
-                          <span className="inline-flex items-center rounded-full bg-slate-500 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
+                          <span className="inline-flex items-center rounded-full bg-[var(--ink-3)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
                             Expired
                           </span>
                         )}
                         {r.emailedAt && (
                           <span
-                            className="inline-flex items-center rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white"
+                            className="inline-flex items-center rounded-full bg-[var(--accent-deep)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--accent-ink)]"
                             title={`Sent to ${r.emailedRecipientCount ?? 0} ${r.emailedRecipientCount === 1 ? "person" : "people"} on ${fmtWhen(r.emailedAt)}`}
                           >
                             Emailed · {r.emailedRecipientCount ?? 0}

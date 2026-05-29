@@ -25,7 +25,7 @@ export default async function NewShiftTemplatePage() {
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
+          <h1 className="font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
             New shift template
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">

@@ -195,7 +195,7 @@ export function Pricing() {
                 <ul className="mt-6 flex-1 space-y-2 text-sm">
                   {tier.features.map((f) => (
                     <li key={f} className="flex items-start gap-2">
-                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-[var(--live)]" />
                       <span>{f}</span>
                     </li>
                   ))}

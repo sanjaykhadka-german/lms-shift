@@ -44,7 +44,7 @@ export default async function AvailabilityPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
           My availability
           <InfoPopover label="About availability">
             <p>
@@ -78,10 +78,10 @@ export default async function AvailabilityPage() {
           <AvailabilityForm initialAvailability={availability} />
         </section>
       ) : (
-        <section className="flex items-start gap-3 rounded-lg border-2 border-amber-600 bg-amber-500 px-5 py-4 text-sm text-white">
+        <section className="flex items-start gap-3 rounded-lg border border-[color-mix(in_srgb,var(--warn)_60%,transparent)] bg-[var(--warn)] px-5 py-4 text-sm text-white">
           <span
             aria-hidden
-            className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-amber-700 text-sm font-bold"
+            className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--warn)_80%,black)] text-sm font-bold"
           >
             !
           </span>

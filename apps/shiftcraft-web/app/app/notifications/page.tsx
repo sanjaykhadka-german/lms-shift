@@ -22,12 +22,12 @@ function fmtWhen(d: Date): string {
 }
 
 const KIND_TONE: Record<string, string> = {
-  shiftcraft_employee_added: "bg-blue-600 text-white",
-  shiftcraft_shift_claimed: "bg-emerald-600 text-white",
+  shiftcraft_employee_added: "bg-[var(--accent-deep)] text-[var(--accent-ink)]",
+  shiftcraft_shift_claimed: "bg-[var(--live)] text-white",
 };
 
 function toneFor(kind: string): string {
-  return KIND_TONE[kind] ?? "bg-slate-500 text-white";
+  return KIND_TONE[kind] ?? "bg-[var(--ink-3)] text-white";
 }
 
 export default async function NotificationsPage() {
@@ -45,7 +45,7 @@ export default async function NotificationsPage() {
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
             Notifications
             <InfoPopover label="About notifications">
               <p>
@@ -114,7 +114,7 @@ function Section({
             key={r.id}
             className={
               "flex items-start justify-between gap-3 px-5 py-3 " +
-              (highlight ? "bg-amber-50/40 dark:bg-amber-900/10" : "")
+              (highlight ? "bg-[color-mix(in_srgb,var(--warn)_6%,transparent)]" : "")
             }
           >
             <div className="min-w-0 space-y-1">

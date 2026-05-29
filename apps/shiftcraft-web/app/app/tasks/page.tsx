@@ -88,7 +88,7 @@ export default async function TasksPage({
     <div className="mx-auto max-w-6xl space-y-6 px-6 py-10">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
             Tasks
             <InfoPopover label="About tasks">
               <p>
@@ -111,7 +111,7 @@ export default async function TasksPage({
       </div>
 
       {added === "1" && (
-        <div className="rounded-md border-2 border-emerald-500/60 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900 dark:border-emerald-500/50 dark:bg-emerald-950/50 dark:text-emerald-100">
+        <div className="rounded-[var(--r-sm)] border border-[color-mix(in_srgb,var(--live)_45%,transparent)] bg-[color-mix(in_srgb,var(--live)_10%,transparent)] px-4 py-2 text-sm font-medium text-ink">
           Task added.
         </div>
       )}

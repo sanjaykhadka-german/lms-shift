@@ -35,7 +35,7 @@ export function SetPinCard({ appUserId, hasPin, lastUsedAt }: SetPinCardProps) {
           <p className="mt-2 text-xs">
             {hasPin ? (
               <>
-                <span className="inline-flex items-center rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-medium text-white">
+                <span className="inline-flex items-center rounded-full bg-[var(--live)] px-2 py-0.5 text-[11px] font-medium text-white">
                   PIN set
                 </span>
                 {lastUsedAt ? (
@@ -79,7 +79,7 @@ export function SetPinCard({ appUserId, hasPin, lastUsedAt }: SetPinCardProps) {
             </p>
           ) : null}
           {state.status === "ok" ? (
-            <p className="text-xs text-emerald-600">{state.message}</p>
+            <p className="text-xs text-[var(--live)]">{state.message}</p>
           ) : null}
           <div className="flex items-center gap-2">
             <SubmitButton />

@@ -112,7 +112,7 @@ export function PayrollPiiCard({
 
       {editing && revealed ? (
         <form action={formAction} className="mt-4 space-y-3">
-          <p className="rounded-md border border-amber-600/30 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+          <p className="rounded-md border border-[color-mix(in_srgb,var(--warn)_35%,transparent)] bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] px-3 py-2 text-xs text-[var(--warn)]">
             Existing values are loaded below. This reveal was recorded in
             the audit log. Leave any field empty to clear it.
           </p>
@@ -193,7 +193,7 @@ function PiiRow({ label, set }: { label: string; set: boolean }) {
     <li className="flex items-center gap-2">
       <span className="font-medium text-muted-foreground">{label}:</span>
       {set ? (
-        <span className="inline-flex items-center rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-medium text-white">
+        <span className="inline-flex items-center rounded-full bg-[var(--live)] px-2 py-0.5 text-[11px] font-medium text-white">
           Set
         </span>
       ) : (

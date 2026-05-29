@@ -9,9 +9,9 @@ import { importEmployeesAction, type ImportState } from "./_actions";
 const INITIAL: ImportState = { status: "idle" };
 
 const STATUS_TONE: Record<string, string> = {
-  created: "bg-emerald-600 text-white",
-  skipped: "bg-amber-500 text-white",
-  errored: "bg-rose-600 text-white",
+  created: "bg-[var(--live)] text-white",
+  skipped: "bg-[var(--warn)] text-white",
+  errored: "bg-[var(--danger)] text-white",
 };
 
 export function ImportForm() {
@@ -151,11 +151,11 @@ function StatCard({
 }) {
   const cls =
     tone === "emerald"
-      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+      ? "border-[color-mix(in_srgb,var(--live)_40%,transparent)] bg-[color-mix(in_srgb,var(--live)_10%,transparent)] text-[var(--live)]"
       : tone === "amber"
-        ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+        ? "border-[color-mix(in_srgb,var(--warn)_40%,transparent)] bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] text-[var(--warn)]"
         : tone === "rose"
-          ? "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300"
+          ? "border-[color-mix(in_srgb,var(--danger)_40%,transparent)] bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] text-[var(--danger)]"
           : "border-border bg-card text-muted-foreground";
   return (
     <div className={`rounded-lg border px-4 py-3 ${cls}`}>

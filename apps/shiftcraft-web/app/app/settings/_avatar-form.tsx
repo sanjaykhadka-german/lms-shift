@@ -77,7 +77,7 @@ export function AvatarForm({ email, name, currentImage }: Props) {
             </Button>
           )}
           {state.status === "ok" && (
-            <p className="text-xs text-emerald-600">{state.message}</p>
+            <p className="text-xs text-[var(--live)]">{state.message}</p>
           )}
           {state.status === "error" && !state.fieldErrors && (
             <p className="text-xs text-[color:var(--destructive)]">

@@ -131,7 +131,7 @@ export default async function KioskHome({
     return (
       <main className="flex min-h-screen items-center justify-center px-6">
         <div className="w-full max-w-md space-y-4 rounded-xl border border-[rgba(244,238,227,0.13)] bg-[rgba(244,238,227,0.05)] p-8 text-center shadow-xl">
-          <h1 className="font-display text-2xl font-semibold tracking-tight">
+          <h1 className="font-display font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
             Kiosk not paired
           </h1>
           <p className="text-sm text-[#a89c8c]">
