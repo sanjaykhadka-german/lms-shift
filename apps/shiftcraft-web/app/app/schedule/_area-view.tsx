@@ -171,7 +171,7 @@ export function AreaScheduleView({
                       <Link
                         key={s.id}
                         href={`/app/schedule/${s.id}/edit`}
-                        className="block rounded border border-emerald-300/60 bg-emerald-50 px-2 py-1 text-[11px] leading-tight hover:bg-emerald-100 dark:border-emerald-800/40 dark:bg-emerald-950/30 dark:hover:bg-emerald-900/40"
+                        className="block rounded border border-[color-mix(in_srgb,var(--live)_45%,transparent)] bg-[color-mix(in_srgb,var(--live)_12%,transparent)] px-2 py-1 text-[11px] leading-tight hover:bg-[color-mix(in_srgb,var(--live)_20%,transparent)]"
                         style={
                           s.status === "cancelled"
                             ? { opacity: 0.5 }

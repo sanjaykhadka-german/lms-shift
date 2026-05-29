@@ -10,9 +10,9 @@ import type { AreaShift } from "./_area-view";
 // with no accepted assignee land in the Open shifts row.
 
 const STATUS_DOT: Record<string, string> = {
-  draft: "bg-slate-400",
-  published: "bg-emerald-500",
-  cancelled: "bg-rose-500",
+  draft: "bg-[var(--ink-3)]",
+  published: "bg-[var(--live)]",
+  cancelled: "bg-[var(--danger)]",
 };
 
 const WEEKDAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -145,7 +145,7 @@ export function EmployeeScheduleView({
           <div
             key={row.key}
             className={`grid grid-cols-[12rem_repeat(7,minmax(7rem,1fr))] border-b border-border last:border-b-0 ${
-              row.isOpenShiftsRow ? "bg-amber-50/40 dark:bg-amber-950/10" : ""
+              row.isOpenShiftsRow ? "bg-[color-mix(in_srgb,var(--warn)_6%,transparent)]" : ""
             }`}
           >
             {/* Left-rail cell: employee name + avatar (or "Open shifts" label) */}
@@ -154,9 +154,9 @@ export function EmployeeScheduleView({
                 <>
                   <span
                     aria-hidden
-                    className="h-2 w-2 rounded-full bg-amber-500"
+                    className="h-2 w-2 rounded-full bg-[var(--warn)]"
                   />
-                  <span className="text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-[var(--warn)]">
                     {row.fullName}
                   </span>
                 </>
@@ -188,8 +188,8 @@ export function EmployeeScheduleView({
                     href={`/app/schedule/${s.id}/edit`}
                     className={
                       row.isOpenShiftsRow
-                        ? "block rounded border border-amber-400/60 bg-amber-100/80 px-2 py-1 text-[11px] leading-tight hover:bg-amber-100 dark:border-amber-700/40 dark:bg-amber-950/30 dark:hover:bg-amber-900/40"
-                        : "block rounded border border-emerald-300/60 bg-emerald-50 px-2 py-1 text-[11px] leading-tight hover:bg-emerald-100 dark:border-emerald-800/40 dark:bg-emerald-950/30 dark:hover:bg-emerald-900/40"
+                        ? "block rounded border border-[color-mix(in_srgb,var(--warn)_50%,transparent)] bg-[color-mix(in_srgb,var(--warn)_15%,transparent)] px-2 py-1 text-[11px] leading-tight hover:bg-[color-mix(in_srgb,var(--warn)_22%,transparent)]"
+                        : "block rounded border border-[color-mix(in_srgb,var(--live)_45%,transparent)] bg-[color-mix(in_srgb,var(--live)_12%,transparent)] px-2 py-1 text-[11px] leading-tight hover:bg-[color-mix(in_srgb,var(--live)_20%,transparent)]"
                     }
                     style={
                       s.status === "cancelled" ? { opacity: 0.5 } : undefined
@@ -199,7 +199,7 @@ export function EmployeeScheduleView({
                       <span
                         aria-hidden
                         className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${
-                          STATUS_DOT[s.status] ?? "bg-slate-400"
+                          STATUS_DOT[s.status] ?? "bg-[var(--ink-3)]"
                         }`}
                       />
                       {fmtTime24(s.startsAt)} – {fmtTime24(s.endsAt)}

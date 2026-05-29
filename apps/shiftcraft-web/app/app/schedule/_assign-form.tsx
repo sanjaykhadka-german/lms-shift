@@ -54,7 +54,7 @@ export function AssignForm({ shiftId, availableEmployees }: Props) {
         {pending ? "Sending…" : "Send offer"}
       </Button>
       {state.status === "ok" && (
-        <p className="text-xs text-emerald-600 sm:col-span-2">{state.message}</p>
+        <p className="text-xs text-[var(--live)] sm:col-span-2">{state.message}</p>
       )}
       {state.status === "error" && !state.fieldErrors && (
         <p className="text-xs text-[color:var(--destructive)] sm:col-span-2">
