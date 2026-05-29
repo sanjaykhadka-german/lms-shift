@@ -72,7 +72,7 @@ export function DailySaleRowForm({
         </form>
       )}
       {state.status === "ok" && (
-        <span className="text-xs text-emerald-600">Saved</span>
+        <span className="text-xs text-[var(--live)]">Saved</span>
       )}
       {state.status === "error" && (
         <span className="text-xs text-[color:var(--destructive)]">

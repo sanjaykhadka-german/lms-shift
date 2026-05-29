@@ -27,7 +27,7 @@ export default async function WorkspaceSettingsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
           Workspace settings
           <InfoPopover label="About workspace settings">
             <p>

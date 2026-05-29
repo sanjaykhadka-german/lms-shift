@@ -30,15 +30,15 @@ function statusBadge(d: KioskRow): {
   classes: string;
 } {
   if (d.revokedAt) {
-    return { label: "Revoked", classes: "bg-slate-500 text-white" };
+    return { label: "Revoked", classes: "bg-[var(--ink-3)] text-white" };
   }
   if (d.pairedAt) {
-    return { label: "Active", classes: "bg-emerald-600 text-white" };
+    return { label: "Active", classes: "bg-[var(--live)] text-white" };
   }
   if (d.pairingExpiresAt && d.pairingExpiresAt.getTime() < Date.now()) {
-    return { label: "Code expired", classes: "bg-amber-500 text-white" };
+    return { label: "Code expired", classes: "bg-[var(--warn)] text-white" };
   }
-  return { label: "Awaiting pair", classes: "bg-blue-600 text-white" };
+  return { label: "Awaiting pair", classes: "bg-[var(--accent-deep)] text-[var(--accent-ink)]" };
 }
 
 function fmtAgo(d: Date | null): string {
@@ -145,7 +145,7 @@ export default async function KiosksAdminPage({
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
           Kiosks
           <InfoPopover label="About kiosks">
             <p>
@@ -278,7 +278,7 @@ export default async function KiosksAdminPage({
                         {badge.label}
                       </span>
                       {!d.requireSelfie ? (
-                        <span className="inline-flex items-center rounded-full bg-slate-500 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
+                        <span className="inline-flex items-center rounded-full bg-[var(--ink-3)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
                           Selfie off
                         </span>
                       ) : null}
@@ -306,7 +306,7 @@ export default async function KiosksAdminPage({
                           type="submit"
                           variant="outline"
                           size="sm"
-                          className="border-emerald-600/40 text-emerald-700 hover:bg-emerald-50"
+                          className="border-[color-mix(in_srgb,var(--live)_40%,transparent)] text-[var(--live)] hover:bg-[color-mix(in_srgb,var(--live)_10%,transparent)]"
                         >
                           Restore
                         </Button>

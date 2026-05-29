@@ -40,7 +40,7 @@ export function HolidayRegionForm({ currentRegion, regions, labels }: Props) {
       <div className="flex items-center gap-3 pt-1">
         <SubmitButton />
         {state.status === "ok" ? (
-          <p className="text-xs text-emerald-600">{state.message}</p>
+          <p className="text-xs text-[var(--live)]">{state.message}</p>
         ) : null}
         {state.status === "error" ? (
           <p className="text-xs text-[color:var(--destructive)]">

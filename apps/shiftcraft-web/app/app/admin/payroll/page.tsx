@@ -45,7 +45,7 @@ export default async function PayrollAdminPage({
   if (!isXeroConfigured()) {
     return (
       <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
-        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
           Payroll
           <InfoPopover label="About payroll integration">
             <p>
@@ -56,7 +56,7 @@ export default async function PayrollAdminPage({
             </p>
           </InfoPopover>
         </h1>
-        <section className="rounded-lg border-2 border-amber-500/40 bg-amber-50 p-6 dark:border-amber-500/30 dark:bg-amber-950/20">
+        <section className="rounded-[var(--r-lg)] border border-[color-mix(in_srgb,var(--warn)_45%,transparent)] bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] p-6">
           <h2 className="text-sm font-semibold">Xero is not configured</h2>
           <p className="mt-2 text-sm text-muted-foreground">
             The server is missing one or more of{" "}
@@ -140,7 +140,7 @@ export default async function PayrollAdminPage({
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
           Payroll
           <InfoPopover label="About payroll integration">
             <p>
@@ -166,17 +166,17 @@ export default async function PayrollAdminPage({
       </div>
 
       {connected === "1" && (
-        <div className="rounded-md border-2 border-emerald-500/60 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900 dark:border-emerald-500/50 dark:bg-emerald-950/50 dark:text-emerald-100">
+        <div className="rounded-[var(--r-sm)] border border-[color-mix(in_srgb,var(--live)_45%,transparent)] bg-[color-mix(in_srgb,var(--live)_10%,transparent)] px-4 py-2 text-sm font-medium text-ink">
           Connected to Xero — map your earnings rates below before exporting.
         </div>
       )}
       {xeroError && (
-        <div className="rounded-md border-2 border-rose-500/60 bg-rose-50 px-4 py-2 text-sm font-medium text-rose-900 dark:border-rose-500/50 dark:bg-rose-950/50 dark:text-rose-100">
+        <div className="rounded-[var(--r-sm)] border border-[color-mix(in_srgb,var(--danger)_45%,transparent)] bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] px-4 py-2 text-sm font-medium text-ink">
           Xero connect failed: <span className="font-mono">{xeroError}</span>
         </div>
       )}
       {listError && connection && (
-        <div className="rounded-md border-2 border-rose-500/60 bg-rose-50 px-4 py-2 text-sm font-medium text-rose-900 dark:border-rose-500/50 dark:bg-rose-950/50 dark:text-rose-100">
+        <div className="rounded-[var(--r-sm)] border border-[color-mix(in_srgb,var(--danger)_45%,transparent)] bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] px-4 py-2 text-sm font-medium text-ink">
           Xero read failed: <span className="font-mono">{listError}</span>
         </div>
       )}

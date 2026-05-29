@@ -65,7 +65,7 @@ export default async function ManagerScopesPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
           Manager scopes
           <InfoPopover label="About manager scopes">
             <p>
@@ -121,7 +121,7 @@ export default async function ManagerScopesPage() {
                     </div>
                   </div>
                   {isUnscoped ? (
-                    <span className="inline-flex items-center rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white">
+                    <span className="inline-flex items-center rounded-full bg-[var(--accent-deep)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--accent-ink)]">
                       Full access
                     </span>
                   ) : (

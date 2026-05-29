@@ -54,14 +54,14 @@ function fmtWhen(d: Date): string {
 function eventBadgeClass(e: string): string {
   switch (e) {
     case "in":
-      return "bg-emerald-600 text-white";
+      return "bg-[var(--live)] text-white";
     case "out":
-      return "bg-rose-600 text-white";
+      return "bg-[var(--danger)] text-white";
     case "break_start":
     case "break_end":
-      return "bg-slate-500 text-white";
+      return "bg-[var(--ink-3)] text-white";
     default:
-      return "bg-zinc-600 text-white";
+      return "bg-[var(--ink-3)] text-white";
   }
 }
 
@@ -176,12 +176,12 @@ export default async function KioskDetailPage({
     device.pairingExpiresAt.getTime() < Date.now();
 
   const status = device.revokedAt
-    ? { label: "Revoked", classes: "bg-slate-500 text-white" }
+    ? { label: "Revoked", classes: "bg-[var(--ink-3)] text-white" }
     : device.pairedAt
-      ? { label: "Active", classes: "bg-emerald-600 text-white" }
+      ? { label: "Active", classes: "bg-[var(--live)] text-white" }
       : codeExpired
-        ? { label: "Code expired", classes: "bg-amber-500 text-white" }
-        : { label: "Awaiting pair", classes: "bg-blue-600 text-white" };
+        ? { label: "Code expired", classes: "bg-[var(--warn)] text-white" }
+        : { label: "Awaiting pair", classes: "bg-[var(--accent-deep)] text-[var(--accent-ink)]" };
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-10">
@@ -193,7 +193,7 @@ export default async function KioskDetailPage({
           >
             ← All kiosks
           </Link>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+          <h1 className="mt-1 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
             {device.label}
           </h1>
           <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
@@ -220,7 +220,7 @@ export default async function KioskDetailPage({
         <Stat
           label="Selfie on punches"
           value={device.requireSelfie ? "Required" : "Off"}
-          valueClass={device.requireSelfie ? "text-emerald-600" : "text-amber-600"}
+          valueClass={device.requireSelfie ? "text-[var(--live)]" : "text-[var(--warn)]"}
         />
       </section>
 
@@ -247,7 +247,7 @@ export default async function KioskDetailPage({
                 type="submit"
                 variant="outline"
                 size="sm"
-                className="border-emerald-600/40 text-emerald-700 hover:bg-emerald-50"
+                className="border-[color-mix(in_srgb,var(--live)_40%,transparent)] text-[var(--live)] hover:bg-[color-mix(in_srgb,var(--live)_10%,transparent)]"
               >
                 Restore
               </Button>
@@ -314,7 +314,7 @@ export default async function KioskDetailPage({
                   <div
                     className={`flex h-[42px] w-14 items-center justify-center rounded-md border border-border bg-muted text-[10px] font-medium ${
                       p.selfieStatus === "denied"
-                        ? "text-amber-600"
+                        ? "text-[var(--warn)]"
                         : "text-muted-foreground"
                     }`}
                     title={

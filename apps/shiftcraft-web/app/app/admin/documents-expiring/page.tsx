@@ -40,18 +40,26 @@ function fmtRemaining(days: number): string {
   return `in ${days} day${days === 1 ? "" : "s"}`;
 }
 
+// The theme carries two warm status tokens (--danger, --warn). The 4-step
+// expiry urgency scale maps expired→danger and the three "soon" tiers→warn,
+// with graded background-tint opacities so the row shading still reads as a
+// gradient. The exact bucket is always spelled out in the badge label + the
+// day-count text, so collapsing the hue to two tokens loses no information.
 const TIER_TONE: Record<ExpiryTier, string> = {
-  expired: "border-rose-500/40 bg-rose-50/60 dark:bg-rose-950/20",
-  lte7: "border-orange-500/40 bg-orange-50/60 dark:bg-orange-950/20",
-  lte14: "border-amber-500/40 bg-amber-50/60 dark:bg-amber-950/20",
-  lte30: "border-yellow-500/40 bg-yellow-50/60 dark:bg-yellow-950/20",
+  expired:
+    "border-[color-mix(in_srgb,var(--danger)_45%,transparent)] bg-[color-mix(in_srgb,var(--danger)_10%,transparent)]",
+  lte7: "border-[color-mix(in_srgb,var(--warn)_50%,transparent)] bg-[color-mix(in_srgb,var(--warn)_12%,transparent)]",
+  lte14:
+    "border-[color-mix(in_srgb,var(--warn)_35%,transparent)] bg-[color-mix(in_srgb,var(--warn)_8%,transparent)]",
+  lte30:
+    "border-[color-mix(in_srgb,var(--warn)_22%,transparent)] bg-[color-mix(in_srgb,var(--warn)_5%,transparent)]",
 };
 
 const TIER_BADGE: Record<ExpiryTier, string> = {
-  expired: "bg-rose-600 text-white",
-  lte7: "bg-orange-600 text-white",
-  lte14: "bg-amber-600 text-white",
-  lte30: "bg-yellow-600 text-white",
+  expired: "bg-[var(--danger)] text-white",
+  lte7: "bg-[var(--warn)] text-white",
+  lte14: "bg-[var(--warn)] text-white",
+  lte30: "bg-[var(--warn)] text-white",
 };
 
 export default async function ExpiringDocumentsPage() {
@@ -120,7 +128,7 @@ export default async function ExpiringDocumentsPage() {
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-10">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
             Expiring documents
             <InfoPopover label="About the expiry digest">
               <p>
@@ -222,12 +230,8 @@ export default async function ExpiringDocumentsPage() {
                       <span
                         className={`text-xs font-medium tabular-nums ${
                           c.tier === "expired"
-                            ? "text-rose-600"
-                            : c.tier === "lte7"
-                              ? "text-orange-600"
-                              : c.tier === "lte14"
-                                ? "text-amber-600"
-                                : "text-yellow-700"
+                            ? "text-[var(--danger)]"
+                            : "text-[var(--warn)]"
                         }`}
                       >
                         {fmtRemaining(c.daysRemaining ?? 0)}

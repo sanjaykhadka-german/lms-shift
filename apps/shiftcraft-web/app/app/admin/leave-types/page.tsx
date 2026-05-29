@@ -39,7 +39,7 @@ export default async function LeaveTypesAdminPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
           Leave types
           <InfoPopover label="About leave types">
             <p>
@@ -95,7 +95,7 @@ export default async function LeaveTypesAdminPage() {
                     <div className="mt-1 flex items-center gap-2 text-[10px] uppercase tracking-wider text-muted-foreground">
                       <span className="font-mono">{lt.slug}</span>
                       {isSeeded && (
-                        <span className="rounded-full bg-sky-600 px-2 py-0.5 font-semibold text-white">
+                        <span className="rounded-full bg-[var(--accent-deep)] px-2 py-0.5 font-semibold text-[var(--accent-ink)]">
                           Seeded
                         </span>
                       )}

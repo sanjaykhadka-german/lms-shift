@@ -81,7 +81,7 @@ export function CreateSubscriptionForm({
       </div>
 
       {state.status === "ok" && (
-        <p className="sm:col-span-4 text-xs text-emerald-600">
+        <p className="sm:col-span-4 text-xs text-[var(--live)]">
           {state.message}
         </p>
       )}

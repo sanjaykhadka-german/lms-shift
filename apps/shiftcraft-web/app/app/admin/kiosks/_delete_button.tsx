@@ -44,7 +44,7 @@ function Submit({ variant }: { variant: "row" | "detail" }) {
   // confirm dialog handles the safety; styling makes the gravity readable
   // at a glance.
   const base =
-    "rounded-md bg-red-700 text-white font-medium hover:bg-red-800 disabled:opacity-50";
+    "rounded-md bg-[var(--danger)] text-white font-medium hover:bg-[color-mix(in_srgb,var(--danger)_85%,black)] disabled:opacity-50";
   const sizing = variant === "row" ? "px-3 py-1.5 text-xs" : "px-3 py-1.5 text-sm";
   return (
     <button

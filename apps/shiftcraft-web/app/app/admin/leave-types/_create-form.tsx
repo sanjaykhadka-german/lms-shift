@@ -44,7 +44,7 @@ export function CreateLeaveTypeForm() {
         {pending ? "Adding…" : "Add"}
       </Button>
       {state.status === "ok" && (
-        <p className="text-xs text-emerald-600 sm:self-center">{state.message}</p>
+        <p className="text-xs text-[var(--live)] sm:self-center">{state.message}</p>
       )}
       {state.status === "error" && !state.fieldErrors && (
         <p className="text-xs text-[color:var(--destructive)] sm:self-center">
