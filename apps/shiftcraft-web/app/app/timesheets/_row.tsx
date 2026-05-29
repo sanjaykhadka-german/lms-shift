@@ -108,6 +108,11 @@ export interface RowProps {
    *  — the row hides the second line in that case to reduce visual
    *  noise on simple weeks. */
   awardCostMatchesFlat: boolean;
+  /** Per-employee Xero export outcome for the displayed week. Null when
+   *  the week hasn't been exported or this employee wasn't pushed (no
+   *  link / no hours). `detail` carries the Xero validation error on a
+   *  failed push. */
+  xeroExport: { state: "exported" | "failed"; detail: string | null } | null;
 }
 
 const ANOMALY_LABEL: Record<AnomalyKind, { label: string; classes: string }> = {
@@ -162,6 +167,7 @@ export function TimesheetRow({
   publicHolidayCount,
   awardCostDisplay,
   awardCostMatchesFlat,
+  xeroExport,
 }: RowProps) {
   const [expanded, setExpanded] = useState(false);
   const [modalCtx, setModalCtx] = useState<ModalContext | null>(null);
@@ -230,6 +236,22 @@ export function TimesheetRow({
                 {publicHolidayCount === 1
                   ? "Public holiday"
                   : `${publicHolidayCount} public holidays`}
+              </span>
+            ) : null}
+            {isAdmin && xeroExport ? (
+              <span
+                className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white ${
+                  xeroExport.state === "exported"
+                    ? "bg-[var(--live)]"
+                    : "bg-[var(--danger)]"
+                }`}
+                title={
+                  xeroExport.state === "exported"
+                    ? "Pushed to Xero for this week"
+                    : (xeroExport.detail ?? "Xero rejected this timesheet")
+                }
+              >
+                {xeroExport.state === "exported" ? "Xero ✓" : "Xero ✗"}
               </span>
             ) : null}
             <button

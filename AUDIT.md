@@ -157,8 +157,8 @@ Recommended Phase 2 housing: new `packages/award` package with a pure rules engi
 - ✅ **Post-finalisation pull-back** — admin pastes the Xero `PayRunID` into the read-back form; `payrollAUApi.getPayRun` totals (gross / net / tax / super) persist into `sc_xero_pay_runs.summary` for the Reports page.
 
 **Missing / deferred**
-- **Per-employee export status** in `/app/timesheets` — the export ledger row exists but the row-level UI surfacing it is a v2 polish.
-- **Multi-org chooser** — current flow grabs the first Xero org returned by `/connections`; multi-org admins get whichever Xero defaulted to.
+- ✅ **Per-employee export status** in `/app/timesheets` (2026-05-29) — each timesheet row shows a "Xero ✓ / ✗" chip for the visible week, read from the `sc_xero_pay_runs.summary.timesheets` ledger and mapped back through `sc_xero_employee_links`. Admin-only; the chip's title carries the Xero validation error on a failed push.
+- ✅ **Multi-org chooser** (2026-05-29) — `/app/admin/payroll` Connection card lists every org the stored token can reach (`listAvailableOrgs` → Xero `/connections`) and lets the owner re-point the active org via `switchXeroOrgAction` without disconnecting. Single-org connections render unchanged. Chosen org validated against the reachable set before persisting.
 - **Overtime-on-a-penalty-day at a separate rate** — v1 semantics: on Sat/Sun/PH days, all worked minutes (including OT) flow into the day's penalty bucket. Splitting OT-on-penalty needs the classifier to emit a combo category — explicit follow-up.
 - **MYOB / ADP / Gusto / QuickBooks adapters** — interface is provider-shaped (`lib/payroll/*`) so they can slot in; not implemented yet.
 

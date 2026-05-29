@@ -14,6 +14,8 @@ import {
   scShiftAssignments,
   scShifts,
   scTimesheetApprovals,
+  scXeroEmployeeLinks,
+  scXeroPayRuns,
   users,
   type ScTimesheetApprovalStatus,
 } from "@tracey/db";
@@ -258,6 +260,7 @@ export default async function TimesheetsPage({
         Promise.all([
           tx
             .select({
+              empId: scEmployees.id,
               appUserId: scEmployees.appUserId,
               departmentId: scEmployees.departmentId,
               departmentName: scDepartments.name,
@@ -288,8 +291,12 @@ export default async function TimesheetsPage({
       awardProfile: AwardProfileOverrides;
     }
   >();
+  // appUserId → sc_employees.id, for joining the displayed rows to the
+  // Xero export ledger (which keys per-employee status by xero_employee_id).
+  const empIdByUserId = new Map<string, string>();
   for (const link of scLinks) {
     if (link.appUserId) {
+      empIdByUserId.set(link.appUserId, link.empId);
       // hourly_rate is numeric(10,2) which Drizzle returns as string. Parse
       // here so the row builder doesn't repeat the conversion per row.
       const rate =
@@ -306,6 +313,71 @@ export default async function TimesheetsPage({
         // crashing the row builder.
         awardProfile: _parseAwardProfile(link.awardProfile),
       });
+    }
+  }
+
+  // ─── Per-employee Xero export status for the visible week (admin) ───
+  // Reads the (tenant, week) pay-run ledger row and maps its per-employee
+  // results (keyed by xero_employee_id) back to the rows shown here via
+  // the employee-link table. Drives a small "Xero ✓ / ✗" chip per row.
+  const xeroExportByUser = new Map<
+    string,
+    { state: "exported" | "failed"; detail: string | null }
+  >();
+  if (isAdmin) {
+    const wkIso = fmtIsoDate(weekStart);
+    const [payRunRow] = await forTenant(tenantId).run((tx) =>
+      tx
+        .select({ summary: scXeroPayRuns.summary })
+        .from(scXeroPayRuns)
+        .where(
+          and(
+            eq(scXeroPayRuns.traceyTenantId, tenantId),
+            sql`${scXeroPayRuns.weekStart} = ${wkIso}::date`,
+          ),
+        )
+        .limit(1),
+    );
+    const summary = (payRunRow?.summary ?? null) as {
+      timesheets?: Array<{
+        employeeId: string;
+        timesheetId: string | null;
+        error?: string | null;
+      }>;
+    } | null;
+    if (summary?.timesheets && summary.timesheets.length > 0) {
+      const links = await forTenant(tenantId).run((tx) =>
+        tx
+          .select({
+            scEmployeeId: scXeroEmployeeLinks.scEmployeeId,
+            xeroEmployeeId: scXeroEmployeeLinks.xeroEmployeeId,
+          })
+          .from(scXeroEmployeeLinks)
+          .where(eq(scXeroEmployeeLinks.traceyTenantId, tenantId)),
+      );
+      const statusByXeroId = new Map<
+        string,
+        { state: "exported" | "failed"; detail: string | null }
+      >();
+      for (const t of summary.timesheets) {
+        statusByXeroId.set(
+          t.employeeId,
+          t.error
+            ? { state: "failed", detail: t.error }
+            : t.timesheetId
+              ? { state: "exported", detail: null }
+              : { state: "failed", detail: "Xero returned no timesheet id" },
+        );
+      }
+      const xeroByEmpId = new Map(
+        links.map((l) => [l.scEmployeeId, l.xeroEmployeeId]),
+      );
+      for (const [uid, empId] of empIdByUserId) {
+        const xeroId = xeroByEmpId.get(empId);
+        if (!xeroId) continue;
+        const st = statusByXeroId.get(xeroId);
+        if (st) xeroExportByUser.set(uid, st);
+      }
     }
   }
 
@@ -1228,6 +1300,7 @@ export default async function TimesheetsPage({
                             r.awardCostAud === r.costAud ||
                             r.awardCostAud == null
                           }
+                          xeroExport={xeroExportByUser.get(r.userId) ?? null}
                         />
                       );
                     })}

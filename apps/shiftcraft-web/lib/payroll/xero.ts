@@ -193,6 +193,53 @@ export async function deleteConnection(tenantId: string): Promise<void> {
   );
 }
 
+// ─── Multi-org support ──────────────────────────────────────────────
+//
+// A single Xero consent can cover several organisations. We persist
+// one "active" org per workspace (scXeroConnections.xeroTenantId), but
+// the stored token can address any org the user authorised. These two
+// helpers back the org chooser on /app/admin/payroll: list everything
+// the token can reach, and switch which one this workspace targets.
+
+export interface XeroOrgSummary {
+  xeroTenantId: string;
+  xeroTenantName: string | null;
+}
+
+export async function listAvailableOrgs(
+  tenantId: string,
+): Promise<XeroOrgSummary[]> {
+  const ctx = await getClientForTenant(tenantId);
+  if (!ctx) return [];
+  // updateTenants(false) re-reads Xero's /connections for the current
+  // token set without pulling full org details — cheap, and reflects
+  // orgs added/removed since first consent.
+  const tenants = await ctx.client.updateTenants(false);
+  return tenants
+    .filter((t) => t.tenantId)
+    .map((t) => ({
+      xeroTenantId: String(t.tenantId),
+      xeroTenantName: t.tenantName ? String(t.tenantName) : null,
+    }));
+}
+
+export async function setActiveOrg(
+  tenantId: string,
+  xeroTenantId: string,
+  xeroTenantName: string | null,
+): Promise<void> {
+  await forTenant(tenantId).run((tx) =>
+    tx
+      .update(scXeroConnections)
+      .set({
+        xeroTenantId,
+        xeroTenantName: xeroTenantName ?? undefined,
+        updatedAt: new Date(),
+      })
+      .where(eq(scXeroConnections.traceyTenantId, tenantId)),
+  );
+}
+
 // ─── Client cache + auto-refresh ────────────────────────────────────
 //
 // getClient builds an XeroClient with the stored token set already

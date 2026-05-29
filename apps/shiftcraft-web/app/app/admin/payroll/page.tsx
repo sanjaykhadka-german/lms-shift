@@ -11,6 +11,7 @@ import { isAdmin as isOwnerLevel } from "~/lib/roles";
 import { Button } from "~/components/ui/button";
 import {
   isXeroConfigured,
+  listAvailableOrgs,
   listEarningsRates,
   listXeroEmployees,
   loadConnection,
@@ -24,6 +25,7 @@ import {
   linkEmployeeAction,
   saveMappingAction,
   startConnectAction,
+  switchXeroOrgAction,
 } from "./actions";
 import { ExportToXeroForm, ReadbackForm } from "./_export-form";
 import { InfoPopover } from "~/components/InfoPopover";
@@ -93,12 +95,14 @@ export default async function PayrollAdminPage({
   // empty list and surface the error to the operator.
   let earningsRates: Awaited<ReturnType<typeof listEarningsRates>> = [];
   let xeroEmployees: Awaited<ReturnType<typeof listXeroEmployees>> = [];
+  let availableOrgs: Awaited<ReturnType<typeof listAvailableOrgs>> = [];
   let listError: string | null = null;
   if (connection) {
     try {
-      [earningsRates, xeroEmployees] = await Promise.all([
+      [earningsRates, xeroEmployees, availableOrgs] = await Promise.all([
         listEarningsRates(tenantId),
         listXeroEmployees(tenantId),
+        listAvailableOrgs(tenantId),
       ]);
     } catch (err) {
       listError =
@@ -213,6 +217,38 @@ export default async function PayrollAdminPage({
                 </>
               )}
             </div>
+            {availableOrgs.length > 1 && (
+              <form
+                action={switchXeroOrgAction}
+                className="flex flex-wrap items-center gap-2 rounded-[var(--r-sm)] border border-line bg-[var(--paper-2)] px-3 py-2"
+              >
+                <label
+                  htmlFor="xero-org"
+                  className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-3"
+                >
+                  Active org
+                </label>
+                <select
+                  id="xero-org"
+                  name="xeroTenantId"
+                  defaultValue={connection.xeroTenantId}
+                  className="flex h-8 min-w-[220px] rounded-md border border-[color:var(--input)] bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+                >
+                  {availableOrgs.map((o) => (
+                    <option key={o.xeroTenantId} value={o.xeroTenantId}>
+                      {o.xeroTenantName ?? o.xeroTenantId}
+                    </option>
+                  ))}
+                </select>
+                <Button type="submit" size="sm" variant="outline">
+                  Switch org
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  This consent covers {availableOrgs.length} orgs — exports
+                  target the selected one.
+                </span>
+              </form>
+            )}
             <form action={disconnectAction}>
               <Button
                 type="submit"

@@ -19,6 +19,8 @@ import {
   buildConsentUrl,
   deleteConnection,
   isXeroConfigured,
+  listAvailableOrgs,
+  setActiveOrg,
 } from "~/lib/payroll/xero";
 import { PAYROLL_CATEGORIES } from "~/lib/payroll/categories";
 
@@ -66,6 +68,38 @@ export async function disconnectAction(): Promise<void> {
   await logAuditEvent({
     action: "shiftcraft.xero.disconnected",
     targetKind: "sc_xero_connection",
+  });
+  revalidatePath("/app/admin/payroll");
+}
+
+// ─── Switch active Xero org (multi-org chooser) ─────────────────────
+//
+// One consent can authorise several Xero orgs. We persist a single
+// active org per workspace; this lets the owner re-point it without
+// disconnecting + reconnecting. Validated against the orgs the stored
+// token can actually reach so a stale/forged id can't be set.
+
+const switchOrgSchema = z.object({
+  xeroTenantId: z.string().min(1).max(100),
+});
+
+export async function switchXeroOrgAction(formData: FormData): Promise<void> {
+  const parsed = switchOrgSchema.safeParse({
+    xeroTenantId: formData.get("xeroTenantId"),
+  });
+  if (!parsed.success) return;
+  const membership = await requireOwner();
+  const tenantId = membership.tenant.id;
+
+  const orgs = await listAvailableOrgs(tenantId);
+  const match = orgs.find((o) => o.xeroTenantId === parsed.data.xeroTenantId);
+  if (!match) return; // org not reachable by this token — ignore
+
+  await setActiveOrg(tenantId, match.xeroTenantId, match.xeroTenantName);
+  await logAuditEvent({
+    action: "shiftcraft.xero.org_switched",
+    targetKind: "sc_xero_connection",
+    details: { xeroTenantId: match.xeroTenantId },
   });
   revalidatePath("/app/admin/payroll");
 }
