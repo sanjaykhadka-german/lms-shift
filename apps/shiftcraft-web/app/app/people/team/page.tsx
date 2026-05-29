@@ -21,6 +21,7 @@ import { currentMembership } from "~/lib/auth/current";
 import { isAtLeastManager, friendlyRoleLabel } from "~/lib/roles";
 import { Avatar } from "~/components/Avatar";
 import { Button } from "~/components/ui/button";
+import { Badge, type BadgeProps } from "~/components/ui/badge";
 import { InviteForm } from "../_components/InviteForm";
 import { RevokeInvitationButton } from "../_components/RevokeInvitationButton";
 import { revokeInvitationAction } from "../_actions";
@@ -30,17 +31,19 @@ import type { EmployeeDetail } from "../_components/EmployeeDetailModal";
 export const metadata = { title: "Team members · ShiftCraft" };
 export const dynamic = "force-dynamic";
 
-const ROLE_BADGE: Record<string, string> = {
-  owner: "bg-indigo-600 text-white",
-  admin: "bg-blue-600 text-white",
-  member: "bg-slate-500 text-white",
+type BadgeVariant = NonNullable<BadgeProps["variant"]>;
+
+const ROLE_BADGE: Record<string, BadgeVariant> = {
+  owner: "accent",
+  admin: "open",
+  member: "neutral",
 };
 
-const EMPLOYMENT_BADGE: Record<ScEmploymentType, string> = {
-  full_time: "bg-emerald-600 text-white",
-  part_time: "bg-sky-600 text-white",
-  casual: "bg-amber-500 text-white",
-  contractor: "bg-purple-600 text-white",
+const EMPLOYMENT_BADGE: Record<ScEmploymentType, BadgeVariant> = {
+  full_time: "live",
+  part_time: "open",
+  casual: "warn",
+  contractor: "neutral",
 };
 
 const EMPLOYMENT_LABEL: Record<ScEmploymentType, string> = {
@@ -50,12 +53,12 @@ const EMPLOYMENT_LABEL: Record<ScEmploymentType, string> = {
   contractor: "Contractor",
 };
 
-function actionTone(action: string): string {
+function actionTone(action: string): BadgeVariant {
   if (action.endsWith(".deleted") || action.endsWith(".revoked")) {
-    return "bg-red-600 text-white";
+    return "danger";
   }
-  if (action.endsWith(".approved")) return "bg-emerald-600 text-white";
-  if (action.endsWith(".disputed")) return "bg-amber-500 text-white";
+  if (action.endsWith(".approved")) return "live";
+  if (action.endsWith(".disputed")) return "warn";
   if (
     action.endsWith(".created") ||
     action.endsWith(".added") ||
@@ -63,9 +66,9 @@ function actionTone(action: string): string {
     action.endsWith(".paired") ||
     action.endsWith(".restored")
   ) {
-    return "bg-blue-600 text-white";
+    return "open";
   }
-  return "bg-slate-500 text-white";
+  return "neutral";
 }
 
 function fmtWhen(d: Date): string {
@@ -187,8 +190,8 @@ function OnboardingPill({
   if (!status || status === "active" || !employeeId) return null;
   const tone =
     status === "pending"
-      ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
-      : "bg-blue-500/15 text-blue-700 dark:text-blue-300";
+      ? "bg-[color-mix(in_srgb,var(--warn)_16%,transparent)] text-[var(--warn)]"
+      : "bg-[color-mix(in_srgb,var(--accent)_22%,transparent)] text-[var(--accent-deep)] dark:text-[var(--accent)]";
   const label =
     status === "pending" ? "Onboarding pending" : "Onboarding in progress";
   return (
@@ -439,7 +442,9 @@ export default async function PeopleTeamPage({
       {/* ─── Header ─── */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">People</h1>
+          <h1 className="font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
+            People
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Showing {shown} of {total}{" "}
             {total === 1 ? "person" : "people"} on the roster for{" "}
@@ -459,7 +464,7 @@ export default async function PeopleTeamPage({
       </div>
 
       {added === "1" ? (
-        <div className="rounded-md border-2 border-emerald-500/60 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900 dark:border-emerald-500/50 dark:bg-emerald-950/50 dark:text-emerald-100">
+        <div className="rounded-[var(--r-sm)] border border-[color-mix(in_srgb,var(--live)_45%,transparent)] bg-[color-mix(in_srgb,var(--live)_10%,transparent)] px-4 py-2 text-sm font-medium text-ink">
           Employee added.
         </div>
       ) : null}
@@ -567,17 +572,16 @@ export default async function PeopleTeamPage({
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${ROLE_BADGE[r.role] ?? "bg-muted text-muted-foreground"}`}
-                    >
+                    <Badge variant={ROLE_BADGE[r.role] ?? "neutral"} size="sm">
                       {friendlyRoleLabel(r.role)}
-                    </span>
+                    </Badge>
                     {r.shiftcraft ? (
-                      <span
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${EMPLOYMENT_BADGE[r.shiftcraft.employmentType as ScEmploymentType]}`}
+                      <Badge
+                        variant={EMPLOYMENT_BADGE[r.shiftcraft.employmentType as ScEmploymentType]}
+                        size="sm"
                       >
                         {EMPLOYMENT_LABEL[r.shiftcraft.employmentType as ScEmploymentType]}
-                      </span>
+                      </Badge>
                     ) : null}
                   </div>
                   <div className="min-w-[10rem] text-right text-xs leading-snug">
@@ -659,14 +663,15 @@ export default async function PeopleTeamPage({
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${EMPLOYMENT_BADGE[r.employmentType as ScEmploymentType]}`}
+                    <Badge
+                      variant={EMPLOYMENT_BADGE[r.employmentType as ScEmploymentType]}
+                      size="sm"
                     >
                       {EMPLOYMENT_LABEL[r.employmentType as ScEmploymentType]}
-                    </span>
-                    <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                    </Badge>
+                    <Badge variant="neutral" size="sm">
                       ShiftCraft only
-                    </span>
+                    </Badge>
                   </div>
                   <div className="min-w-[10rem] text-right text-xs leading-snug">
                     {rate ? (
@@ -717,17 +722,15 @@ export default async function PeopleTeamPage({
                     </div>
                     <div className="text-xs text-muted-foreground">
                       {expired ? (
-                        <span className="text-amber-600">Expired</span>
+                        <span className="text-[var(--warn)]">Expired</span>
                       ) : (
                         <>Expires {fmtJoined(inv.expiresAt)}</>
                       )}
                     </div>
                   </div>
-                  <span
-                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${ROLE_BADGE[inv.role] ?? "bg-muted text-muted-foreground"}`}
-                  >
+                  <Badge variant={ROLE_BADGE[inv.role] ?? "neutral"} size="sm">
                     {friendlyRoleLabel(inv.role)}
-                  </span>
+                  </Badge>
                   <form action={revokeInvitationAction}>
                     <input type="hidden" name="invitationId" value={inv.id} />
                     <RevokeInvitationButton />
@@ -758,11 +761,9 @@ export default async function PeopleTeamPage({
                 {recentAudit.map((r) => (
                   <li key={r.id} className="space-y-1 px-5 py-2.5">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${actionTone(r.action)}`}
-                      >
+                      <Badge variant={actionTone(r.action)} size="sm">
                         {r.action}
-                      </span>
+                      </Badge>
                       {r.targetKind ? (
                         <span className="font-mono text-[10px] text-muted-foreground">
                           {r.targetKind}
