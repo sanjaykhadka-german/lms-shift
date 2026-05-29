@@ -93,7 +93,7 @@ export default async function OpenShiftsPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
           Open shifts
           <InfoPopover label="About open shifts">
             <p>
@@ -110,10 +110,10 @@ export default async function OpenShiftsPage() {
       </div>
 
       {rows.length === 0 ? (
-        <section className="flex items-center gap-3 rounded-lg border-2 border-emerald-500/60 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-900 dark:border-emerald-500/50 dark:bg-emerald-950/50 dark:text-emerald-100">
+        <section className="flex items-center gap-3 rounded-[var(--r-lg)] border border-[color-mix(in_srgb,var(--live)_45%,transparent)] bg-[color-mix(in_srgb,var(--live)_10%,transparent)] px-5 py-4 text-sm font-medium text-ink">
           <span
             aria-hidden
-            className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-emerald-600 text-sm font-bold text-white"
+            className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-[var(--live)] text-sm font-bold text-white"
           >
             ✓
           </span>
@@ -130,7 +130,7 @@ export default async function OpenShiftsPage() {
               className="overflow-hidden rounded-lg border border-border bg-card shadow-sm"
             >
               <div className="flex items-center justify-between border-b border-border px-5 py-3">
-                <h2 className="text-sm font-semibold">{day}</h2>
+                <h2 className="font-display text-sm font-semibold tracking-[-0.01em] text-ink">{day}</h2>
                 <span className="text-xs text-muted-foreground">
                   {dayRows.length} open
                 </span>

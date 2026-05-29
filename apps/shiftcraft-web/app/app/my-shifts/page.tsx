@@ -12,6 +12,7 @@ import {
 } from "@tracey/db";
 import { currentMembership, requireUser } from "~/lib/auth/current";
 import { Button } from "~/components/ui/button";
+import { Badge, type BadgeProps } from "~/components/ui/badge";
 import {
   acceptOfferAction,
   declineOfferAction,
@@ -26,12 +27,12 @@ import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "My shifts · ShiftCraft" };
 
-const ASSIGN_BADGE: Record<string, string> = {
-  offered: "bg-amber-500 text-white",
-  accepted: "bg-emerald-600 text-white",
-  declined: "bg-rose-600 text-white",
-  swapped: "bg-blue-600 text-white",
-  no_show: "bg-rose-600 text-white",
+const ASSIGN_BADGE: Record<string, NonNullable<BadgeProps["variant"]>> = {
+  offered: "warn",
+  accepted: "live",
+  declined: "danger",
+  swapped: "open",
+  no_show: "danger",
 };
 
 function fmt(d: Date): string {
@@ -235,7 +236,7 @@ export default async function MyShiftsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
           My shifts
           <InfoPopover label="About my shifts">
             <p>
@@ -436,7 +437,7 @@ function Section({
   const hasItems = items.some((c) => !!c);
   return (
     <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
-      <div className="border-b border-border px-5 py-3 text-base font-semibold">
+      <div className="border-b border-border px-5 py-3 font-display text-base font-semibold tracking-[-0.01em] text-ink">
         {title}
       </div>
       {hasItems ? (
@@ -476,11 +477,13 @@ function Row({
           <div className="mt-1 text-xs text-muted-foreground">{row.notes}</div>
         )}
       </div>
-      <span
-        className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${ASSIGN_BADGE[row.assignmentStatus] ?? ""}`}
+      <Badge
+        variant={ASSIGN_BADGE[row.assignmentStatus] ?? "neutral"}
+        size="sm"
+        className="shrink-0"
       >
         {row.assignmentStatus.replace("_", " ")}
-      </span>
+      </Badge>
     </div>
   );
 }

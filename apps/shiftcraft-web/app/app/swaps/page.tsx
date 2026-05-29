@@ -11,14 +11,15 @@ import {
 } from "@tracey/db";
 import { currentMembership } from "~/lib/auth/current";
 import { InfoPopover } from "~/components/InfoPopover";
+import { Badge, type BadgeProps } from "~/components/ui/badge";
 
 export const metadata = { title: "Swap requests · ShiftCraft" };
 
-const STATUS_BADGE: Record<string, string> = {
-  pending: "bg-amber-500 text-white",
-  accepted: "bg-emerald-600 text-white",
-  declined: "bg-rose-600 text-white",
-  cancelled: "bg-slate-500 text-white",
+const STATUS_BADGE: Record<string, NonNullable<BadgeProps["variant"]>> = {
+  pending: "warn",
+  accepted: "live",
+  declined: "danger",
+  cancelled: "neutral",
 };
 
 type StatusFilter = "all" | "pending" | "accepted" | "declined" | "cancelled";
@@ -142,7 +143,7 @@ export default async function SwapsAuditPage({
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-6 py-10">
       <div>
-        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+        <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
           Swap requests
           <InfoPopover label="About swap requests">
             <p>
@@ -238,13 +239,13 @@ export default async function SwapsAuditPage({
                         {r.decidedAt ? ` · resolved ${fmt(r.decidedAt)}` : ""}
                       </div>
                     </div>
-                    <span
-                      className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${
-                        STATUS_BADGE[r.swapStatus] ?? ""
-                      }`}
+                    <Badge
+                      variant={STATUS_BADGE[r.swapStatus] ?? "neutral"}
+                      size="sm"
+                      className="shrink-0"
                     >
                       {r.swapStatus}
-                    </span>
+                    </Badge>
                   </div>
                 </li>
               );
