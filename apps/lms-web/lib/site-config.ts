@@ -19,6 +19,32 @@ export const PASS_THRESHOLD: number = (() => {
 // feature list (which can't reference siteConfig itself without a cycle).
 const TRIAL_DAYS = 14;
 
+// Cross-app launcher entries (the waffle menu in the app header). LMS and
+// ShiftCraft share one account/database, so a signed-in user can hop straight
+// between them. URLs come from NEXT_PUBLIC_* env (set per deploy); localhost
+// ports are the dev defaults.
+export interface AppLink {
+  id: string;
+  name: string;
+  tagline?: string;
+  url: string;
+}
+
+export const APPS: AppLink[] = [
+  {
+    id: "lms",
+    name: "Tracey LMS",
+    tagline: "Training & compliance",
+    url: process.env.NEXT_PUBLIC_LMS_URL ?? "http://localhost:4000",
+  },
+  {
+    id: "shiftcraft",
+    name: "ShiftCraft",
+    tagline: "Shift scheduling",
+    url: process.env.NEXT_PUBLIC_SHIFTCRAFT_URL ?? "http://localhost:4100",
+  },
+];
+
 export const siteConfig = {
   name: "Tracey",
   tagline: "Staff training that doesn't get in the way of the work.",

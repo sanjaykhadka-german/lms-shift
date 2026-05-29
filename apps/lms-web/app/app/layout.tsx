@@ -7,7 +7,8 @@ import {
   listUserTenants,
 } from "~/lib/auth/current";
 import { findPendingInvitationForEmail } from "~/lib/auth/invitations";
-import { siteConfig } from "~/lib/site-config";
+import { AppSwitcher } from "@tracey/ui";
+import { siteConfig, APPS } from "~/lib/site-config";
 import { getAuthorAccess } from "~/lib/auth/author";
 import { isPlatformAdmin } from "~/lib/auth/platform";
 import { getOrProvisionLmsUser } from "~/lib/lms/learner";
@@ -140,6 +141,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             </nav>
           </div>
           <div className="flex items-center gap-2">
+            <AppSwitcher currentAppId="lms" apps={APPS} />
             <NotificationBell />
             <InstallAppButton />
             <UserMenu
