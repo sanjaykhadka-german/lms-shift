@@ -9,20 +9,29 @@ export const PAYROLL_CATEGORIES: ScPayrollCategory[] = [
   "ordinary",
   "overtime",
   "penalty_sat",
+  "penalty_sat_ot",
   "penalty_sun",
+  "penalty_sun_ot",
   "penalty_ph",
+  "penalty_ph_ot",
   "penalty_night",
   "allowance",
 ];
 
 // Friendly labels for the mapping admin UI. The slug is the wire
-// value; the label is what humans see.
+// value; the label is what humans see. The *_ot rows are the opt-in
+// "overtime worked on a penalty day" combo categories — leave them
+// unmapped to keep the legacy behaviour (OT folds into the base
+// penalty bucket).
 export const PAYROLL_CATEGORY_LABEL: Record<ScPayrollCategory, string> = {
   ordinary: "Ordinary hours",
   overtime: "Overtime hours",
   penalty_sat: "Saturday penalty",
+  penalty_sat_ot: "Saturday overtime",
   penalty_sun: "Sunday penalty",
+  penalty_sun_ot: "Sunday overtime",
   penalty_ph: "Public holiday penalty",
+  penalty_ph_ot: "Public holiday overtime",
   penalty_night: "Night-shift penalty",
   allowance: "Allowances",
 };
@@ -40,21 +49,27 @@ function minutesToHours(m: number): number {
 // hours array>. Zero-only categories are dropped so we don't push
 // empty lines to Xero.
 //
-// v1 semantics (documented for the admin):
+// Semantics (documented for the admin):
 //   - On a weekday: ordinaryMinutes → "ordinary", overtimeMinutes +
 //     doubleOvertimeMinutes → "overtime" (Xero handles the 1.5x vs
 //     2x split via separate earnings rates if the admin mapped one).
-//   - On a saturday / sunday / public_holiday: ALL worked minutes
-//     (including OT) flow to that penalty category. The Xero
-//     earnings rate the admin maps it to is expected to already
-//     carry the penalty multiplier.
+//   - On a saturday / sunday / public_holiday:
+//       · ordinary minutes → that penalty category (penalty_sat/sun/ph).
+//       · overtime minutes → the matching *_ot combo category
+//         (penalty_sat_ot/sun_ot/ph_ot) — BUT ONLY when the tenant has
+//         mapped that combo to a Xero earnings rate (passed in via
+//         `mappedCategories`). If the combo is unmapped, the OT folds
+//         back into the base penalty bucket so the export behaves
+//         exactly as it did before these categories existed (no
+//         regression, no surprise "missing mapping" errors).
 //
-// Overtime-on-a-penalty-day at a different rate is an explicit v2
-// follow-up — needs the classifier to emit a separate
-// "penalty + overtime" combo, which it doesn't yet.
+// `mappedCategories` is the set of categories the tenant has an earnings
+// mapping for. Omit it (or pass an empty set) for the legacy "everything
+// into the base penalty bucket" behaviour.
 
 export function buildCategoryUnitsFromBreakdown(
   breakdown: WeekBreakdown,
+  mappedCategories?: ReadonlySet<ScPayrollCategory>,
 ): Map<ScPayrollCategory, number[]> {
   const out = new Map<ScPayrollCategory, number[]>();
 
@@ -71,21 +86,32 @@ export function buildCategoryUnitsFromBreakdown(
     const day = breakdown.days[dayIdx]!;
     if (day.workedMinutes <= 0) continue;
 
-    const totalMinutes =
-      day.ordinaryMinutes + day.overtimeMinutes + day.doubleOvertimeMinutes;
+    const otMinutes = day.overtimeMinutes + day.doubleOvertimeMinutes;
+    const totalMinutes = day.ordinaryMinutes + otMinutes;
     if (totalMinutes <= 0) continue;
 
     if (day.penaltyCategory === "weekday") {
       const ord = minutesToHours(day.ordinaryMinutes);
-      const ot = minutesToHours(
-        day.overtimeMinutes + day.doubleOvertimeMinutes,
-      );
+      const ot = minutesToHours(otMinutes);
       if (ord > 0) ensure("ordinary")[dayIdx] = ord;
       if (ot > 0) ensure("overtime")[dayIdx] = ot;
     } else {
-      // Penalty day — all worked minutes flow into the penalty bucket.
       const bucket = mapPenaltyCategory(day.penaltyCategory);
-      if (bucket) {
+      if (!bucket) continue;
+      const otBucket = mapPenaltyOtCategory(day.penaltyCategory);
+      const splitOt =
+        otMinutes > 0 &&
+        otBucket != null &&
+        (mappedCategories?.has(otBucket) ?? false);
+
+      if (splitOt) {
+        // Ordinary → base penalty bucket; OT → the combo bucket.
+        const ord = minutesToHours(day.ordinaryMinutes);
+        const ot = minutesToHours(otMinutes);
+        if (ord > 0) ensure(bucket)[dayIdx] = ord;
+        if (ot > 0) ensure(otBucket)[dayIdx] = ot;
+      } else {
+        // Legacy fold: all worked minutes into the base penalty bucket.
         const total = minutesToHours(totalMinutes);
         if (total > 0) ensure(bucket)[dayIdx] = total;
       }
@@ -105,6 +131,21 @@ function mapPenaltyCategory(category: string): ScPayrollCategory | null {
       return "penalty_sun";
     case "public_holiday":
       return "penalty_ph";
+    default:
+      return null;
+  }
+}
+
+// The opt-in "overtime on a penalty day" combo for each penalty
+// category. Returns null for weekday (handled separately).
+function mapPenaltyOtCategory(category: string): ScPayrollCategory | null {
+  switch (category) {
+    case "saturday":
+      return "penalty_sat_ot";
+    case "sunday":
+      return "penalty_sun_ot";
+    case "public_holiday":
+      return "penalty_ph_ot";
     default:
       return null;
   }

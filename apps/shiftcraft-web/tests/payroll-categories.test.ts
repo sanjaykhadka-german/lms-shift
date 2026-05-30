@@ -50,13 +50,16 @@ function makeBreakdown(days: DayFixture[]): WeekBreakdown {
 }
 
 describe("PAYROLL_CATEGORIES contract", () => {
-  it("includes the seven categories the schema CHECK constraint allows", () => {
+  it("includes every category the schema CHECK constraint allows", () => {
     expect(PAYROLL_CATEGORIES).toEqual([
       "ordinary",
       "overtime",
       "penalty_sat",
+      "penalty_sat_ot",
       "penalty_sun",
+      "penalty_sun_ot",
       "penalty_ph",
+      "penalty_ph_ot",
       "penalty_night",
       "allowance",
     ]);
@@ -121,6 +124,44 @@ describe("buildCategoryUnitsFromBreakdown", () => {
     expect(result.get("penalty_sat")).toEqual([0, 0, 0, 0, 0, 7, 0]);
     expect(result.has("ordinary")).toBe(false);
     expect(result.has("overtime")).toBe(false);
+  });
+
+  it("splits Saturday OT into penalty_sat_ot when the combo is mapped", () => {
+    // Same 6h ord + 1h OT Saturday, but now the tenant has mapped the
+    // penalty_sat_ot combo — ordinary stays in penalty_sat, OT moves out.
+    const mapped = new Set<ScPayrollCategory>(["penalty_sat", "penalty_sat_ot"]);
+    const result = buildCategoryUnitsFromBreakdown(
+      makeBreakdown([
+        { date: "2026-06-01", worked: 0, ordinary: 0, overtime: 0, penalty: "weekday" },
+        { date: "2026-06-02", worked: 0, ordinary: 0, overtime: 0, penalty: "weekday" },
+        { date: "2026-06-03", worked: 0, ordinary: 0, overtime: 0, penalty: "weekday" },
+        { date: "2026-06-04", worked: 0, ordinary: 0, overtime: 0, penalty: "weekday" },
+        { date: "2026-06-05", worked: 0, ordinary: 0, overtime: 0, penalty: "weekday" },
+        { date: "2026-06-06", worked: 420, ordinary: 360, overtime: 60, penalty: "saturday" },
+        { date: "2026-06-07", worked: 0, ordinary: 0, overtime: 0, penalty: "sunday" },
+      ]),
+      mapped,
+    );
+    expect(result.get("penalty_sat")).toEqual([0, 0, 0, 0, 0, 6, 0]);
+    expect(result.get("penalty_sat_ot")).toEqual([0, 0, 0, 0, 0, 1, 0]);
+  });
+
+  it("does NOT split when only the base penalty is mapped (combo unmapped)", () => {
+    const mapped = new Set<ScPayrollCategory>(["penalty_sat"]);
+    const result = buildCategoryUnitsFromBreakdown(
+      makeBreakdown([
+        { date: "2026-06-01", worked: 0, ordinary: 0, overtime: 0, penalty: "weekday" },
+        { date: "2026-06-02", worked: 0, ordinary: 0, overtime: 0, penalty: "weekday" },
+        { date: "2026-06-03", worked: 0, ordinary: 0, overtime: 0, penalty: "weekday" },
+        { date: "2026-06-04", worked: 0, ordinary: 0, overtime: 0, penalty: "weekday" },
+        { date: "2026-06-05", worked: 0, ordinary: 0, overtime: 0, penalty: "weekday" },
+        { date: "2026-06-06", worked: 420, ordinary: 360, overtime: 60, penalty: "saturday" },
+        { date: "2026-06-07", worked: 0, ordinary: 0, overtime: 0, penalty: "sunday" },
+      ]),
+      mapped,
+    );
+    expect(result.get("penalty_sat")).toEqual([0, 0, 0, 0, 0, 7, 0]);
+    expect(result.has("penalty_sat_ot")).toBe(false);
   });
 
   it("rolls all Sunday minutes into penalty_sun", () => {

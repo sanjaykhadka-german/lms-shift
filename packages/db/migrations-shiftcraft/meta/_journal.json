@@ -232,6 +232,13 @@
       "when": 1780014014496,
       "tag": "0032_red_proteus",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1780130159917,
+      "tag": "0033_cynical_mastermind",
+      "breakpoints": true
     }
   ]
 }

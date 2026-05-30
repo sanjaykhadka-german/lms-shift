@@ -287,6 +287,12 @@ export default async function PayrollAdminPage({
               is configured in Xero — we send raw hours per category and
               Xero applies the multiplier.
             </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              The <strong>overtime</strong> rows (Saturday / Sunday /
+              public-holiday overtime) are optional. Map one only if your
+              award pays OT on that day at a distinct rate — otherwise leave
+              it unmapped and that overtime stays in the base penalty bucket.
+            </p>
           </div>
           <ul className="divide-y divide-border">
             {PAYROLL_CATEGORIES.map((cat) => {

@@ -1322,7 +1322,7 @@ export const scXeroEarningsMapping = pgTable(
     ),
     check(
       "sc_xero_earnings_mapping_category_chk",
-      sql`${t.category} in ('ordinary','overtime','penalty_sat','penalty_sun','penalty_ph','penalty_night','allowance')`,
+      sql`${t.category} in ('ordinary','overtime','penalty_sat','penalty_sun','penalty_ph','penalty_sat_ot','penalty_sun_ot','penalty_ph_ot','penalty_night','allowance')`,
     ),
   ],
 );
@@ -1801,5 +1801,12 @@ export type ScPayrollCategory =
   | "penalty_sat"
   | "penalty_sun"
   | "penalty_ph"
+  // Opt-in combo categories: overtime worked ON a penalty day. Only used
+  // by the Xero export when the admin has mapped them to a Xero earnings
+  // rate — otherwise that OT folds into the base penalty bucket (the
+  // pre-existing behaviour), so adding these never breaks an export.
+  | "penalty_sat_ot"
+  | "penalty_sun_ot"
+  | "penalty_ph_ot"
   | "penalty_night"
   | "allowance";

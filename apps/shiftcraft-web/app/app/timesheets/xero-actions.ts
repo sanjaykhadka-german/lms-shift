@@ -139,6 +139,11 @@ export async function exportToXeroAction(
   const mapping = new Map<ScPayrollCategory, string>(
     mappingRows.map((m) => [m.category as ScPayrollCategory, m.xeroEarningsRateId]),
   );
+  // Categories the tenant has actually mapped — drives the opt-in
+  // OT-on-penalty split in buildCategoryUnitsFromBreakdown. A *_ot combo
+  // is only emitted when it's mapped; otherwise that OT folds into the
+  // base penalty bucket (legacy behaviour).
+  const mappedCategorySet = new Set<ScPayrollCategory>(mapping.keys());
   // Link by sc_employees.id, then derive appUserId → xeroEmployeeId
   // via the employee row.
   const linkByEmpId = new Map(linkRows.map((l) => [l.scEmployeeId, l]));
@@ -201,7 +206,10 @@ export async function exportToXeroAction(
       holidaySet,
       awardProfile.thresholds,
     );
-    const categoryUnits = buildCategoryUnitsFromBreakdown(breakdown);
+    const categoryUnits = buildCategoryUnitsFromBreakdown(
+      breakdown,
+      mappedCategorySet,
+    );
     if (categoryUnits.size === 0) continue;
 
     // Employee linking check.
