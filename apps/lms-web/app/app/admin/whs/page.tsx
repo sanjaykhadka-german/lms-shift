@@ -34,6 +34,8 @@ export default async function WhsPage({
 
   const kindFilter = sp.kind && kindBySlug.has(sp.kind) ? sp.kind : undefined;
   const records = await listAdminWhsRecords(ctx, { kindFilter });
+  const csvHref =
+    "/app/admin/whs/csv" + (kindFilter ? `?kind=${encodeURIComponent(kindFilter)}` : "");
 
   const today = new Date();
   const soonMs = 30 * 24 * 60 * 60 * 1000;
@@ -59,6 +61,9 @@ export default async function WhsPage({
         </div>
         <div className="flex items-center gap-2">
           <WhsReminderButton />
+          <Button asChild variant="outline" tooltip="Download the register as CSV">
+            <a href={csvHref}>Export CSV</a>
+          </Button>
           <Button asChild variant="outline" tooltip="Manage the list of WHS record types">
             <Link href="/app/admin/whs/kinds">Manage kinds</Link>
           </Button>
