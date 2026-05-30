@@ -12,6 +12,7 @@ import {
 } from "~/lib/lms/queries/assignments";
 import { tenantWhere } from "~/lib/lms/tenant-scope";
 import { Badge } from "~/components/ui/badge";
+import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
 import { HelpPopover } from "~/components/ui/help-popover";
 import { PageHeader } from "~/components/page-header";
@@ -95,6 +96,11 @@ export default async function AssignmentsPage() {
           </>
         }
         description="Pick a module and the staff to enrol in one go below. Use the table to spot-check status and unassign individual rows."
+        actions={
+          <Button asChild variant="outline">
+            <a href="/app/admin/assignments/csv">Export CSV</a>
+          </Button>
+        }
       />
 
       <Card>
