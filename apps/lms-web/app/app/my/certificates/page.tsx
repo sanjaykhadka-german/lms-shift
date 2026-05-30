@@ -16,14 +16,21 @@ export default async function CertificatesPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-10">
-      <header className="mb-8">
-        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
-          <Award className="h-6 w-6 text-[color:var(--primary)]" strokeWidth={2} />
-          My certificates
-        </h1>
-        <p className="mt-1 text-sm text-[color:var(--muted-foreground)]">
-          A certificate is issued for every module you pass. View or print any of them.
-        </p>
+      <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
+            <Award className="h-6 w-6 text-[color:var(--primary)]" strokeWidth={2} />
+            My certificates
+          </h1>
+          <p className="mt-1 text-sm text-[color:var(--muted-foreground)]">
+            A certificate is issued for every module you pass. View or print any of them.
+          </p>
+        </div>
+        {certs.length > 0 && (
+          <Button asChild variant="outline">
+            <Link href="/app/my/certificates/print-all">Print all</Link>
+          </Button>
+        )}
       </header>
 
       {certs.length === 0 ? (
