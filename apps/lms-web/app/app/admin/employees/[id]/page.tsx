@@ -446,8 +446,11 @@ export default async function EmployeeDetailPage({
 
       {certificates.length > 0 && (
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-lg">Certificates ({certificates.length})</CardTitle>
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/app/admin/employees/${userId}/transcript`}>Transcript</Link>
+            </Button>
           </CardHeader>
           <CardContent className="divide-y divide-[color:var(--border)] p-0">
             {certificates.map((c) => (

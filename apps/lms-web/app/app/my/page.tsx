@@ -51,6 +51,9 @@ export default async function MyDashboardPage() {
             <Button asChild variant="outline">
               <Link href="/app/my/certificates">Certificates</Link>
             </Button>
+            <Button asChild variant="outline">
+              <Link href="/app/my/transcript">Transcript</Link>
+            </Button>
             <Button asChild>
               <Link href="/app/my/modules">My training</Link>
             </Button>
