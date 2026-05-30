@@ -28,9 +28,14 @@ export default async function DepartmentsPage() {
         title="Departments"
         description="The teams staff belong to. Pick which modules each department auto-assigns to new staff via the policies grid."
         actions={
-          <Button asChild variant="outline">
-            <Link href="/app/admin/departments/policies">Module policies →</Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline">
+              <Link href="/app/admin/departments/report">Completion report</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/app/admin/departments/policies">Module policies →</Link>
+            </Button>
+          </div>
         }
       />
 
