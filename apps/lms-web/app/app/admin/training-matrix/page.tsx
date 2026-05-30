@@ -1,18 +1,7 @@
 import Link from "next/link";
-import { and, asc, eq, ilike, inArray, or, sql } from "drizzle-orm";
-import {
-  db,
-  lmsAssignments,
-  lmsDepartments,
-  lmsModules,
-  lmsUsers,
-} from "@tracey/db";
 import { requireAdmin } from "~/lib/auth/admin";
-import { tenantWhere } from "~/lib/lms/tenant-scope";
-import {
-  latestAttemptsByUserModule,
-  type LatestAttemptCell,
-} from "~/lib/lms/dashboard";
+import { buildTrainingMatrix } from "~/lib/lms/training-matrix";
+import { type LatestAttemptCell } from "~/lib/lms/dashboard";
 import { formatDate } from "~/lib/format/datetime";
 import { Button } from "~/components/ui/button";
 import { HelpPopover } from "~/components/ui/help-popover";
@@ -36,88 +25,24 @@ export default async function TrainingMatrixPage({
     sp.module && sp.module !== "all" ? Number(sp.module) : null;
   const q = (sp.q ?? "").trim();
 
-  // Dropdown sources + axis sources.
-  const [departments, allModules] = await Promise.all([
-    ctx.db.run((tx) =>
-      tx
-        .select({ id: lmsDepartments.id, name: lmsDepartments.name })
-        .from(lmsDepartments)
-        .where(tenantWhere(lmsDepartments, tid))
-        .orderBy(asc(lmsDepartments.name)),
-    ),
-    ctx.db.run((tx) =>
-      tx
-        .select({ id: lmsModules.id, title: lmsModules.title })
-        .from(lmsModules)
-        .where(
-          and(tenantWhere(lmsModules, tid), eq(lmsModules.isPublished, true)),
-        )
-        .orderBy(asc(lmsModules.title)),
-    ),
-  ]);
-  const modules =
-    moduleFilter != null
-      ? allModules.filter((m) => m.id === moduleFilter)
-      : allModules;
+  // Shared with the CSV export so the two never drift.
+  const { departments, allModules, modules, users, assignmentSet, latest } =
+    await buildTrainingMatrix(tid, {
+      dept: deptFilter,
+      module: moduleFilter,
+      q,
+      auditMode:
+        ctx.tenantAuditMode && ctx.tenantAuditSettings.hideFailedAttempts,
+    });
 
-  // Users (Y-axis) — active only, optional dept + name/email search.
-  const userFilters = [
-    eq(lmsUsers.traceyTenantId, tid),
-    eq(lmsUsers.isActiveFlag, true),
-  ];
-  if (deptFilter != null) {
-    userFilters.push(eq(lmsUsers.departmentId, deptFilter));
-  }
-  if (q) {
-    const pat = `%${q}%`;
-    const orExpr = or(ilike(lmsUsers.name, pat), ilike(lmsUsers.email, pat));
-    if (orExpr) userFilters.push(orExpr);
-  }
-  const users = await ctx.db.run((tx) =>
-    tx
-      .select({
-        id: lmsUsers.id,
-        name: lmsUsers.name,
-        email: lmsUsers.email,
-        departmentId: lmsUsers.departmentId,
-        departmentName: lmsDepartments.name,
-      })
-      .from(lmsUsers)
-      .leftJoin(lmsDepartments, eq(lmsDepartments.id, lmsUsers.departmentId))
-      .where(and(...userFilters))
-      .orderBy(
-        sql`coalesce(${lmsDepartments.name}, '') asc`,
-        asc(lmsUsers.name),
-      ),
-  );
-
-  // Assignments (for "•" state).
-  const userIds = users.map((u) => u.id);
-  const moduleIds = modules.map((m) => m.id);
-  const assignmentSet = new Set<string>();
-  if (userIds.length > 0 && moduleIds.length > 0) {
-    const assignFilters = [
-      eq(lmsAssignments.traceyTenantId, tid),
-      inArray(lmsAssignments.userId, userIds),
-      inArray(lmsAssignments.moduleId, moduleIds),
-    ];
-    const rows = await ctx.db.run((tx) =>
-      tx
-        .select({
-          userId: lmsAssignments.userId,
-          moduleId: lmsAssignments.moduleId,
-        })
-        .from(lmsAssignments)
-        .where(and(...assignFilters)),
-    );
-    for (const r of rows) assignmentSet.add(`${r.userId}|${r.moduleId}`);
-  }
-
-  // Latest attempts by (user, module). In Audit Mode the inner query
-  // filters to passing attempts only so failed cells collapse to blank.
-  const latest = await latestAttemptsByUserModule(tid, {
-    auditMode: ctx.tenantAuditMode && ctx.tenantAuditSettings.hideFailedAttempts,
-  });
+  // Preserve the current filters on the "Export CSV" link.
+  const csvQuery = new URLSearchParams();
+  if (sp.dept && sp.dept !== "all") csvQuery.set("dept", sp.dept);
+  if (sp.module && sp.module !== "all") csvQuery.set("module", sp.module);
+  if (q) csvQuery.set("q", q);
+  const csvHref =
+    "/app/admin/training-matrix/csv" +
+    (csvQuery.toString() ? `?${csvQuery.toString()}` : "");
 
   return (
     <div className="space-y-4">
@@ -199,6 +124,12 @@ export default async function TrainingMatrixPage({
           >
             Reset
           </Link>
+          <a
+            href={csvHref}
+            className="inline-flex h-9 items-center rounded-md border border-[color:var(--border)] px-3 text-sm hover:bg-[color:var(--accent)]"
+          >
+            Export CSV
+          </a>
         </div>
       </form>
 
