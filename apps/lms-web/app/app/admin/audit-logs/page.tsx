@@ -1,8 +1,8 @@
-import { auditEvents, db, lmsAuditLogs } from "@tracey/db";
-import { desc, eq } from "drizzle-orm";
 import { requireAdmin } from "~/lib/auth/admin";
+import { loadAuditLog } from "~/lib/lms/queries/audit-log";
 import { formatDateTime } from "~/lib/format/datetime";
 import { Badge } from "~/components/ui/badge";
+import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
 import { PageHeader } from "~/components/page-header";
 import { PruneForm } from "./PruneForm";
@@ -14,90 +14,15 @@ interface SearchParams {
   days?: string;
 }
 
-interface UnifiedRow {
-  source: "tracey" | "flask";
-  id: string;
-  createdAt: Date;
-  actorEmail: string | null;
-  action: string;
-  entity: string;
-  summary: string;
-}
-
 export default async function AuditLogsPage({
   searchParams,
 }: {
   searchParams: Promise<SearchParams>;
 }) {
   const ctx = await requireAdmin();
-  const tid = ctx.traceyTenantId;
   const sp = await searchParams;
 
-  const [tracey, flask] = await Promise.all([
-    // app.audit_events — Tracey schema, not RLS-covered.
-    // allow-cross-tenant: explicit tenantId filter on uuid-keyed Tracey table.
-    db
-      .select({
-        id: auditEvents.id,
-        createdAt: auditEvents.createdAt,
-        actorEmail: auditEvents.actorEmail,
-        action: auditEvents.action,
-        targetKind: auditEvents.targetKind,
-        targetId: auditEvents.targetId,
-        details: auditEvents.details,
-      })
-      .from(auditEvents)
-      .where(eq(auditEvents.tenantId, tid))
-      .orderBy(desc(auditEvents.createdAt))
-      .limit(200),
-    // public.audit_logs — RLS-covered. Run inside ctx.db.run so the
-    // `app.tenant_id` GUC is set for the policy.
-    ctx.db.run((tx) =>
-      tx
-        .select({
-          id: lmsAuditLogs.id,
-          createdAt: lmsAuditLogs.createdAt,
-          actorEmail: lmsAuditLogs.actorEmail,
-          action: lmsAuditLogs.action,
-          entityType: lmsAuditLogs.entityType,
-          entityId: lmsAuditLogs.entityId,
-          summary: lmsAuditLogs.summary,
-        })
-        .from(lmsAuditLogs)
-        .where(eq(lmsAuditLogs.traceyTenantId, tid))
-        .orderBy(desc(lmsAuditLogs.createdAt))
-        .limit(200),
-    ),
-  ]);
-
-  const unified: UnifiedRow[] = [];
-  for (const t of tracey) {
-    unified.push({
-      source: "tracey",
-      id: `tracey-${t.id}`,
-      createdAt: t.createdAt ?? new Date(0),
-      actorEmail: t.actorEmail ?? null,
-      action: t.action,
-      entity: [t.targetKind, t.targetId].filter(Boolean).join("#") || "—",
-      summary:
-        t.details && typeof t.details === "object"
-          ? JSON.stringify(t.details)
-          : "",
-    });
-  }
-  for (const f of flask) {
-    unified.push({
-      source: "flask",
-      id: `flask-${f.id}`,
-      createdAt: f.createdAt,
-      actorEmail: f.actorEmail || null,
-      action: f.action,
-      entity: [f.entityType, f.entityId].filter((x) => x !== null && x !== undefined).join("#") || "—",
-      summary: f.summary ?? "",
-    });
-  }
-  unified.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-  const rows = unified.slice(0, 300);
+  const rows = await loadAuditLog(ctx);
 
   return (
     <div className="space-y-6">
@@ -110,7 +35,14 @@ export default async function AuditLogsPage({
             (admin actions). Showing the most recent 300.
           </>
         }
-        actions={<PruneForm />}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Button asChild variant="outline">
+              <a href="/app/admin/audit-logs/csv">Export CSV</a>
+            </Button>
+            <PruneForm />
+          </div>
+        }
       />
 
       {sp.pruned !== undefined && (
