@@ -8,15 +8,19 @@ import { CertificateCard } from "~/components/certificate-card";
 import { signCertificate } from "~/lib/lms/certificate-token";
 import { siteConfig } from "~/lib/site-config";
 import { PrintButton } from "../_print-button";
+import { resendCertificateEmailAction } from "./actions";
 
 export const metadata = { title: "Certificate" };
 
 export default async function CertificatePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ moduleId: string }>;
+  searchParams: Promise<{ resent?: string }>;
 }) {
   const { moduleId } = await params;
+  const { resent } = await searchParams;
   const mid = parseInt(moduleId, 10);
   if (!Number.isFinite(mid)) notFound();
 
@@ -45,8 +49,22 @@ export default async function CertificatePage({
         <Button asChild variant="ghost" size="sm">
           <Link href="/app/my/certificates">← Certificates</Link>
         </Button>
-        <PrintButton />
+        <div className="flex items-center gap-2">
+          <form action={resendCertificateEmailAction}>
+            <input type="hidden" name="moduleId" value={mid} />
+            <Button type="submit" variant="outline">
+              Email it to me
+            </Button>
+          </form>
+          <PrintButton />
+        </div>
       </div>
+
+      {resent && (
+        <p className="mb-6 rounded-md border border-green-500/40 bg-green-500/10 px-3 py-2 text-sm text-green-700 print:hidden">
+          Certificate emailed to {lmsUser.email}.
+        </p>
+      )}
 
       <CertificateCard
         workspace={workspace}
