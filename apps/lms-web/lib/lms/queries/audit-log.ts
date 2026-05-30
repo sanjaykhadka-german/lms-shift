@@ -27,6 +27,8 @@ export async function loadAuditLog(
   const tid = ctx.traceyTenantId;
 
   const [tracey, flask] = await Promise.all([
+    // allow-cross-tenant: app.audit_events is RLS-excluded; scoped by the
+    // explicit tenantId filter on this uuid-keyed Tracey table.
     db
       .select({
         id: auditEvents.id,

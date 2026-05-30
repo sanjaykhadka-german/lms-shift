@@ -11,7 +11,7 @@ import { HelpPopover } from "~/components/ui/help-popover";
 import { PageHeader } from "~/components/page-header";
 import { NameCrudForm } from "../_components/NameCrudForm";
 import { DeleteRowForm } from "../_components/DeleteRowForm";
-import { createModuleAction, deleteModuleAction } from "./actions";
+import { cloneModuleAction, createModuleAction, deleteModuleAction } from "./actions";
 
 export const metadata = { title: "Modules" };
 
@@ -148,6 +148,17 @@ export default async function ModulesPage() {
                   <Button asChild variant="outline" size="sm" tooltip="Open this module to edit content and quiz">
                     <Link href={`/app/admin/modules/${m.id}`}>Edit</Link>
                   </Button>
+                  <form action={cloneModuleAction}>
+                    <input type="hidden" name="id" value={m.id} />
+                    <Button
+                      type="submit"
+                      variant="outline"
+                      size="sm"
+                      tooltip="Duplicate this module (content + quiz) as a new draft"
+                    >
+                      Duplicate
+                    </Button>
+                  </form>
                   <DeleteRowForm
                     action={deleteModuleAction}
                     id={m.id}
