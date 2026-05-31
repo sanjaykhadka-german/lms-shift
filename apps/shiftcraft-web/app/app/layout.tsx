@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { currentMembership, currentUser } from "~/lib/auth/current";
+import { isPlatformAdmin } from "~/lib/auth/platform-allowlist";
 import {
   getRecentNotifications,
   getUnreadCount,
@@ -22,6 +23,9 @@ export default async function AppLayout({
   const membership = await currentMembership();
   const displayName = user.name ?? user.email;
   const roleLabel = membership?.role ?? "member";
+  // Platform-admin check is server-side (reads PLATFORM_ADMIN_EMAILS); pass a
+  // boolean to the client Sidebar so it can show the cross-tenant link.
+  const platformAdmin = isPlatformAdmin(user.email);
   // Unread count + 5 recent notifications power the top-right bell.
   // Both are tenant-scoped via the same recipientUserId, so we run them
   // in parallel. Skip the query if there's no active membership (user
@@ -48,6 +52,7 @@ export default async function AppLayout({
         email={user.email}
         image={user.image}
         role={roleLabel}
+        showPlatformLink={platformAdmin}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Global chrome — only renders on md+ so the existing mobile

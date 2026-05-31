@@ -124,11 +124,13 @@ export function Sidebar({
   email,
   image,
   role,
+  showPlatformLink = false,
 }: {
   name: string;
   email: string;
   image: string | null;
   role: string;
+  showPlatformLink?: boolean;
 }) {
   const pathname = usePathname();
   const isAdmin = role === "admin" || role === "owner";
@@ -205,6 +207,18 @@ export function Sidebar({
         ))}
       </nav>
       <div className="border-t border-line-soft px-3 py-4">
+        {/* Cross-tenant platform surface — only shown to platform admins
+            (PLATFORM_ADMIN_EMAILS). Lives outside the /app shell, so a plain
+            full navigation rather than an in-app nav item. */}
+        {showPlatformLink && (
+          <Link
+            href="/platform"
+            className="mb-2 flex w-full items-center gap-3 rounded-[var(--r-sm)] px-3 py-2 text-sm font-medium text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink"
+          >
+            <Building2 className="h-4 w-4" />
+            Tracey Platform
+          </Link>
+        )}
         <div className="mb-2 flex items-center gap-3 px-3">
           <Avatar
             name={name}
