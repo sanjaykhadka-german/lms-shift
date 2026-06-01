@@ -5,6 +5,7 @@ import {
   lmsAssignments,
   lmsDepartmentModulePolicies,
   lmsModules,
+  lmsPositionModulePolicies,
   lmsUsers,
 } from "@tracey/db";
 import { formatDate } from "~/lib/format/datetime";
@@ -21,36 +22,43 @@ function computeDueAt(validForDays: number | null | undefined, now: Date): Date 
   return new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
 }
 
-/** Port of auto_assign_for_department (app.py:259-300). Idempotent — relies
- *  on the unique (user_id, module_id) constraint to ignore duplicates that
- *  win a race. Returns count of new assignments created.
+/** Auto-assign the policy modules for a user's membership — the union of their
+ *  department's and their position's module policies (plus any ad-hoc
+ *  additionalModuleIds). Generalises the original auto_assign_for_department
+ *  (app.py:259-300). Idempotent — relies on the unique (user_id, module_id)
+ *  constraint to ignore duplicates that win a race. Returns count of new
+ *  assignments created.
  *
  *  Module.is_published is respected (only published modules are assigned).
  *  Modules already assigned to the user are skipped, regardless of
  *  completed_at status. Tenant-scoped: every read + write filters by
  *  traceyTenantId so a malicious caller can't cross-link tenants. */
-export async function autoAssignForDepartment(opts: {
+export async function autoAssignForMembership(opts: {
   userId: number;
-  departmentId: number | null;
+  /** Pass to include the department's policy modules. Omit/null to skip them
+   *  (e.g. the position-policy save sweep passes positionId only). */
+  departmentId?: number | null;
+  /** Pass to include the position's policy modules. Omit/null to skip them. */
+  positionId?: number | null;
   traceyTenantId: string;
   tenantTimezone: string;
   /** Suppress the summary email side-effect. In-app notifications still fire.
    *  Used by the retroactive policy-save sweep to avoid a burst of emails
    *  when a single tick affects many existing staff. */
   skipEmail?: boolean;
-  /** Extra modules to assign on top of the department's policy modules.
-   *  Used by the new-employee confirmation modal so admin can pick a few
-   *  ad-hoc modules without leaving the create-employee form. Same dedupe,
-   *  same notification + email pipeline as the policy modules. */
+  /** Extra modules to assign on top of the policy modules. Used by the
+   *  new-employee confirmation modal so admin can pick a few ad-hoc modules
+   *  without leaving the create-employee form. Same dedupe, same notification
+   *  + email pipeline as the policy modules. */
   additionalModuleIds?: number[];
 }): Promise<number> {
   const additional = opts.additionalModuleIds ?? [];
-  if (!opts.departmentId && additional.length === 0) return 0;
+  if (!opts.departmentId && !opts.positionId && additional.length === 0) return 0;
   const tid = opts.traceyTenantId;
 
   const tdb = forTenant(tid);
   const insertResult = await tdb.run(async (tx) => {
-    const policyRows = opts.departmentId
+    const deptPolicyRows = opts.departmentId
       ? await tx
           .select({ moduleId: lmsDepartmentModulePolicies.moduleId })
           .from(lmsDepartmentModulePolicies)
@@ -61,8 +69,23 @@ export async function autoAssignForDepartment(opts: {
             ),
           )
       : [];
+    const positionPolicyRows = opts.positionId
+      ? await tx
+          .select({ moduleId: lmsPositionModulePolicies.moduleId })
+          .from(lmsPositionModulePolicies)
+          .where(
+            and(
+              eq(lmsPositionModulePolicies.positionId, opts.positionId),
+              eq(lmsPositionModulePolicies.traceyTenantId, tid),
+            ),
+          )
+      : [];
     const requestedIds = Array.from(
-      new Set([...policyRows.map((r) => r.moduleId), ...additional]),
+      new Set([
+        ...deptPolicyRows.map((r) => r.moduleId),
+        ...positionPolicyRows.map((r) => r.moduleId),
+        ...additional,
+      ]),
     );
     if (requestedIds.length === 0) return { count: 0, inserted: [] as Array<{ moduleId: number; title: string; dueAt: Date | null }> };
 
@@ -121,7 +144,7 @@ export async function autoAssignForDepartment(opts: {
       });
       return { count: insertedRows.length, inserted };
     } catch (err) {
-      console.error("[autoAssignForDepartment]", err);
+      console.error("[autoAssignForMembership]", err);
       return { count: 0, inserted: [] };
     }
   });
@@ -183,7 +206,7 @@ async function notifyAssignmentsAdded(
       });
     }
   } catch (err) {
-    console.error("[autoAssignForDepartment] notify failed", err);
+    console.error("[autoAssignForMembership] notify failed", err);
   }
 }
 

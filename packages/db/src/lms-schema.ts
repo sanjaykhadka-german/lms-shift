@@ -242,6 +242,19 @@ export const lmsDepartmentModulePolicies = pgTable("department_module_policies",
     .references(() => tenants.id, { onDelete: "cascade" }),
 });
 
+// Per-position auto-assign rules — the position analogue of
+// department_module_policies. A user carries both a department and a position,
+// so autoAssignForMembership() unions the modules from both policy tables.
+export const lmsPositionModulePolicies = pgTable("position_module_policies", {
+  id: integer("id").generatedByDefaultAsIdentity().primaryKey(),
+  positionId: integer("position_id").notNull(),
+  moduleId: integer("module_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  traceyTenantId: uuid("tracey_tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+});
+
 export const lmsWhsRecords = pgTable("whs_records", {
   id: integer("id").generatedByDefaultAsIdentity().primaryKey(),
   kind: text("kind").notNull(),
@@ -327,6 +340,7 @@ export type LmsQuestion = typeof lmsQuestions.$inferSelect;
 export type LmsChoice = typeof lmsChoices.$inferSelect;
 export type LmsAssignment = typeof lmsAssignments.$inferSelect;
 export type NewLmsAssignment = typeof lmsAssignments.$inferInsert;
+export type LmsPositionModulePolicy = typeof lmsPositionModulePolicies.$inferSelect;
 export type LmsModuleVersion = typeof lmsModuleVersions.$inferSelect;
 export type LmsAttempt = typeof lmsAttempts.$inferSelect;
 export type NewLmsAttempt = typeof lmsAttempts.$inferInsert;

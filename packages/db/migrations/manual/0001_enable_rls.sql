@@ -32,6 +32,7 @@ DECLARE
     'public.user_machines',
     'public.machine_modules',
     'public.department_module_policies',
+    'public.position_module_policies',
     'public.whs_records',
     'public.whs_kinds',
     'public.audit_logs',

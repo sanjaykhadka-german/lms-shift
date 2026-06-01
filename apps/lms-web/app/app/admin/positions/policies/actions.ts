@@ -1,12 +1,12 @@
-﻿"use server";
+"use server";
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { and, eq } from "drizzle-orm";
 import {
-  lmsDepartmentModulePolicies,
-  lmsDepartments,
   lmsModules,
+  lmsPositionModulePolicies,
+  lmsPositions,
   lmsUsers,
 } from "@tracey/db";
 import { requireAdminAction } from "~/lib/auth/admin";
@@ -15,20 +15,20 @@ import { autoAssignForMembership } from "~/lib/lms/admin";
 import { isEffectivelyActive } from "~/lib/lms/employee-status";
 import { tenantWhere } from "~/lib/lms/tenant-scope";
 
-// Port of /admin/departments/policies POST (app.py:3299-3339). Form posts
-// `policy_<dept>_<module>` checkboxes; we diff desired vs existing and only
-// write the delta.
+// Position analogue of saveDepartmentPoliciesAction. Form posts
+// `policy_<position>_<module>` checkboxes; we diff desired vs existing and only
+// write the delta, then sweep existing staff in the affected positions.
 
-export async function saveDepartmentPoliciesAction(formData: FormData): Promise<void> {
+export async function savePositionPoliciesAction(formData: FormData): Promise<void> {
   const ctx = await requireAdminAction();
   const tid = ctx.traceyTenantId;
 
-  const [departments, moduleRows] = await Promise.all([
+  const [positions, moduleRows] = await Promise.all([
     ctx.db.run((tx) =>
       tx
-        .select({ id: lmsDepartments.id })
-        .from(lmsDepartments)
-        .where(tenantWhere(lmsDepartments, tid)),
+        .select({ id: lmsPositions.id })
+        .from(lmsPositions)
+        .where(tenantWhere(lmsPositions, tid)),
     ),
     ctx.db.run((tx) =>
       tx
@@ -37,44 +37,44 @@ export async function saveDepartmentPoliciesAction(formData: FormData): Promise<
         .where(and(eq(lmsModules.isPublished, true), tenantWhere(lmsModules, tid))),
     ),
   ]);
-  const validDepartmentIds = new Set(departments.map((d) => d.id));
+  const validPositionIds = new Set(positions.map((p) => p.id));
   const validModuleIds = new Set(moduleRows.map((m) => m.id));
 
   // Decode the desired set from posted checkbox keys.
-  const desired = new Set<string>(); // "<dept>:<module>"
+  const desired = new Set<string>(); // "<position>:<module>"
   for (const key of formData.keys()) {
     if (!key.startsWith("policy_")) continue;
     const parts = key.slice("policy_".length).split("_");
     if (parts.length !== 2) continue;
-    const did = parseInt(parts[0]!, 10);
+    const pid = parseInt(parts[0]!, 10);
     const mid = parseInt(parts[1]!, 10);
-    if (!Number.isFinite(did) || !Number.isFinite(mid)) continue;
-    if (validDepartmentIds.has(did) && validModuleIds.has(mid)) {
-      desired.add(`${did}:${mid}`);
+    if (!Number.isFinite(pid) || !Number.isFinite(mid)) continue;
+    if (validPositionIds.has(pid) && validModuleIds.has(mid)) {
+      desired.add(`${pid}:${mid}`);
     }
   }
 
   const existingRows = await ctx.db.run((tx) =>
     tx
       .select({
-        id: lmsDepartmentModulePolicies.id,
-        departmentId: lmsDepartmentModulePolicies.departmentId,
-        moduleId: lmsDepartmentModulePolicies.moduleId,
+        id: lmsPositionModulePolicies.id,
+        positionId: lmsPositionModulePolicies.positionId,
+        moduleId: lmsPositionModulePolicies.moduleId,
       })
-      .from(lmsDepartmentModulePolicies)
-      .where(tenantWhere(lmsDepartmentModulePolicies, tid)),
+      .from(lmsPositionModulePolicies)
+      .where(tenantWhere(lmsPositionModulePolicies, tid)),
   );
   const existing = new Map<string, number>();
   for (const r of existingRows) {
-    existing.set(`${r.departmentId}:${r.moduleId}`, r.id);
+    existing.set(`${r.positionId}:${r.moduleId}`, r.id);
   }
 
-  const toAdd: Array<{ departmentId: number; moduleId: number }> = [];
+  const toAdd: Array<{ positionId: number; moduleId: number }> = [];
   const toDeleteIds: number[] = [];
   for (const key of desired) {
     if (!existing.has(key)) {
-      const [d, m] = key.split(":").map((n) => parseInt(n, 10));
-      toAdd.push({ departmentId: d!, moduleId: m! });
+      const [p, m] = key.split(":").map((n) => parseInt(n, 10));
+      toAdd.push({ positionId: p!, moduleId: m! });
     }
   }
   for (const [key, id] of existing) {
@@ -82,35 +82,35 @@ export async function saveDepartmentPoliciesAction(formData: FormData): Promise<
   }
 
   if (toAdd.length === 0 && toDeleteIds.length === 0) {
-    redirect("/app/admin/departments/policies?info=nochange");
+    redirect("/app/admin/positions/policies?info=nochange");
   }
 
   await ctx.db.run(async (tx) => {
     if (toAdd.length > 0) {
       await tx
-        .insert(lmsDepartmentModulePolicies)
+        .insert(lmsPositionModulePolicies)
         .values(toAdd.map((r) => ({ ...r, traceyTenantId: tid })));
     }
     for (const id of toDeleteIds) {
       await tx
-        .delete(lmsDepartmentModulePolicies)
+        .delete(lmsPositionModulePolicies)
         .where(
           and(
-            eq(lmsDepartmentModulePolicies.id, id),
-            tenantWhere(lmsDepartmentModulePolicies, tid),
+            eq(lmsPositionModulePolicies.id, id),
+            tenantWhere(lmsPositionModulePolicies, tid),
           ),
         );
     }
   });
 
-  // Retroactive sweep: for every department that just gained a new policy,
-  // auto-assign the policy modules to existing active staff in that department
-  // so they see the new training without waiting for a department change.
-  // In-app notifications fire; email is suppressed to avoid a burst when a
-  // single tick affects many staff.
+  // Retroactive sweep: for every position that just gained a new policy,
+  // auto-assign the policy modules to existing active staff in that position so
+  // they see the new training without waiting for a position change. In-app
+  // notifications fire; email is suppressed to avoid a burst when a single tick
+  // affects many staff.
   let assignedTotal = 0;
-  const affectedDeptIds = Array.from(new Set(toAdd.map((r) => r.departmentId)));
-  for (const did of affectedDeptIds) {
+  const affectedPositionIds = Array.from(new Set(toAdd.map((r) => r.positionId)));
+  for (const pid of affectedPositionIds) {
     const staff = await ctx.db.run((tx) =>
       tx
         .select({
@@ -119,21 +119,21 @@ export async function saveDepartmentPoliciesAction(formData: FormData): Promise<
           terminationDate: lmsUsers.terminationDate,
         })
         .from(lmsUsers)
-        .where(and(eq(lmsUsers.departmentId, did), tenantWhere(lmsUsers, tid))),
+        .where(and(eq(lmsUsers.positionId, pid), tenantWhere(lmsUsers, tid))),
     );
     for (const u of staff) {
       if (!isEffectivelyActive(u)) continue;
       try {
         const n = await autoAssignForMembership({
           userId: u.id,
-          departmentId: did,
+          positionId: pid,
           traceyTenantId: tid,
           tenantTimezone: ctx.tenantTimezone,
           skipEmail: true,
         });
         assignedTotal += n;
       } catch (err) {
-        console.error("[policies.sweep] user", u.id, "failed:", err);
+        console.error("[position-policies.sweep] user", u.id, "failed:", err);
       }
     }
   }
@@ -142,14 +142,14 @@ export async function saveDepartmentPoliciesAction(formData: FormData): Promise<
     tenantId: tid,
     actorUserId: ctx.traceyUserId,
     actorEmail: ctx.lmsUser.email,
-    action: "department.policies_updated",
-    targetKind: "department",
+    action: "position.policies_updated",
+    targetKind: "position",
     targetId: null as unknown as string,
     details: { added: toAdd.length, removed: toDeleteIds.length, assigned: assignedTotal },
   });
 
-  revalidatePath("/app/admin/departments/policies");
+  revalidatePath("/app/admin/positions/policies");
   redirect(
-    `/app/admin/departments/policies?ok=1&added=${toAdd.length}&removed=${toDeleteIds.length}&assigned=${assignedTotal}`,
+    `/app/admin/positions/policies?ok=1&added=${toAdd.length}&removed=${toDeleteIds.length}&assigned=${assignedTotal}`,
   );
 }

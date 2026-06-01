@@ -17,7 +17,7 @@ import {
 } from "@tracey/db";
 import { requireAdminAction } from "~/lib/auth/admin";
 import { logAuditEvent } from "~/lib/audit";
-import { autoAssignForDepartment } from "~/lib/lms/admin";
+import { autoAssignForMembership } from "~/lib/lms/admin";
 import { sendInviteEmail } from "~/lib/lms/notify-admin";
 import { normalizeHeader, parseCsv } from "~/lib/lms/csv";
 import { tenantWhere } from "~/lib/lms/tenant-scope";
@@ -316,7 +316,7 @@ export async function bulkUploadEmployeesAction(formData: FormData): Promise<voi
     });
     if (emailed) result.invited += 1;
     if (newId) {
-      await autoAssignForDepartment({
+      await autoAssignForMembership({
         userId: newId,
         departmentId,
         traceyTenantId: tid,

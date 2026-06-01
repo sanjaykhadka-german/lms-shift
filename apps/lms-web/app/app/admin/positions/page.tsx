@@ -57,9 +57,14 @@ export default async function PositionsPage() {
         title="Positions"
         description="The roles that make up your org chart. Hierarchy is between positions, not people — when staff change, the chart stays."
         actions={
-          <Button asChild variant="outline" tooltip="View the organisation chart">
-            <Link href="/app/admin/positions/chart">View org chart →</Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline">
+              <Link href="/app/admin/positions/policies">Module policies →</Link>
+            </Button>
+            <Button asChild variant="outline" tooltip="View the organisation chart">
+              <Link href="/app/admin/positions/chart">View org chart →</Link>
+            </Button>
+          </div>
         }
       />
 

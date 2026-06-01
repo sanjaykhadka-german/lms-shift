@@ -22,7 +22,7 @@ import { mapFlaskRole } from "~/lib/auth/legacy-bridge";
 import { logAuditEvent } from "~/lib/audit";
 import { sendInviteEmail, sendPasswordResetEmail } from "~/lib/lms/notify-admin";
 import { deleteStoredPhoto, PhotoUploadError, saveUserPhoto } from "~/lib/lms/photos";
-import { autoAssignForDepartment } from "~/lib/lms/admin";
+import { autoAssignForMembership } from "~/lib/lms/admin";
 import { tenantWhere } from "~/lib/lms/tenant-scope";
 import type { FormState } from "../_components/NameCrudForm";
 
@@ -198,9 +198,10 @@ export async function createEmployeeAction(_prev: FormState, formData: FormData)
 
   const newId = row?.id;
   const autoAssigned = newId
-    ? await autoAssignForDepartment({
+    ? await autoAssignForMembership({
         userId: newId,
         departmentId: data.departmentId,
+        positionId: data.positionId,
         traceyTenantId: tid,
         tenantTimezone: ctx.tenantTimezone,
         additionalModuleIds: extraModuleIds,
@@ -577,12 +578,17 @@ export async function updateEmployeeAction(formData: FormData): Promise<void> {
     details: { email: target.email },
   });
 
-  // If the user moved to a different department, auto-assign any new
-  // department-policy modules. Same condition Flask uses (app.py:2924).
-  if (target.departmentId !== data.departmentId) {
-    await autoAssignForDepartment({
+  // If the user moved to a different department or position, auto-assign any
+  // new policy modules for that membership (union of dept + position policies).
+  // Extends the original department-only condition (Flask app.py:2924).
+  if (
+    target.departmentId !== data.departmentId ||
+    target.positionId !== data.positionId
+  ) {
+    await autoAssignForMembership({
       userId: data.id,
       departmentId: data.departmentId,
+      positionId: data.positionId,
       traceyTenantId: tid,
       tenantTimezone: ctx.tenantTimezone,
     });
