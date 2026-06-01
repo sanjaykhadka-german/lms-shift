@@ -17,6 +17,8 @@ export interface EmployeeFormDefaults {
   email: string | null;
   mobile: string | null;
   department: string | null;
+  locationId: string | null;
+  position: string | null;
   employmentType: string;
   hourlyRate: string | null;
   notes: string | null;
@@ -82,6 +84,8 @@ interface Props {
   defaultValues?: EmployeeFormDefaults;
   /** Known department names for the tenant — populates the datalist. */
   departmentSuggestions?: string[];
+  /** Tenant locations for the home-location dropdown. */
+  locationOptions?: Array<{ id: string; name: string }>;
 }
 
 export function EmployeeForm({
@@ -89,6 +93,7 @@ export function EmployeeForm({
   employeeId,
   defaultValues,
   departmentSuggestions = [],
+  locationOptions = [],
 }: Props) {
   const action =
     mode === "edit" && employeeId
@@ -186,6 +191,55 @@ export function EmployeeForm({
             <p className="text-xs text-muted-foreground">
               Pick an existing department or type a new one — it'll be
               created automatically.
+            </p>
+          )}
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="position">Position (optional)</Label>
+          <Input
+            id="position"
+            name="position"
+            defaultValue={v?.position ?? ""}
+            placeholder="e.g. Butcher, QA Supervisor"
+            aria-invalid={!!fieldError(state, "position")}
+          />
+          {fieldError(state, "position") ? (
+            <p className="text-xs text-[color:var(--destructive)]">
+              {fieldError(state, "position")}
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Job title shown on the roster. Award classification is set
+              separately below.
+            </p>
+          )}
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="locationId">Home location (optional)</Label>
+          <select
+            id="locationId"
+            name="locationId"
+            defaultValue={v?.locationId ?? ""}
+            className="flex h-9 w-full rounded-md border border-[color:var(--input)] bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+            aria-invalid={!!fieldError(state, "locationId")}
+          >
+            <option value="">— No home location —</option>
+            {locationOptions.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+          {fieldError(state, "locationId") ? (
+            <p className="text-xs text-[color:var(--destructive)]">
+              {fieldError(state, "locationId")}
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Primary site this person works at. Shifts can still be at any
+              location.
             </p>
           )}
         </div>

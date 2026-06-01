@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
-import { forTenant, scDepartments } from "@tracey/db";
+import { forTenant, scDepartments, scLocations } from "@tracey/db";
 import { currentMembership } from "~/lib/auth/current";
 import { EmployeeForm } from "./_form";
 
@@ -25,6 +25,14 @@ export default async function NewEmployeePage({
       .orderBy(asc(scDepartments.name)),
   );
 
+  const locations = await forTenant(membership.tenant.id).run((tx) =>
+    tx
+      .select({ id: scLocations.id, name: scLocations.name })
+      .from(scLocations)
+      .where(eq(scLocations.traceyTenantId, membership.tenant.id))
+      .orderBy(asc(scLocations.name)),
+  );
+
   // When linked from the "Add to roster" affordance on /app/employees, the
   // query string pre-fills name + email so the manager doesn't retype and
   // — more importantly — the email matches the existing app.users row so
@@ -37,6 +45,8 @@ export default async function NewEmployeePage({
           email: email ?? null,
           mobile: null,
           department: null,
+          locationId: null,
+          position: null,
           employmentType: "full_time",
           hourlyRate: null,
           notes: null,
@@ -74,6 +84,7 @@ export default async function NewEmployeePage({
         <EmployeeForm
           defaultValues={prefilled}
           departmentSuggestions={departments.map((d) => d.name)}
+          locationOptions={locations}
         />
       </section>
     </div>

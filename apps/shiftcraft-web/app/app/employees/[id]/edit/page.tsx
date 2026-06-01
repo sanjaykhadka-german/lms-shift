@@ -8,6 +8,7 @@ import {
   scDepartments,
   scEmployeePins,
   scEmployees,
+  scLocations,
   type Role,
 } from "@tracey/db";
 import { currentMembership, currentUser } from "~/lib/auth/current";
@@ -45,6 +46,8 @@ export default async function EditEmployeePage({
         email: scEmployees.email,
         mobile: scEmployees.mobile,
         departmentName: scDepartments.name,
+        locationId: scEmployees.locationId,
+        position: scEmployees.position,
         employmentType: scEmployees.employmentType,
         hourlyRate: scEmployees.hourlyRate,
         notes: scEmployees.notes,
@@ -131,6 +134,14 @@ export default async function EditEmployeePage({
       .orderBy(asc(scDepartments.name)),
   );
 
+  const locations = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({ id: scLocations.id, name: scLocations.name })
+      .from(scLocations)
+      .where(eq(scLocations.traceyTenantId, tenantId))
+      .orderBy(asc(scLocations.name)),
+  );
+
   // Phase 2 #3b.6 — tenant profile shown as placeholders on the employee
   // override card so the manager sees what they're inheriting.
   const tenantAwardProfile = isAtLeastManager(membership.role)
@@ -178,6 +189,8 @@ export default async function EditEmployeePage({
             email: row.email,
             mobile: row.mobile,
             department: row.departmentName,
+            locationId: row.locationId,
+            position: row.position,
             employmentType: row.employmentType,
             hourlyRate: row.hourlyRate,
             notes: row.notes,
@@ -190,6 +203,7 @@ export default async function EditEmployeePage({
             emergencyContactPhone: row.emergencyContactPhone,
           }}
           departmentSuggestions={departments.map((d) => d.name)}
+          locationOptions={locations}
         />
       </section>
 

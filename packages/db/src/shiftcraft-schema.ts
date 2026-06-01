@@ -401,6 +401,19 @@ export const scEmployees = pgTable(
     departmentId: uuid("department_id").references(() => scDepartments.id, {
       onDelete: "set null",
     }),
+    // Primary / home location (AUDIT gap #1). Nullable — contractors and
+    // multi-site staff may have none. FK is declared here so Drizzle emits
+    // the column on the public template; the per-tenant migration (0046)
+    // re-attaches the constraint pointing at the per-tenant sc_locations,
+    // exactly like department_id above.
+    locationId: uuid("location_id").references(() => scLocations.id, {
+      onDelete: "set null",
+    }),
+    // Job title / position, free text (e.g. "Butcher", "QA Supervisor").
+    // Distinct from the award *classification* (which is encoded in
+    // award_profile) — this is the human-readable role label shown on the
+    // roster and People pages.
+    position: text("position"),
     availability: jsonb("availability"),
     // Employment vocabulary aligned with the AU brief (migration 0034
     // renamed the legacy `permanent`/`labour_hire` values):
@@ -469,6 +482,7 @@ export const scEmployees = pgTable(
   (t) => [
     index("sc_employees_tenant_idx").on(t.traceyTenantId, t.isActive),
     index("sc_employees_app_user_idx").on(t.appUserId),
+    index("sc_employees_location_idx").on(t.locationId),
     index("sc_employees_onboarding_idx").on(
       t.traceyTenantId,
       t.onboardingStatus,

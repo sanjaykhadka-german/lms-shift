@@ -12,6 +12,7 @@ import {
   scDepartments,
   scEmployeePins,
   scEmployees,
+  scLocations,
   users,
   type Role,
 } from "@tracey/db";
@@ -79,6 +80,10 @@ const employeeSchema = z.object({
     .optional(),
   mobile: z.string().trim().max(40).optional().or(z.literal("")),
   department: z.string().trim().max(80).optional().or(z.literal("")),
+  position: z.string().trim().max(80).optional().or(z.literal("")),
+  locationId: z
+    .union([z.literal(""), z.string().uuid("Pick a valid location")])
+    .optional(),
   employmentType: z.enum(["full_time", "part_time", "casual", "contractor"]),
   hourlyRate: z
     .union([
@@ -129,6 +134,31 @@ function emptyToNull(v: string | undefined | null): string | null {
 }
 
 /**
+ * Confirm `locationId` is a real sc_locations row in this tenant before we
+ * write it onto an employee. The per-tenant FK would reject a bad id with a
+ * 23503, but checking here turns that into a friendly field error and keeps
+ * a stale dropdown value (location deleted mid-edit) from 500-ing.
+ */
+async function locationBelongsToTenant(
+  tenantId: string,
+  locationId: string,
+): Promise<boolean> {
+  const rows = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({ id: scLocations.id })
+      .from(scLocations)
+      .where(
+        and(
+          eq(scLocations.id, locationId),
+          eq(scLocations.traceyTenantId, tenantId),
+        ),
+      )
+      .limit(1),
+  );
+  return rows.length > 0;
+}
+
+/**
  * Find the `app.users.id` whose email matches `email` AND is a member of
  * `tenantId`. Returns null if no match. The list-page row dedupe uses the
  * same case-insensitive email match — this puts the link in the DB column
@@ -162,6 +192,8 @@ export async function createEmployeeAction(
     email: formData.get("email") ?? "",
     mobile: formData.get("mobile") ?? "",
     department: formData.get("department") ?? "",
+    position: formData.get("position") ?? "",
+    locationId: formData.get("locationId") ?? "",
     employmentType: formData.get("employmentType") ?? "full_time",
     hourlyRate: formData.get("hourlyRate") ?? "",
     notes: formData.get("notes") ?? "",
@@ -193,8 +225,18 @@ export async function createEmployeeAction(
   const email = emptyToNull(parsed.data.email);
   const mobile = emptyToNull(parsed.data.mobile);
   const department = emptyToNull(parsed.data.department);
+  const position = emptyToNull(parsed.data.position);
+  const locationId = emptyToNull(parsed.data.locationId);
   const notes = emptyToNull(parsed.data.notes);
   const availability = collectAvailability(formData);
+
+  if (locationId && !(await locationBelongsToTenant(tenantId, locationId))) {
+    return {
+      status: "error",
+      message: "Please fix the highlighted fields.",
+      fieldErrors: { locationId: ["That location no longer exists."] },
+    };
+  }
 
   // Pre-check email uniqueness inside the tenant — the partial unique index
   // is the source of truth, but surfacing this as a field error beats a
@@ -242,6 +284,8 @@ export async function createEmployeeAction(
           email,
           mobile,
           departmentId,
+          locationId,
+          position,
           availability,
           employmentType: parsed.data.employmentType,
           hourlyRate,
@@ -382,6 +426,8 @@ export async function updateEmployeeAction(
     email: formData.get("email") ?? "",
     mobile: formData.get("mobile") ?? "",
     department: formData.get("department") ?? "",
+    position: formData.get("position") ?? "",
+    locationId: formData.get("locationId") ?? "",
     employmentType: formData.get("employmentType") ?? "full_time",
     hourlyRate: formData.get("hourlyRate") ?? "",
     notes: formData.get("notes") ?? "",
@@ -412,9 +458,19 @@ export async function updateEmployeeAction(
   const email = emptyToNull(parsed.data.email);
   const mobile = emptyToNull(parsed.data.mobile);
   const department = emptyToNull(parsed.data.department);
+  const position = emptyToNull(parsed.data.position);
+  const locationId = emptyToNull(parsed.data.locationId);
   const notes = emptyToNull(parsed.data.notes);
   const availability = collectAvailability(formData);
   const hourlyRate = emptyToNull(parsed.data.hourlyRate);
+
+  if (locationId && !(await locationBelongsToTenant(tenantId, locationId))) {
+    return {
+      status: "error",
+      message: "Please fix the highlighted fields.",
+      fieldErrors: { locationId: ["That location no longer exists."] },
+    };
+  }
 
   // Email-uniqueness precheck excludes this row.
   if (email) {
@@ -469,6 +525,8 @@ export async function updateEmployeeAction(
         email,
         mobile,
         departmentId,
+        locationId,
+        position,
         availability,
         employmentType: parsed.data.employmentType,
         hourlyRate,
