@@ -1,12 +1,13 @@
 import { redirect } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
-import { forTenant, scLocations } from "@tracey/db";
+import { forTenant, scLocations, type ScClockEventType } from "@tracey/db";
 import { currentMembership, currentUser } from "~/lib/auth/current";
 import {
   aggregateClockTotals,
-  deriveClockState,
   fmtHours,
+  getLatestEventForUser,
   getTodayEventsForUser,
+  stateFor,
 } from "~/lib/clock";
 import { ClockPanel } from "./_panel";
 import { Badge } from "~/components/ui/badge";
@@ -29,8 +30,9 @@ export default async function ClockPage() {
 
   const tenantId = membership.tenant.id;
 
-  const [events, locations] = await Promise.all([
+  const [events, latestEvent, locations] = await Promise.all([
     getTodayEventsForUser(tenantId, user.id),
+    getLatestEventForUser(tenantId, user.id),
     forTenant(tenantId).run((tx) =>
       tx
         .select({ id: scLocations.id, name: scLocations.name })
@@ -40,14 +42,32 @@ export default async function ClockPage() {
     ),
   ]);
 
-  const state = deriveClockState(events);
+  // Current status must come from the user's *latest* event regardless of
+  // calendar day. recordPunch() validates the transition against the
+  // all-time last event, so deriving from today-only would show a "Clock
+  // in" button to someone who never clocked out yesterday — which the
+  // server then rejects with "You're already clocked in."
+  const status = stateFor(latestEvent?.eventType as ScClockEventType | undefined);
+  const realSegmentStart =
+    status === "clocked_out" ? null : (latestEvent?.occurredAt ?? null);
 
-  // Totals for today *up to the start of the current open segment*. The
+  // Live-timer anchor: clamp a segment that began before today to midnight
+  // so "Worked today" reflects only today's portion — a forgotten overnight
+  // clock-out shouldn't read as an 18-hour day. For a normal same-day
+  // segment this equals realSegmentStart.
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const timerAnchor =
+    realSegmentStart && realSegmentStart < startOfToday
+      ? startOfToday
+      : realSegmentStart;
+
+  // Today's already-closed work, up to the live segment's anchor. The
   // client adds live ticks on top via Date.now().
   const closedEvents =
-    state.status === "clocked_out" || !state.segmentStartedAt
+    status === "clocked_out" || !timerAnchor
       ? events
-      : events.filter((e) => e.occurredAt < state.segmentStartedAt!);
+      : events.filter((e) => e.occurredAt < timerAnchor);
   const baseTotals = aggregateClockTotals(closedEvents);
 
   // Find the most recent location used today; pre-select it for convenience.
@@ -79,8 +99,8 @@ export default async function ClockPage() {
       </div>
 
       <ClockPanel
-        status={state.status}
-        segmentStartedAtIso={state.segmentStartedAt?.toISOString() ?? null}
+        status={status}
+        segmentStartedAtIso={timerAnchor?.toISOString() ?? null}
         locations={locations}
         defaultLocationId={lastLocation}
         baseWorkMs={baseTotals.workMs}
