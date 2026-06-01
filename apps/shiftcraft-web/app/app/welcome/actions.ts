@@ -198,21 +198,33 @@ export async function selfSavePayrollPiiAction(
   const superFundName = emptyToNull(parsed.data.superFundName);
   const superMemberNumber = emptyToNull(parsed.data.superMemberNumber);
 
+  // The four secret fields render BLANK in the form with a "Leave blank to
+  // keep" hint — the ciphertext is never sent to the client, so there's
+  // nothing to pre-fill. Honour that promise: only overwrite a secret
+  // column when the worker actually typed a new value. Without this, a
+  // worker who has a TFN on file and returns to fix only their BSB would
+  // silently wipe the TFN / account / super-member-number (all submitted
+  // blank). superFundName is the exception — it's rendered pre-filled, so
+  // a blank there is a deliberate clear.
+  const updateSet: Partial<typeof scEmployees.$inferInsert> = {
+    superFundName,
+    updatedAt: new Date(),
+  };
+  if (tfn !== null) updateSet.tfnEnc = encryptPii(tfn);
+  if (bsb !== null) updateSet.bsbEnc = encryptPii(bsb);
+  if (accountNumber !== null) {
+    updateSet.accountNumberEnc = encryptPii(accountNumber);
+  }
+  if (superMemberNumber !== null) {
+    updateSet.superMemberNumberEnc = encryptPii(superMemberNumber);
+  }
+
   await forTenant(ctx.tenantId).run((tx) =>
-    tx
-      .update(scEmployees)
-      .set({
-        tfnEnc: encryptPii(tfn),
-        bsbEnc: encryptPii(bsb),
-        accountNumberEnc: encryptPii(accountNumber),
-        superFundName,
-        superMemberNumberEnc: encryptPii(superMemberNumber),
-        updatedAt: new Date(),
-      })
-      .where(eq(scEmployees.id, ctx.employeeId)),
+    tx.update(scEmployees).set(updateSet).where(eq(scEmployees.id, ctx.employeeId)),
   );
 
-  // Audit log records WHICH fields changed but never the value.
+  // Audit log records WHICH secret fields were (re)written this save —
+  // never the value. superFundName is always part of the write.
   await logAuditEvent({
     action: "shiftcraft.welcome.pii_saved",
     targetKind: "sc_employee",
