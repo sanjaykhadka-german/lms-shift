@@ -5,6 +5,7 @@ import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
 import { Eyebrow } from "~/components/ui/card";
 import { cn } from "~/lib/utils";
+import { mealBreakLevel, MEAL_BREAK_THRESHOLD_MS } from "~/lib/meal-break";
 import { SelfieCapture } from "~/components/SelfieCapture";
 import {
   breakEndAction,
@@ -138,6 +139,15 @@ export function ClockPanel({
   const breakMs = status === "on_break" ? baseBreakMs + liveMs : baseBreakMs;
 
   const badge = STATUS_BADGE[status];
+
+  // Meal-break compliance prompt (AUDIT gap #3). While working, `liveMs`
+  // is the unbroken run since clock-in or the last break_end — so it's the
+  // right input for "how long since a break". Re-evaluated every second by
+  // the tick above, so the banner appears the moment the worker crosses
+  // the threshold without needing a refresh.
+  const continuousWorkMs = status === "working" ? liveMs : 0;
+  const breakLevel = mealBreakLevel(continuousWorkMs);
+  const thresholdHours = Math.round(MEAL_BREAK_THRESHOLD_MS / 3_600_000);
 
   return (
     <section className="rounded-[var(--r-lg)] border border-line bg-[var(--paper)] p-6 shadow-[var(--shadow-sm)] sm:p-8">
@@ -275,6 +285,31 @@ export function ClockPanel({
           onCancel={() => setShowSelfie(false)}
         />
       ) : null}
+
+      {breakLevel !== "ok" && (
+        <div
+          role={breakLevel === "due" ? "alert" : "status"}
+          className={cn(
+            "mt-6 rounded-[var(--r-sm)] border px-4 py-3 text-sm",
+            breakLevel === "due"
+              ? "border-[color-mix(in_srgb,var(--warn)_55%,transparent)] bg-[color-mix(in_srgb,var(--warn)_14%,transparent)] text-[var(--warn)]"
+              : "border-line bg-[var(--paper-2)] text-ink-2",
+          )}
+        >
+          {breakLevel === "due" ? (
+            <>
+              <span className="font-semibold">Meal break due.</span> You've
+              been working {fmtClock(continuousWorkMs)} without a break — take
+              a meal break now. Tap <strong>Start break</strong> below.
+            </>
+          ) : (
+            <>
+              You've been working {fmtClock(continuousWorkMs)}. A meal break
+              is due at {thresholdHours}h — plan to take one soon.
+            </>
+          )}
+        </div>
+      )}
 
       <div className="mt-6 flex flex-wrap gap-2">
         {status === "clocked_out" && (
