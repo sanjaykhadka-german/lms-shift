@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { and, asc, eq, gte, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, lt, or, sql } from "drizzle-orm";
 import {
   db,
   forTenant,
@@ -11,6 +11,7 @@ import {
   scShiftAssignments,
   scShifts,
   users,
+  type ScClockEventType,
 } from "@tracey/db";
 import {
   KIOSK_ACTOR_COOKIE,
@@ -18,7 +19,7 @@ import {
   verifyActorCookie,
   verifyDeviceCookie,
 } from "~/lib/kiosk/cookies";
-import { deriveClockState, type ClockStatus } from "~/lib/clock";
+import { stateFor } from "~/lib/clock";
 import { PunchScreen, type PunchScreenProps } from "./_punch";
 
 export const metadata = { title: "Kiosk · Punch" };
@@ -76,7 +77,7 @@ export default async function KioskMePage() {
   const [
     deviceRows,
     locationRows,
-    todayUserEvents,
+    latestUserEventRows,
     todayTenantEvents,
     todayShifts,
     pinnedAnnouncementRows,
@@ -95,20 +96,28 @@ export default async function KioskMePage() {
         .where(eq(scLocations.id, locationId))
         .limit(1),
     ),
-    // Today's events for this user — drives current clock state and the
-    // valid-transitions for the punch buttons.
+    // The user's *latest* event regardless of calendar day — this drives
+    // the current clock state and the valid punch transitions. It must NOT
+    // be scoped to today: kioskPunchAction validates against the all-time
+    // last event, so if we only looked at today, someone who never clocked
+    // out yesterday would see a "Clock in" button here that the server then
+    // rejects with "You're already clocked in." Voided events are excluded
+    // to match the punch action's guard exactly.
     forTenant(tenantId).run((tx) =>
       tx
-        .select()
+        .select({
+          eventType: scClockEvents.eventType,
+          occurredAt: scClockEvents.occurredAt,
+        })
         .from(scClockEvents)
         .where(
           and(
             eq(scClockEvents.appUserId, appUserId),
-            gte(scClockEvents.occurredAt, today),
-            lt(scClockEvents.occurredAt, tomorrow),
+            isNull(scClockEvents.voidedAt),
           ),
         )
-        .orderBy(asc(scClockEvents.occurredAt)),
+        .orderBy(desc(scClockEvents.occurredAt))
+        .limit(1),
     ),
     // Today's events across the whole tenant — used to compute the
     // "who's here now at this location" wall.
@@ -177,7 +186,17 @@ export default async function KioskMePage() {
   const requireSelfie = deviceRows[0]?.requireSelfie ?? true;
   const locationName = locationRows[0]?.name ?? "—";
 
-  const clockState = deriveClockState(todayUserEvents);
+  // Derive status straight from the latest event (the single-event stream
+  // can't go through deriveClockState, which expects a full ordered stream
+  // starting at an `in`). stateFor maps a lone last-event type to the right
+  // status, and that event's timestamp is the current segment's start.
+  const lastEventType =
+    (latestUserEventRows[0]?.eventType ?? null) as ScClockEventType | null;
+  const clockStatus = stateFor(lastEventType ?? undefined);
+  const segmentStartedAt =
+    clockStatus === "clocked_out"
+      ? null
+      : (latestUserEventRows[0]?.occurredAt ?? null);
 
   // Build the "who's here now at this location" set. Walk today's tenant
   // events grouped by user; if the latest is `in` or `break_end` AND the
@@ -230,17 +249,6 @@ export default async function KioskMePage() {
 
   const announcement = pinnedAnnouncementRows[0] ?? null;
 
-  // Pass the last event type to the client component so it can compute
-  // valid transitions client-side without another roundtrip per button.
-  const lastEventType =
-    todayUserEvents.length > 0
-      ? (todayUserEvents[todayUserEvents.length - 1]!.eventType as
-          | "in"
-          | "out"
-          | "break_start"
-          | "break_end")
-      : null;
-
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-6 px-6 py-10">
       <PunchScreen
@@ -248,9 +256,9 @@ export default async function KioskMePage() {
           name: user.name ?? user.email ?? "—",
           image: user.image,
         }}
-        clockStatus={clockState.status as ClockStatus}
+        clockStatus={clockStatus}
         lastEventType={lastEventType}
-        segmentStartedAt={clockState.segmentStartedAt?.toISOString() ?? null}
+        segmentStartedAt={segmentStartedAt?.toISOString() ?? null}
         locationName={locationName}
         todayShift={todayShift}
         whosHere={whosHere}
