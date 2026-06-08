@@ -2,6 +2,8 @@ export * from "./client";
 export * from "./schema";
 export * from "./lms-schema";
 export * from "./per-tenant-schema";
+export * from "./per-tenant-provision";
+export * from "./per-tenant-migrations.generated";
 export * from "./per-tenant-verify";
 export * from "./shiftcraft-schema";
 export * from "./pii";

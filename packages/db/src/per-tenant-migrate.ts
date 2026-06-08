@@ -15,7 +15,6 @@
 //   pnpm db:migrate-tenants --dry-run # show what would run, no changes
 
 import path from "node:path";
-import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { config as loadEnv } from "dotenv";
 import { sql as drizzleSql } from "drizzle-orm";
@@ -27,48 +26,17 @@ import {
   provisionSql,
   tenantSchemaName,
 } from "./per-tenant-schema";
+// Single source of truth for the ordered migration list, shared with the
+// in-app provisioning path (per-tenant-provision.ts → provisionTenantFull).
+// Inlined from migrations/per-tenant/*.sql at codegen time
+// (pnpm -F @tracey/db db:generate-per-tenant-sql) so the same SQL runs
+// whether applied by this CLI or by a self-service workspace signup.
+// The baseline (`0006_baseline`) is still generated in-memory by
+// provisionSql() — the tenant UUID has to be interpolated.
+import { PER_TENANT_MIGRATIONS } from "./per-tenant-migrations.generated";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 loadEnv({ path: path.resolve(here, "../../../.env") });
-
-const PER_TENANT_MIGRATIONS_DIR = path.resolve(
-  here,
-  "..",
-  "migrations",
-  "per-tenant",
-);
-
-interface PerTenantMigration {
-  name: string;
-  sql: string;
-}
-
-async function loadPerTenantMigrations(): Promise<PerTenantMigration[]> {
-  // Per-tenant migrations live as standalone .sql files under
-  // packages/db/migrations/per-tenant/. Naming: NNNN_description.sql.
-  // The baseline (`0006_baseline`) is generated in-memory by
-  // provisionSql() rather than read from disk — there's no static SQL
-  // file for it, the tenant UUID has to be interpolated.
-  try {
-    const files = await fs.readdir(PER_TENANT_MIGRATIONS_DIR);
-    const sqlFiles = files.filter((f) => f.endsWith(".sql")).sort();
-    const out: PerTenantMigration[] = [];
-    for (const file of sqlFiles) {
-      const sql = await fs.readFile(
-        path.join(PER_TENANT_MIGRATIONS_DIR, file),
-        "utf8",
-      );
-      out.push({ name: file.replace(/\.sql$/, ""), sql });
-    }
-    return out;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      // Directory doesn't exist yet — fine, only the baseline exists.
-      return [];
-    }
-    throw err;
-  }
-}
 
 async function main() {
   const databaseUrl = process.env.DATABASE_URL;
@@ -87,7 +55,7 @@ async function main() {
     drizzleSql`SELECT id::text AS id, slug FROM app.tenants ORDER BY created_at`,
   )) as unknown as Array<{ id: string; slug: string }>;
 
-  const migrations = await loadPerTenantMigrations();
+  const migrations = PER_TENANT_MIGRATIONS;
 
   let provisioned = 0;
   let migrationsRun = 0;

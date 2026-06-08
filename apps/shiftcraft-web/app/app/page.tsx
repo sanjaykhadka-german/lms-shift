@@ -103,24 +103,9 @@ export default async function DashboardPage({
   const membership = await currentMembership();
 
   if (!membership) {
-    return (
-      <div className="mx-auto max-w-5xl px-6 py-12">
-        <h1 className="flex items-center gap-1.5 text-3xl font-semibold tracking-tight">
-          Welcome back{user.name ? `, ${user.name.split(" ")[0]}` : ""}.
-          <InfoPopover label="About this screen">
-            <p>
-              You&rsquo;re signed in but not attached to a ShiftCraft
-              workspace yet. Set one up from the LMS to unlock scheduling,
-              timesheets, and clock-in.
-            </p>
-          </InfoPopover>
-        </h1>
-        <p className="mt-2 text-muted-foreground">
-          You're signed in. Set up a workspace from the LMS to start using
-          ShiftCraft features.
-        </p>
-      </div>
-    );
+    // Signed in but no workspace yet — send them to self-service onboarding
+    // to create one (provisions a full per-tenant ShiftCraft schema).
+    redirect("/onboarding");
   }
 
   const isAdmin = membership.role === "admin" || membership.role === "owner";
