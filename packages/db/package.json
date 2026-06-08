@@ -19,6 +19,7 @@
     "migrate-shiftcraft": "tsx src/migrate-shiftcraft.ts",
     "migrate-tenants": "tsx src/per-tenant-migrate.ts",
     "generate-per-tenant-sql": "tsx src/cli/generate-per-tenant-sql.ts",
+    "backfill-lms-subscriptions": "tsx src/cli/backfill-lms-subscriptions.ts",
     "tenant-backup": "tsx src/cli/tenant-backup.ts",
     "tenant-provision": "tsx src/cli/tenant-provision.ts",
     "tenant-copy": "tsx src/cli/tenant-copy.ts",
@@ -31,6 +32,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@tracey/types": "workspace:*",
     "drizzle-orm": "^0.38.3",
     "postgres": "^3.4.5"
   },

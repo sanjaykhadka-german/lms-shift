@@ -111,6 +111,57 @@ export const tenants = appSchema.table(
   ],
 );
 
+// ─── Per-app subscriptions ───
+//
+// One row per (tenant, app). Each app in the Tracey suite (lms, shiftcraft)
+// is billed independently: its own Stripe subscription, plan, status, trial,
+// and period. A tenant shares ONE Stripe customer across its apps, so
+// stripe_customer_id repeats across a tenant's rows; stripe_subscription_id
+// is unique per row.
+//
+// This supersedes the billing columns historically held directly on
+// `tenants` (plan/status/trial_ends_at/…). Those columns are retained during
+// the transition and backfilled into an app='lms' row here; they are dropped
+// only in a later, explicitly-triggered cleanup once every read/write path
+// has moved to this table.
+export const tenantSubscriptions = appSchema.table(
+  "tenant_subscriptions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    app: text("app").notNull(),
+    plan: text("plan").notNull().default("free"),
+    status: text("status").notNull().default("trialing"),
+    trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
+    currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+    cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+    canceledAt: timestamp("canceled_at", { withTimezone: true }),
+    stripeCustomerId: text("stripe_customer_id"),
+    stripeSubscriptionId: text("stripe_subscription_id"),
+    seatsPurchased: integer("seats_purchased").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("tenant_subscriptions_tenant_app_uq").on(t.tenantId, t.app),
+    uniqueIndex("tenant_subscriptions_stripe_subscription_id_uq").on(
+      t.stripeSubscriptionId,
+    ),
+    index("tenant_subscriptions_stripe_customer_id_ix").on(t.stripeCustomerId),
+    check("tenant_subscriptions_app_chk", sql`${t.app} in ('lms','shiftcraft')`),
+    check(
+      "tenant_subscriptions_plan_chk",
+      sql`${t.plan} in ('free','starter','pro','enterprise')`,
+    ),
+    check(
+      "tenant_subscriptions_status_chk",
+      sql`${t.status} in ('trialing','active','past_due','canceled')`,
+    ),
+  ],
+);
+
 // ─── Organization membership ───
 
 export const members = appSchema.table(

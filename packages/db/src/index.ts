@@ -1,6 +1,7 @@
 export * from "./client";
 export * from "./schema";
 export * from "./lms-schema";
+export * from "./subscriptions";
 export * from "./per-tenant-schema";
 export * from "./per-tenant-provision";
 export * from "./per-tenant-migrations.generated";
