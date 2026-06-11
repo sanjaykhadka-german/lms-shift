@@ -1,13 +1,14 @@
 import "server-only";
 import { Resend } from "resend";
 
-// Invitation emails point at lms-web's /accept-invite — the workspace
-// invite flow + the accept route live there (Tracey is the umbrella
-// brand; lms-web hosts the shared auth/onboarding surfaces). Accepted
-// invites create an app.members row that grants access to both apps.
+// Invitation emails point at ShiftCraft's OWN /accept-invite route so the
+// whole invite → accept flow stays on the ShiftCraft domain (no lms-web
+// hop). The accept route reads/writes the shared app.invitations /
+// app.members tables, so accepted invites still grant access to both apps.
 //
-// NEXT_PUBLIC_LMS_URL is set in .env (and on Render) per [[reference_render_db]]
-// → falls back to localhost in dev.
+// NEXT_PUBLIC_SHIFTCRAFT_URL is set in .env (and on Render) per
+// [[reference_render_db]] → falls back to localhost:4100 in dev. It is
+// build-time inlined, so changing it on Render needs a rebuild, not a restart.
 
 const apiKey = process.env.RESEND_API_KEY;
 const from = `${process.env.MAIL_FROM_NAME ?? "Tracey"} <${
@@ -25,8 +26,8 @@ function client(): Resend {
   return resend;
 }
 
-function lmsUrl(): string {
-  return process.env.NEXT_PUBLIC_LMS_URL ?? "http://localhost:4000";
+function shiftcraftUrl(): string {
+  return process.env.NEXT_PUBLIC_SHIFTCRAFT_URL ?? "http://localhost:4100";
 }
 
 export async function sendInvitationEmail(opts: {
@@ -35,7 +36,7 @@ export async function sendInvitationEmail(opts: {
   tenantName: string;
   inviterName?: string | null;
 }): Promise<void> {
-  const acceptUrl = `${lmsUrl()}/accept-invite?token=${encodeURIComponent(
+  const acceptUrl = `${shiftcraftUrl()}/accept-invite?token=${encodeURIComponent(
     opts.token,
   )}`;
   const inviter = opts.inviterName ?? "A teammate";
