@@ -2,11 +2,21 @@ import { redirect } from "next/navigation";
 import { requireUser, currentMembership } from "~/lib/auth/current";
 import { OnboardingForm } from "./_form";
 
-export default async function OnboardingPage() {
+export default async function OnboardingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ plan?: string; billing?: string }>;
+}) {
   await requireUser();
   // If they already have a membership, /app is the right place.
   const existing = await currentMembership();
   if (existing) redirect("/app");
+
+  // Carried from the pricing page through sign-up → sign-in → here, so the
+  // new workspace's trial records the plan they picked.
+  const { plan } = await searchParams;
+  const trialPlan =
+    plan === "pro" || plan === "starter" ? plan : undefined;
 
   return (
     <div className="flex min-h-screen items-center justify-center px-4 py-12">
@@ -20,7 +30,7 @@ export default async function OnboardingPage() {
             build rosters, and run the time clock once it&rsquo;s set up.
           </p>
         </div>
-        <OnboardingForm />
+        <OnboardingForm plan={trialPlan} />
       </div>
     </div>
   );

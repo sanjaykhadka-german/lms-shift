@@ -11,6 +11,8 @@ import {
   NotificationsBell,
   type NotificationPreview,
 } from "~/components/NotificationsBell";
+import { getShiftcraftAccess, isBillingEnforced } from "~/lib/billing/access";
+import { BillingWall } from "./_billing-wall";
 
 export default async function AppLayout({
   children,
@@ -45,6 +47,20 @@ export default async function AppLayout({
     createdAtIso: n.createdAt.toISOString(),
   }));
 
+  // Per-app entitlement gate. Dormant unless SHIFTCRAFT_BILLING_ENFORCED=true
+  // (so a deploy can't lock out tenants before their tenant_subscriptions rows
+  // are backfilled). Platform admins bypass via getShiftcraftAccess(). When a
+  // gated tenant lacks full access we swap the content for the billing wall —
+  // rendered in place (not a redirect) so it covers every /app route without
+  // looping on the billing page itself.
+  let walledLevel: "read_only" | "blocked" | null = null;
+  if (membership && isBillingEnforced()) {
+    const access = await getShiftcraftAccess();
+    if (access && !access.bypassed && access.level !== "full") {
+      walledLevel = access.level;
+    }
+  }
+
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
       <Sidebar
@@ -61,7 +77,9 @@ export default async function AppLayout({
           tenantName={membership?.tenant.name ?? null}
           bell={<NotificationsBell unreadCount={unreadCount} recent={recent} />}
         />
-        <main className="flex-1">{children}</main>
+        <main className="flex-1">
+          {walledLevel ? <BillingWall level={walledLevel} /> : children}
+        </main>
       </div>
     </div>
   );

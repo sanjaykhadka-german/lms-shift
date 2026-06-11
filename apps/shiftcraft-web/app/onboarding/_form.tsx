@@ -8,12 +8,13 @@ import { createTenantAction, type CreateTenantState } from "./actions";
 
 const initial: CreateTenantState = { status: "idle" };
 
-export function OnboardingForm() {
+export function OnboardingForm({ plan }: { plan?: "starter" | "pro" }) {
   const [state, action, pending] = useActionState(createTenantAction, initial);
   const nameErrors = state.status === "error" ? state.fieldErrors?.name : undefined;
 
   return (
     <form action={action} className="space-y-4">
+      {plan && <input type="hidden" name="plan" value={plan} />}
       <div className="space-y-1.5">
         <Label htmlFor="name">Workspace name</Label>
         <Input
