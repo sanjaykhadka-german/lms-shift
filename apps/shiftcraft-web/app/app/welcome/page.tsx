@@ -6,12 +6,14 @@ import {
   scDocuments,
   scEmployees,
   scEmployeeOnboardingTasks,
+  scEmployeePins,
 } from "@tracey/db";
 import { currentMembership, requireUser } from "~/lib/auth/current";
 import { Button } from "~/components/ui/button";
 import { InfoPopover } from "~/components/InfoPopover";
 import { PersonalForm } from "./_personal-form";
 import { PayrollPiiForm } from "./_payroll-pii-form";
+import { PinForm } from "./_pin-form";
 import { DocumentUploadForm } from "./_documents-form";
 import {
   completeOnboardingSelfAction,
@@ -73,7 +75,7 @@ export default async function WelcomePage() {
     );
   }
 
-  const [tasks, documents] = await Promise.all([
+  const [tasks, documents, pinRows] = await Promise.all([
     forTenant(tenantId).run((tx) =>
       tx
         .select()
@@ -105,7 +107,20 @@ export default async function WelcomePage() {
         )
         .orderBy(desc(scDocuments.uploadedAt)),
     ),
+    forTenant(tenantId).run((tx) =>
+      tx
+        .select({ lastUsedAt: scEmployeePins.lastUsedAt })
+        .from(scEmployeePins)
+        .where(
+          and(
+            eq(scEmployeePins.traceyTenantId, tenantId),
+            eq(scEmployeePins.appUserId, user.id),
+          ),
+        )
+        .limit(1),
+    ),
   ]);
+  const pin = pinRows[0] ?? null;
 
   const requiredOutstanding = tasks.filter(
     (t) => t.required && t.status !== "done",
@@ -173,6 +188,16 @@ export default async function WelcomePage() {
             superFundName: employee.superFundName,
           }}
         />
+      </section>
+
+      <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
+        <h2 className="text-sm font-semibold">Kiosk PIN</h2>
+        <p className="mt-1 mb-4 text-xs text-muted-foreground">
+          A 4-digit PIN you enter at the on-premise kiosk to clock in and
+          out. It&rsquo;s for kiosk use only — your web login still uses
+          your email + password.
+        </p>
+        <PinForm hasPin={pin !== null} lastUsedAt={pin?.lastUsedAt ?? null} />
       </section>
 
       <section className="rounded-lg border border-border bg-card shadow-sm">

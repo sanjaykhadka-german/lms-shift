@@ -9,9 +9,11 @@ import {
   scDocuments,
   scEmployees,
   scEmployeeOnboardingTasks,
+  scEmployeePins,
 } from "@tracey/db";
 import { encryptPii } from "@tracey/db/pii";
-import { currentMembership, requireUser } from "~/lib/auth/current";
+import { currentMembership, currentUser, requireUser } from "~/lib/auth/current";
+import { hashPassword, verifyPassword } from "~/lib/auth/passwords";
 import { logAuditEvent } from "~/lib/audit";
 
 // ─── Worker-side onboarding actions (AUDIT.md #2 polish) ────────────
@@ -239,6 +241,107 @@ export async function selfSavePayrollPiiAction(
 
   revalidatePath("/app/welcome");
   return { status: "ok", message: "Payroll details saved." };
+}
+
+// ─── Self-service kiosk PIN ─────────────────────────────────────────
+//
+// Mirrors the manager-only setPinAction (employees/new/actions.ts) but
+// scopes the write to the CALLER's own roster row via requireSelfEmployee()
+// — ctx.userId is the auth identity, which is exactly the app_user_id the
+// kiosk authenticates against and the column sc_employee_pins is keyed on.
+// The manager setPinAction stays as the admin override.
+
+const pinSchema = z
+  .object({
+    pin: z.string().trim().regex(/^\d{4}$/, "PIN must be exactly 4 digits."),
+    confirm: z.string().trim(),
+  })
+  .refine((d) => d.pin === d.confirm, {
+    message: "PINs don't match.",
+    path: ["confirm"],
+  });
+
+export async function selfSetPinAction(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const ctx = await requireSelfEmployee();
+  if (!ctx) {
+    return {
+      status: "error",
+      message: "You don't have a roster row yet — ask your manager.",
+    };
+  }
+
+  const parsed = pinSchema.safeParse({
+    pin: formData.get("pin") ?? "",
+    confirm: formData.get("confirm") ?? "",
+  });
+  if (!parsed.success) {
+    return {
+      status: "error",
+      message: parsed.error.errors[0]?.message ?? "Invalid PIN.",
+    };
+  }
+
+  // Same collision check as the manager action: PIN uniqueness is NOT
+  // enforced at the DB (bcrypt salts each hash), so we catch collisions
+  // here so the kiosk can rely on "one PIN matches at most one user".
+  // The kiosk surface still returns generic "Wrong PIN" — no enumeration.
+  const others = await forTenant(ctx.tenantId).run((tx) =>
+    tx
+      .select({ pinHash: scEmployeePins.pinHash })
+      .from(scEmployeePins)
+      .where(
+        and(
+          eq(scEmployeePins.traceyTenantId, ctx.tenantId),
+          sql`${scEmployeePins.appUserId} <> ${ctx.userId}`,
+        ),
+      ),
+  );
+  for (const o of others) {
+    if (await verifyPassword(parsed.data.pin, o.pinHash)) {
+      return {
+        status: "error",
+        message:
+          "That PIN is already in use by another teammate — pick a different one.",
+      };
+    }
+  }
+
+  const me = await currentUser();
+  const pinHash = await hashPassword(parsed.data.pin);
+
+  // Upsert — one PIN per (tenant, app_user). On rotate, reset lastUsedAt so
+  // the "last used" display isn't tied to the old PIN.
+  await forTenant(ctx.tenantId).run((tx) =>
+    tx
+      .insert(scEmployeePins)
+      .values({
+        traceyTenantId: ctx.tenantId,
+        appUserId: ctx.userId,
+        pinHash,
+        setByUserId: me?.id ?? null,
+      })
+      .onConflictDoUpdate({
+        target: [scEmployeePins.traceyTenantId, scEmployeePins.appUserId],
+        set: {
+          pinHash,
+          setByUserId: me?.id ?? null,
+          updatedAt: new Date(),
+          lastUsedAt: null,
+        },
+      }),
+  );
+
+  await logAuditEvent({
+    action: "shiftcraft.welcome.pin_set",
+    targetKind: "sc_employee_pin",
+    targetId: ctx.userId,
+  });
+
+  revalidatePath("/app/welcome");
+  return { status: "ok", message: "Kiosk PIN saved." };
 }
 
 // ─── Document self-upload ───────────────────────────────────────────
