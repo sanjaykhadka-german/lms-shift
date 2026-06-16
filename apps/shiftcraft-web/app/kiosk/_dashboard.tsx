@@ -46,12 +46,14 @@ export function KioskDashboard({
   locationName,
   whosHere,
   rosterCount,
+  allowVisitors,
   onStart,
 }: {
   tenantName: string;
   locationName: string;
   whosHere: WhosHerePerson[];
   rosterCount: number;
+  allowVisitors: boolean;
   onStart: () => void;
 }) {
   const [dateLabel, setDateLabel] = useState("");
@@ -148,14 +150,16 @@ export function KioskDashboard({
         Tap your name or scan your badge to clock in / out
       </button>
 
-      <div className="text-center">
-        <Link
-          href="/kiosk/visitor"
-          className="text-xs font-medium text-[#a89c8c] underline-offset-4 hover:text-[#f4eee3] hover:underline"
-        >
-          Visitor? Sign in here
-        </Link>
-      </div>
+      {allowVisitors ? (
+        <div className="text-center">
+          <Link
+            href="/kiosk/visitor"
+            className="text-xs font-medium text-[#a89c8c] underline-offset-4 hover:text-[#f4eee3] hover:underline"
+          >
+            Visitor? Sign in here
+          </Link>
+        </div>
+      ) : null}
     </div>
   );
 }

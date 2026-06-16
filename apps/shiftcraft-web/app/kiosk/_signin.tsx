@@ -27,12 +27,14 @@ export function KioskSignIn({
   locationName,
   whosHere,
   rosterCount,
+  allowVisitors,
 }: {
   people: KioskPerson[];
   tenantName: string;
   locationName: string;
   whosHere: WhosHerePerson[];
   rosterCount: number;
+  allowVisitors: boolean;
 }) {
   const [selected, setSelected] = useState<KioskPerson | null>(null);
   // Landing dashboard is shown first; the CTA flips this to reveal the grid.
@@ -63,6 +65,7 @@ export function KioskSignIn({
         locationName={locationName}
         whosHere={whosHere}
         rosterCount={rosterCount}
+        allowVisitors={allowVisitors}
         onStart={() => setStarted(true)}
       />
     );

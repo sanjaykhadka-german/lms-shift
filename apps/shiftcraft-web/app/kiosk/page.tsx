@@ -30,6 +30,7 @@ interface PairedState {
   tenantName: string;
   locationName: string;
   requireSelfie: boolean;
+  allowVisitors: boolean;
 }
 
 // Resolves the device cookie into the live device + location row. Returns
@@ -47,6 +48,7 @@ async function resolvePairing(): Promise<PairedState | null> {
       .select({
         deviceId: scKioskDevices.id,
         requireSelfie: scKioskDevices.requireSelfie,
+        allowVisitors: scKioskDevices.allowVisitors,
         locationName: scLocations.name,
       })
       .from(scKioskDevices)
@@ -88,6 +90,7 @@ async function resolvePairing(): Promise<PairedState | null> {
     tenantName: tenantRow?.name ?? "Workspace",
     locationName: device.locationName ?? "—",
     requireSelfie: device.requireSelfie,
+    allowVisitors: device.allowVisitors,
   };
 }
 
@@ -226,6 +229,7 @@ export default async function KioskHome({
             locationName={paired.locationName}
             whosHere={whosHere}
             rosterCount={roster.length}
+            allowVisitors={paired.allowVisitors}
           />
         </>
       )}

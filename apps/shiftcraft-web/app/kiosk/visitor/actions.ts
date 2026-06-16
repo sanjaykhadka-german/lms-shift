@@ -3,7 +3,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { and, eq, isNull } from "drizzle-orm";
-import { forTenant, scVisitorSignins } from "@tracey/db";
+import { forTenant, scKioskDevices, scVisitorSignins } from "@tracey/db";
 import {
   KIOSK_DEVICE_COOKIE,
   verifyDeviceCookie,
@@ -55,6 +55,17 @@ export async function visitorSignInAction(formData: FormData): Promise<void> {
     cookieStore.get(KIOSK_DEVICE_COOKIE)?.value,
   );
   if (!deviceClaim) redirect("/kiosk");
+
+  // Per-kiosk opt-in guard — mirror the page-level check so a tampered POST
+  // can't write visitor rows on a kiosk that hasn't enabled the flow.
+  const [deviceRow] = await forTenant(deviceClaim.tenantId).run((tx) =>
+    tx
+      .select({ allowVisitors: scKioskDevices.allowVisitors })
+      .from(scKioskDevices)
+      .where(eq(scKioskDevices.id, deviceClaim.deviceId))
+      .limit(1),
+  );
+  if (!deviceRow?.allowVisitors) redirect("/kiosk");
 
   const visitorName = field(formData, "visitorName", 120);
   const visitorCompany = field(formData, "visitorCompany", 120);

@@ -79,6 +79,17 @@ export function PairKioskForm({ locations, defaultLocationId }: PairFormProps) {
           webcam-less devices)
         </span>
       </label>
+      <label className="flex items-center gap-2 text-xs">
+        <input
+          type="checkbox"
+          name="allowVisitors"
+          className="h-4 w-4 rounded border-border"
+        />
+        <span>
+          Allow visitor sign-in on this kiosk (adds a “Visitor? Sign in here”
+          option for reception logbook use)
+        </span>
+      </label>
       {state.status === "error" ? (
         <p className="text-xs text-[color:var(--destructive)]">
           {state.message}

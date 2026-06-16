@@ -94,6 +94,7 @@ export default async function KiosksAdminPage({
           lastSeenAt: scKioskDevices.lastSeenAt,
           revokedAt: scKioskDevices.revokedAt,
           requireSelfie: scKioskDevices.requireSelfie,
+          allowVisitors: scKioskDevices.allowVisitors,
           createdByUserId: scKioskDevices.createdByUserId,
           createdAt: scKioskDevices.createdAt,
           locationName: scLocations.name,
@@ -283,6 +284,11 @@ export default async function KiosksAdminPage({
                       {!d.requireSelfie ? (
                         <span className="inline-flex items-center rounded-full bg-[var(--ink-3)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
                           Selfie off
+                        </span>
+                      ) : null}
+                      {d.allowVisitors ? (
+                        <span className="inline-flex items-center rounded-full bg-[var(--live)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
+                          Visitors
                         </span>
                       ) : null}
                     </div>

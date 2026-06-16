@@ -5,6 +5,7 @@ import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import {
   forTenant,
   scEmployees,
+  scKioskDevices,
   scLocations,
   scVisitorSignins,
 } from "@tracey/db";
@@ -28,6 +29,17 @@ export default async function KioskVisitorPage({
   if (!claim) redirect("/kiosk");
 
   const tenantId = claim.tenantId;
+
+  // Visitor sign-in is a per-kiosk opt-in. A device without the flag can't
+  // reach this route even by typing the URL.
+  const [deviceRow] = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({ allowVisitors: scKioskDevices.allowVisitors })
+      .from(scKioskDevices)
+      .where(eq(scKioskDevices.id, claim.deviceId))
+      .limit(1),
+  );
+  if (!deviceRow?.allowVisitors) redirect("/kiosk");
 
   const [locationRows, signedIn, employees] = await Promise.all([
     forTenant(tenantId).run((tx) =>

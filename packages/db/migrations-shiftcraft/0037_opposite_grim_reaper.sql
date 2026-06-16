@@ -1,0 +1,1 @@
+ALTER TABLE "sc_kiosk_devices" ADD COLUMN "allow_visitors" boolean DEFAULT false NOT NULL;

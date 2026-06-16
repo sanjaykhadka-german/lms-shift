@@ -930,6 +930,8 @@ export const scKioskDevices = pgTable(
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     requireSelfie: boolean("require_selfie").notNull().default(true),
+    // Opt-in: surface the visitor sign-in flow on this kiosk's dashboard.
+    allowVisitors: boolean("allow_visitors").notNull().default(false),
     createdByUserId: uuid("created_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),

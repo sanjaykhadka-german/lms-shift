@@ -18,6 +18,7 @@ import {
   restoreKioskAction,
   revokeKioskAction,
   toggleSelfieRequiredAction,
+  toggleVisitorsAllowedAction,
 } from "../actions";
 import { DeleteKioskButton } from "../_delete_button";
 
@@ -104,6 +105,7 @@ export default async function KioskDetailPage({
         lastSeenAt: scKioskDevices.lastSeenAt,
         revokedAt: scKioskDevices.revokedAt,
         requireSelfie: scKioskDevices.requireSelfie,
+        allowVisitors: scKioskDevices.allowVisitors,
         createdAt: scKioskDevices.createdAt,
       })
       .from(scKioskDevices)
@@ -222,6 +224,11 @@ export default async function KioskDetailPage({
           value={device.requireSelfie ? "Required" : "Off"}
           valueClass={device.requireSelfie ? "text-[var(--live)]" : "text-[var(--warn)]"}
         />
+        <Stat
+          label="Visitor sign-in"
+          value={device.allowVisitors ? "Enabled" : "Off"}
+          valueClass={device.allowVisitors ? "text-[var(--live)]" : "text-[var(--warn)]"}
+        />
       </section>
 
       <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
@@ -238,6 +245,19 @@ export default async function KioskDetailPage({
               {device.requireSelfie
                 ? "Disable selfie capture"
                 : "Enable selfie capture"}
+            </Button>
+          </form>
+          <form action={toggleVisitorsAllowedAction}>
+            <input type="hidden" name="deviceId" value={device.id} />
+            <input
+              type="hidden"
+              name="next"
+              value={device.allowVisitors ? "off" : "on"}
+            />
+            <Button type="submit" variant="outline" size="sm">
+              {device.allowVisitors
+                ? "Disable visitor sign-in"
+                : "Enable visitor sign-in"}
             </Button>
           </form>
           {device.revokedAt ? (

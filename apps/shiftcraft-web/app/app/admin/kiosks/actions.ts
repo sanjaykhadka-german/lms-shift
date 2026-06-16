@@ -35,6 +35,7 @@ const pairSchema = z.object({
     .max(80, "Too long."),
   locationId: z.string().uuid("Pick a location."),
   requireSelfie: z.string().optional(),
+  allowVisitors: z.string().optional(),
 });
 
 export type PairFormState =
@@ -59,6 +60,7 @@ export async function pairKioskAction(
     label: formData.get("label"),
     locationId: formData.get("locationId"),
     requireSelfie: formData.get("requireSelfie") ?? undefined,
+    allowVisitors: formData.get("allowVisitors") ?? undefined,
   });
   if (!parsed.success) {
     return {
@@ -102,6 +104,7 @@ export async function pairKioskAction(
         pairingCode: code,
         pairingExpiresAt: expiresAt,
         requireSelfie: parsed.data.requireSelfie === "on",
+        allowVisitors: parsed.data.allowVisitors === "on",
         createdByUserId: me?.id ?? null,
       })
       .returning({ id: scKioskDevices.id });
@@ -116,6 +119,7 @@ export async function pairKioskAction(
       label: parsed.data.label,
       locationId: parsed.data.locationId,
       requireSelfie: parsed.data.requireSelfie === "on",
+      allowVisitors: parsed.data.allowVisitors === "on",
     },
   });
 
@@ -269,6 +273,41 @@ export async function toggleSelfieRequiredAction(
     action: next
       ? "shiftcraft.kiosk.selfie_required_on"
       : "shiftcraft.kiosk.selfie_required_off",
+    targetKind: "sc_kiosk_device",
+    targetId: deviceId,
+  });
+
+  revalidatePath("/app/admin/kiosks");
+  revalidatePath(`/app/admin/kiosks/${deviceId}`);
+}
+
+export async function toggleVisitorsAllowedAction(
+  formData: FormData,
+): Promise<void> {
+  const deviceId = String(formData.get("deviceId") ?? "");
+  const next = formData.get("next") === "on";
+  if (!deviceId) return;
+
+  const membership = await currentMembership();
+  if (!membership || !isAtLeastManager(membership.role)) return;
+  const tenantId = membership.tenant.id;
+
+  await forTenant(tenantId).run((tx) =>
+    tx
+      .update(scKioskDevices)
+      .set({ allowVisitors: next })
+      .where(
+        and(
+          eq(scKioskDevices.id, deviceId),
+          eq(scKioskDevices.traceyTenantId, tenantId),
+        ),
+      ),
+  );
+
+  await logAuditEvent({
+    action: next
+      ? "shiftcraft.kiosk.visitors_allowed_on"
+      : "shiftcraft.kiosk.visitors_allowed_off",
     targetKind: "sc_kiosk_device",
     targetId: deviceId,
   });
