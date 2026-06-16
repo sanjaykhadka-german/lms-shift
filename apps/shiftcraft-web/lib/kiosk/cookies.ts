@@ -121,12 +121,18 @@ export function verifyActorCookie(
   return claim;
 }
 
-// Common cookie options shared by both kiosk cookies. SameSite=Strict
-// because nothing legitimate ever cross-site links to /kiosk; Secure in
-// prod; Path=/ so the cookie is visible to all kiosk routes.
+// Common cookie options shared by both kiosk cookies. SameSite=Lax (NOT
+// Strict): the device cookie is Set-Cookie'd by /kiosk/pair on a 302 to
+// /kiosk, and the pairing link is typically opened from OUTSIDE the site (a
+// QR-scanner app, a pasted URL, a chat link). With Strict, that cross-site
+// entry chain means the just-set cookie isn't sent on the redirected /kiosk
+// request, so the device shows as "not paired". Lax still sends the cookie on
+// top-level navigations (the redirect) while blocking cross-site sub-requests,
+// which is the protection we actually want. HttpOnly; Secure in prod; Path=/
+// so the cookie is visible to all kiosk routes.
 export const KIOSK_COOKIE_OPTS = {
   httpOnly: true,
-  sameSite: "strict" as const,
+  sameSite: "lax" as const,
   secure: process.env.NODE_ENV === "production",
   path: "/",
 };
