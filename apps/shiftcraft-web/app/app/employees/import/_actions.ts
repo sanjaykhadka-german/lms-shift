@@ -13,6 +13,7 @@ import {
 import { currentMembership, currentUser } from "~/lib/auth/current";
 import { isAtLeastManager } from "~/lib/roles";
 import { logAuditEvent } from "~/lib/audit";
+import { createInvitationAction } from "../../people/_actions";
 
 // Bulk CSV employee import. Single-step:
 //   1. Manager uploads a CSV.
@@ -53,6 +54,11 @@ export type ImportState =
       skippedCount: number;
       erroredCount: number;
       outcomes: ImportRowOutcome[];
+      // Set only when the "email account links" option was ticked. Sent =
+      // invitations actually emailed; skipped = rows already a member / already
+      // invited / had no email / failed to send.
+      invitesSent?: number;
+      invitesSkipped?: number;
     }
   | { status: "error"; message: string };
 
@@ -158,6 +164,7 @@ export async function importEmployeesAction(
     };
   }
   const tenantId = membership.tenant.id;
+  const wantsInvites = formData.get("sendInvites") === "on";
 
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) {
@@ -351,6 +358,30 @@ export async function importEmployeesAction(
     }
   });
 
+  // Opt-in: email an account-setup link to every freshly created row that has
+  // an address. Reuses createInvitationAction so the member/already-invited
+  // checks, email send, and audit logging stay identical to a single invite —
+  // no logic drift. Existing members (auto-linked above) and already-invited
+  // emails come back as errors and are counted as skipped, not resent.
+  let invitesSent: number | undefined;
+  let invitesSkipped: number | undefined;
+  if (wantsInvites) {
+    invitesSent = 0;
+    invitesSkipped = 0;
+    for (const o of outcomes) {
+      if (o.status !== "created" || !o.email) {
+        if (o.status === "created") invitesSkipped += 1; // created but no email
+        continue;
+      }
+      const fd = new FormData();
+      fd.set("email", o.email);
+      fd.set("role", "member");
+      const res = await createInvitationAction({ status: "idle" }, fd);
+      if (res.status === "ok") invitesSent += 1;
+      else invitesSkipped += 1;
+    }
+  }
+
   await logAuditEvent({
     action: "shiftcraft.employee.bulk_imported",
     targetKind: "sc_employee",
@@ -360,6 +391,8 @@ export async function importEmployeesAction(
       skippedCount,
       erroredCount,
       totalRows: rows.length - 1,
+      invitesSent: invitesSent ?? null,
+      invitesSkipped: invitesSkipped ?? null,
     },
   });
 
@@ -372,5 +405,7 @@ export async function importEmployeesAction(
     skippedCount,
     erroredCount,
     outcomes,
+    invitesSent,
+    invitesSkipped,
   };
 }

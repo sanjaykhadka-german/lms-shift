@@ -36,6 +36,21 @@ export function ImportForm() {
             className="block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-primary-foreground hover:file:bg-primary/90"
           />
         </div>
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            name="sendInvites"
+            defaultChecked
+            className="mt-0.5 h-4 w-4 rounded border-border"
+          />
+          <span>
+            Email an account-setup link to everyone with an address
+            <span className="block text-xs text-muted-foreground">
+              Skips anyone already a member or already invited. Rows without an
+              email are added to the roster but not invited.
+            </span>
+          </span>
+        </label>
         <div className="flex items-center gap-3">
           <SubmitButton />
           {state.status === "error" ? (
@@ -86,6 +101,21 @@ function ImportResult({
           tone={state.erroredCount > 0 ? "rose" : "muted"}
         />
       </div>
+
+      {typeof state.invitesSent === "number" ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <StatCard
+            label="Invites sent"
+            value={state.invitesSent}
+            tone={state.invitesSent > 0 ? "emerald" : "muted"}
+          />
+          <StatCard
+            label="Invites skipped"
+            value={state.invitesSkipped ?? 0}
+            tone={(state.invitesSkipped ?? 0) > 0 ? "amber" : "muted"}
+          />
+        </div>
+      ) : null}
 
       <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
