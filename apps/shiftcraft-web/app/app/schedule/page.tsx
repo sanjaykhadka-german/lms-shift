@@ -23,7 +23,11 @@ import {
   type AreaShiftSer,
 } from "./_area-view";
 import { EmployeeScheduleView, type EmployeeRow } from "./_employee-view";
-import { bulkPublishWeekAction, duplicateWeekAction } from "./actions";
+import {
+  bulkPublishWeekAction,
+  copyDayToDateAction,
+  duplicateWeekAction,
+} from "./actions";
 import { InfoPopover } from "~/components/InfoPopover";
 
 type ScheduleView = "day" | "area" | "employee";
@@ -494,6 +498,52 @@ export default async function SchedulePage({
                 Copy to next week
               </Button>
             </form>
+          )}
+          {isAdmin && shifts.length > 0 && (
+            <details className="relative">
+              <summary className="inline-flex h-8 cursor-pointer list-none items-center rounded-[var(--r-sm)] border border-[color:var(--input)] px-3 text-sm font-medium hover:bg-[color-mix(in_srgb,var(--ink)_5%,transparent)]">
+                Copy a day
+              </summary>
+              <form
+                action={copyDayToDateAction}
+                className="absolute right-0 z-10 mt-1 flex flex-wrap items-end gap-2 rounded-[var(--r-sm)] border border-border bg-card p-3 shadow-lg"
+              >
+                {locationFilter && (
+                  <input type="hidden" name="location" value={locationFilter} />
+                )}
+                <label className="flex flex-col gap-1 text-xs text-ink-2">
+                  From
+                  <select
+                    name="sourceDate"
+                    required
+                    className="h-9 rounded-md border border-[color:var(--input)] bg-transparent px-2 text-sm text-ink shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+                  >
+                    {Array.from({ length: dayCount }, (_, i) => {
+                      const d = addDays(weekStart, i);
+                      const iso = fmtIsoDate(d);
+                      return (
+                        <option key={iso} value={iso}>
+                          {fmtDayHeader(d)}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 text-xs text-ink-2">
+                  To
+                  <input
+                    type="date"
+                    name="targetDate"
+                    required
+                    defaultValue={fmtIsoDate(addDays(weekStart, dayCount))}
+                    className="h-9 rounded-md border border-[color:var(--input)] bg-transparent px-2 text-sm text-ink shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+                  />
+                </label>
+                <Button type="submit" variant="outline" size="sm">
+                  Copy day
+                </Button>
+              </form>
+            </details>
           )}
           {canCreate ? (
             <Button asChild size="sm">

@@ -513,6 +513,148 @@ export async function duplicateWeekAction(formData: FormData): Promise<void> {
   redirect(`/app/schedule?${search.toString()}`);
 }
 
+// Copy every shift on one calendar day onto another day ("use Monday's roster
+// for Tuesday"). Batch sibling of copyShiftToDateAction, modeled on
+// duplicateWeekAction: copies land as drafts with no assignments, carry breaks
+// + required skill, and a source shift is skipped when the target day already
+// has a shift at the same (location, role, time-of-day). Respects the active
+// location filter. Whole-day fixed-ms offset (UTC-calendar delta avoids DST
+// distortion), matching duplicateWeekAction / moveShiftAction.
+export async function copyDayToDateAction(formData: FormData): Promise<void> {
+  const sourceDate = String(formData.get("sourceDate") ?? ""); // YYYY-MM-DD
+  const targetDate = String(formData.get("targetDate") ?? ""); // YYYY-MM-DD
+  const locationId = String(formData.get("location") ?? "");
+  const sm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(sourceDate);
+  const tm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(targetDate);
+  if (!sm || !tm) return;
+
+  const membership = await currentMembership();
+  if (!membership) throw new Error("You must belong to a workspace.");
+  if (membership.role !== "admin" && membership.role !== "owner") {
+    throw new Error("Only admins can copy a day.");
+  }
+  const tenantId = membership.tenant.id;
+  const me = await currentUser();
+
+  // Source/target day windows in the same local frame the schedule page
+  // buckets days in (local midnight → +1 day).
+  const sourceStart = new Date(Number(sm[1]), Number(sm[2]) - 1, Number(sm[3]));
+  const sourceEnd = new Date(sourceStart);
+  sourceEnd.setDate(sourceEnd.getDate() + 1);
+  const targetStart = new Date(Number(tm[1]), Number(tm[2]) - 1, Number(tm[3]));
+  const targetEnd = new Date(targetStart);
+  targetEnd.setDate(targetEnd.getDate() + 1);
+
+  const deltaDays = Math.round(
+    (Date.UTC(Number(tm[1]), Number(tm[2]) - 1, Number(tm[3])) -
+      Date.UTC(Number(sm[1]), Number(sm[2]) - 1, Number(sm[3]))) /
+      86_400_000,
+  );
+  if (deltaDays === 0) return; // copying a day onto itself is a no-op
+  const offsetMs = deltaDays * 86_400_000;
+
+  const sourceShifts = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({
+        locationId: scShifts.locationId,
+        role: scShifts.role,
+        startsAt: scShifts.startsAt,
+        endsAt: scShifts.endsAt,
+        notes: scShifts.notes,
+        breaks: scShifts.breaks,
+        breakPaidMinutes: scShifts.breakPaidMinutes,
+        breakUnpaidMinutes: scShifts.breakUnpaidMinutes,
+        requiredSkillId: scShifts.requiredSkillId,
+      })
+      .from(scShifts)
+      .where(
+        and(
+          eq(scShifts.traceyTenantId, tenantId),
+          sql`${scShifts.startsAt} >= ${sourceStart.toISOString()}::timestamptz`,
+          sql`${scShifts.startsAt} < ${sourceEnd.toISOString()}::timestamptz`,
+          locationId ? eq(scShifts.locationId, locationId) : undefined,
+        ),
+      ),
+  );
+
+  const destShifts = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({
+        locationId: scShifts.locationId,
+        role: scShifts.role,
+        startsAt: scShifts.startsAt,
+      })
+      .from(scShifts)
+      .where(
+        and(
+          eq(scShifts.traceyTenantId, tenantId),
+          sql`${scShifts.startsAt} >= ${targetStart.toISOString()}::timestamptz`,
+          sql`${scShifts.startsAt} < ${targetEnd.toISOString()}::timestamptz`,
+        ),
+      ),
+  );
+
+  const destKeys = new Set<string>();
+  for (const d of destShifts) {
+    destKeys.add(`${d.locationId}|${d.role}|${d.startsAt.getTime()}`);
+  }
+
+  let copied = 0;
+  let skipped = 0;
+  const toInsert: Array<typeof scShifts.$inferInsert> = [];
+  for (const s of sourceShifts) {
+    const newStart = new Date(s.startsAt.getTime() + offsetMs);
+    const newEnd = new Date(s.endsAt.getTime() + offsetMs);
+    const key = `${s.locationId}|${s.role}|${newStart.getTime()}`;
+    if (destKeys.has(key)) {
+      skipped += 1;
+      continue;
+    }
+    toInsert.push({
+      traceyTenantId: tenantId,
+      locationId: s.locationId,
+      role: s.role,
+      startsAt: newStart,
+      endsAt: newEnd,
+      status: "draft",
+      notes: s.notes,
+      breaks: s.breaks,
+      breakPaidMinutes: s.breakPaidMinutes,
+      breakUnpaidMinutes: s.breakUnpaidMinutes,
+      requiredSkillId: s.requiredSkillId,
+      createdByUserId: me?.id ?? null,
+    });
+    destKeys.add(key);
+    copied += 1;
+  }
+
+  if (toInsert.length > 0) {
+    await forTenant(tenantId).run((tx) => tx.insert(scShifts).values(toInsert));
+  }
+
+  await logAuditEvent({
+    action: "shiftcraft.schedule.day_copied",
+    targetKind: "sc_schedule_day",
+    details: {
+      from: sourceDate,
+      to: targetDate,
+      copied,
+      skipped,
+      locationFilter: locationId || null,
+    },
+  });
+
+  revalidatePath("/app/schedule");
+  revalidatePath("/app/coverage-gaps");
+  const search = new URLSearchParams({
+    week: targetDate,
+    copied: String(copied),
+    skipped: String(skipped),
+  });
+  if (locationId) search.set("location", locationId);
+  redirect(`/app/schedule?${search.toString()}`);
+}
+
 // Email the accepted assignees of the given shifts that they're scheduled.
 // Called when shifts are published — assignments made while a shift was still
 // a draft are intentionally silent until then (see assignEmployeeAction).
