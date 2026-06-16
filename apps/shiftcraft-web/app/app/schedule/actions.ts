@@ -640,6 +640,10 @@ export async function duplicateShiftAction(formData: FormData): Promise<void> {
         startsAt: scShifts.startsAt,
         endsAt: scShifts.endsAt,
         notes: scShifts.notes,
+        breaks: scShifts.breaks,
+        breakPaidMinutes: scShifts.breakPaidMinutes,
+        breakUnpaidMinutes: scShifts.breakUnpaidMinutes,
+        requiredSkillId: scShifts.requiredSkillId,
       })
       .from(scShifts)
       .where(and(eq(scShifts.id, id), eq(scShifts.traceyTenantId, tenant.id)))
@@ -657,10 +661,117 @@ export async function duplicateShiftAction(formData: FormData): Promise<void> {
         startsAt: new Date(source.startsAt.getTime() + offsetMs),
         endsAt: new Date(source.endsAt.getTime() + offsetMs),
         notes: source.notes,
+        // Breaks + required skill are part of the shift's definition, so a
+        // copy is only useful if it carries them too — otherwise the manager
+        // re-enters every break on the duplicate.
+        breaks: source.breaks,
+        breakPaidMinutes: source.breakPaidMinutes,
+        breakUnpaidMinutes: source.breakUnpaidMinutes,
+        requiredSkillId: source.requiredSkillId,
         createdByUserId: user?.id ?? null,
       })
       .returning({ id: scShifts.id }),
   );
+
+  revalidatePath("/app/schedule");
+  if (created) redirect(`/app/schedule/${created.id}/edit`);
+}
+
+// Copy a single shift onto an arbitrary target date (the "Copy to…" picker on
+// the shift editor). Unlike duplicateShiftAction's whole-week jump, the manager
+// names the destination day directly — "copy today's shift to tomorrow" or to
+// any future date. Time-of-day, duration, breaks and required skill all carry
+// over; the copy lands as a draft with no assignments so it can be offered to
+// whoever's free. Admin/scope rules match the rest of this file.
+export async function copyShiftToDateAction(formData: FormData): Promise<void> {
+  const id = String(formData.get("id") ?? "");
+  const targetDate = String(formData.get("targetDate") ?? ""); // YYYY-MM-DD
+  if (!id) return;
+  // Accept only a plain calendar date; anything else is a no-op.
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(targetDate);
+  if (!m) return;
+
+  const tenant = await requireTenant();
+  const user = await currentUser();
+
+  const [source] = await forTenant(tenant.id).run((tx) =>
+    tx
+      .select({
+        locationId: scShifts.locationId,
+        role: scShifts.role,
+        startsAt: scShifts.startsAt,
+        endsAt: scShifts.endsAt,
+        notes: scShifts.notes,
+        breaks: scShifts.breaks,
+        breakPaidMinutes: scShifts.breakPaidMinutes,
+        breakUnpaidMinutes: scShifts.breakUnpaidMinutes,
+        requiredSkillId: scShifts.requiredSkillId,
+      })
+      .from(scShifts)
+      .where(and(eq(scShifts.id, id), eq(scShifts.traceyTenantId, tenant.id)))
+      .limit(1),
+  );
+  if (!source) return;
+
+  // AUDIT.md #13 — a scoped manager may only copy shifts at their locations.
+  if (user) {
+    const membership = await currentMembership();
+    if (membership) {
+      const scopeErr = await guardLocationScope(
+        tenant.id,
+        user.id,
+        membership.role,
+        source.locationId,
+      );
+      if (scopeErr) return;
+    }
+  }
+
+  // Day delta from the source shift's calendar day to the target day. Both
+  // sides use UTC calendar fields read in the same (server-local) frame the
+  // editor renders dates in, so DST never distorts the count; the real
+  // timestamps are then shifted by whole days, preserving time-of-day and
+  // any overnight span exactly (same approach as moveShiftAction).
+  const src = source.startsAt;
+  const srcDayUtc = Date.UTC(
+    src.getFullYear(),
+    src.getMonth(),
+    src.getDate(),
+  );
+  const targetDayUtc = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const deltaDays = Math.round((targetDayUtc - srcDayUtc) / 86_400_000);
+  const offsetMs = deltaDays * 86_400_000;
+
+  const [created] = await forTenant(tenant.id).run((tx) =>
+    tx
+      .insert(scShifts)
+      .values({
+        traceyTenantId: tenant.id,
+        locationId: source.locationId,
+        role: source.role,
+        startsAt: new Date(source.startsAt.getTime() + offsetMs),
+        endsAt: new Date(source.endsAt.getTime() + offsetMs),
+        status: "draft",
+        notes: source.notes,
+        breaks: source.breaks,
+        breakPaidMinutes: source.breakPaidMinutes,
+        breakUnpaidMinutes: source.breakUnpaidMinutes,
+        requiredSkillId: source.requiredSkillId,
+        createdByUserId: user?.id ?? null,
+      })
+      .returning({ id: scShifts.id }),
+  );
+
+  await logAuditEvent({
+    action: "shiftcraft.shift.copied_to_date",
+    targetKind: "sc_shift",
+    targetId: created?.id ?? null,
+    details: {
+      sourceShiftId: id,
+      targetDate,
+      deltaDays,
+    },
+  });
 
   revalidatePath("/app/schedule");
   if (created) redirect(`/app/schedule/${created.id}/edit`);

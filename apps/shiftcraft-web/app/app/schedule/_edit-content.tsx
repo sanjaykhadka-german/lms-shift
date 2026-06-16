@@ -25,6 +25,7 @@ import { ShiftForm } from "./_form";
 import {
   bulkOfferShiftAction,
   cancelShiftAction,
+  copyShiftToDateAction,
   deleteShiftAction,
   duplicateShiftAction,
   publishShiftAction,
@@ -40,6 +41,13 @@ import { deleteShiftCommentAction } from "./comment-actions";
 function toLocalInput(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// Date-only (YYYY-MM-DD) in the same local frame toLocalInput uses — what
+// <input type="date"> expects and the frame copyShiftToDateAction reads back.
+function toDateInput(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 const ASSIGN_BADGE: Record<string, string> = {
@@ -431,6 +439,24 @@ export async function EditShiftContent({
           <input type="hidden" name="weeks" value="1" />
           <Button type="submit" variant="outline" size="sm">
             Duplicate +1 week
+          </Button>
+        </form>
+        <form action={copyShiftToDateAction} className="flex items-center gap-2">
+          <input type="hidden" name="id" value={shiftRow.id} />
+          <label className="sr-only" htmlFor="copy-to-date">
+            Copy to date
+          </label>
+          <input
+            id="copy-to-date"
+            type="date"
+            name="targetDate"
+            defaultValue={toDateInput(
+              new Date(shiftRow.startsAt.getTime() + 86_400_000),
+            )}
+            className="h-9 rounded-md border border-[color:var(--input)] bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+          />
+          <Button type="submit" variant="outline" size="sm">
+            Copy to date
           </Button>
         </form>
         {isAdmin && <SaveTemplateForm shiftId={shiftRow.id} />}
