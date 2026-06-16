@@ -22,9 +22,12 @@ export interface PunchScreenProps {
     endsAt: string;
     role: string;
     breaks: ShiftBreak[];
+    notes: string | null;
   } | null;
   /** Count of breaks the user has started today (break_start events). */
   breaksTaken: number;
+  /** Milliseconds worked so far today (computed at page load). */
+  workedTodayMs: number;
   whosHere: Array<{
     id: string;
     name: string;
@@ -68,6 +71,13 @@ function fmtTime(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function fmtDuration(ms: number): string {
+  const mins = Math.max(0, Math.floor(ms / 60000));
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
 export function PunchScreen(props: PunchScreenProps) {
@@ -207,6 +217,12 @@ export function PunchScreen(props: PunchScreenProps) {
             {props.segmentStartedAt && clockStatus !== "clocked_out"
               ? ` since ${fmtTime(props.segmentStartedAt)}`
               : ""}
+            {clockStatus !== "clocked_out" && props.workedTodayMs > 0 ? (
+              <span className="text-[#a89b8c]">
+                {" "}
+                · {fmtDuration(props.workedTodayMs)} worked today
+              </span>
+            ) : null}
           </div>
         </div>
         <form action={clearActorAction}>
@@ -228,6 +244,14 @@ export function PunchScreen(props: PunchScreenProps) {
             {fmtTime(todayShift.startsAt)} – {fmtTime(todayShift.endsAt)} ·{" "}
             {todayShift.role}
           </div>
+          {todayShift.notes ? (
+            <div className="mt-2 rounded-md border-l-2 border-[var(--accent-deep)] bg-[rgba(244,238,227,0.04)] px-3 py-2 text-sm text-[#d8cdbd]">
+              <span className="font-mono text-[10px] uppercase tracking-wider text-[#766b5e]">
+                Note for this shift
+              </span>
+              <p className="mt-0.5 whitespace-pre-wrap">{todayShift.notes}</p>
+            </div>
+          ) : null}
           {todayShift.breaks.length > 0 && (
             <div className="mt-3 border-t border-[rgba(244,238,227,0.13)] pt-3">
               <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-wider text-[#766b5e]">

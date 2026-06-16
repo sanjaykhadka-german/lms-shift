@@ -19,7 +19,7 @@ import {
   verifyActorCookie,
   verifyDeviceCookie,
 } from "~/lib/kiosk/cookies";
-import { stateFor } from "~/lib/clock";
+import { aggregateClockTotals, stateFor } from "~/lib/clock";
 import { PunchScreen, type PunchScreenProps } from "./_punch";
 
 export const metadata = { title: "Kiosk · Punch" };
@@ -146,6 +146,7 @@ export default async function KioskMePage() {
           endsAt: scShifts.endsAt,
           role: scShifts.role,
           breaks: scShifts.breaks,
+          notes: scShifts.notes,
         })
         .from(scShiftAssignments)
         .innerJoin(scShifts, eq(scShifts.id, scShiftAssignments.shiftId))
@@ -246,6 +247,7 @@ export default async function KioskMePage() {
         endsAt: todayShifts[0].endsAt.toISOString(),
         role: todayShifts[0].role,
         breaks: todayShifts[0].breaks ?? [],
+        notes: todayShifts[0].notes,
       }
     : null;
 
@@ -254,6 +256,16 @@ export default async function KioskMePage() {
   const breaksTaken = todayTenantEvents.filter(
     (e) => e.appUserId === appUserId && e.eventType === "break_start",
   ).length;
+
+  // Hours worked so far today: aggregate this user's clock events (the
+  // open segment is closed at "now" for a live-ish figure on page load).
+  const myEventsToday = todayTenantEvents
+    .filter((e) => e.appUserId === appUserId)
+    .map((e) => ({ eventType: e.eventType, occurredAt: e.occurredAt }));
+  const { workMs: workedTodayMs } = aggregateClockTotals(
+    myEventsToday,
+    new Date(),
+  );
 
   const announcement = pinnedAnnouncementRows[0] ?? null;
 
@@ -270,6 +282,7 @@ export default async function KioskMePage() {
         locationName={locationName}
         todayShift={todayShift}
         breaksTaken={breaksTaken}
+        workedTodayMs={workedTodayMs}
         whosHere={whosHere}
         announcement={announcement}
         requireSelfie={requireSelfie}
