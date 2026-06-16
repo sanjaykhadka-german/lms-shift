@@ -12,6 +12,7 @@ import {
   scLocations,
   scShiftAssignments,
   scShifts,
+  scShiftTemplates,
   users,
 } from "@tracey/db";
 import { currentMembership, currentUser, requireUser } from "~/lib/auth/current";
@@ -770,6 +771,92 @@ export async function moveShiftAction(
   revalidatePath("/app/schedule");
   revalidatePath("/app/my-shifts");
   return { ok: true };
+}
+
+// Save an existing shift as a reusable template (item: "save the template so
+// it can be used again"). Captures the shift's location, role, time-of-day and
+// notes; the template then appears in the "From template" picker on
+// /app/schedule/new. Admin-only, case-insensitive unique name per tenant.
+const saveTemplateSchema = z.object({
+  shiftId: z.string().uuid(),
+  name: z.string().trim().min(1, "Give the template a name").max(120),
+});
+
+export async function saveShiftAsTemplateAction(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const parsed = saveTemplateSchema.safeParse({
+    shiftId: formData.get("shiftId"),
+    name: formData.get("name"),
+  });
+  if (!parsed.success) {
+    return {
+      status: "error",
+      message: "Please fix the highlighted fields.",
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  const membership = await requireAdminMembership();
+
+  const [shiftRow] = await forTenant(membership.tenant.id).run((tx) =>
+    tx
+      .select({
+        locationId: scShifts.locationId,
+        role: scShifts.role,
+        startsAt: scShifts.startsAt,
+        endsAt: scShifts.endsAt,
+        notes: scShifts.notes,
+      })
+      .from(scShifts)
+      .where(
+        and(
+          eq(scShifts.id, parsed.data.shiftId),
+          eq(scShifts.traceyTenantId, membership.tenant.id),
+        ),
+      )
+      .limit(1),
+  );
+  if (!shiftRow) return { status: "error", message: "Shift not found." };
+
+  // Case-insensitive name uniqueness, matching createShiftTemplateAction.
+  const dup = await forTenant(membership.tenant.id).run((tx) =>
+    tx
+      .select({ id: scShiftTemplates.id })
+      .from(scShiftTemplates)
+      .where(
+        and(
+          eq(scShiftTemplates.traceyTenantId, membership.tenant.id),
+          sql`lower(${scShiftTemplates.name}) = lower(${parsed.data.name})`,
+        ),
+      )
+      .limit(1),
+  );
+  if (dup.length > 0) {
+    return {
+      status: "error",
+      message: "Please fix the highlighted fields.",
+      fieldErrors: { name: ["A template with this name already exists."] },
+    };
+  }
+
+  await forTenant(membership.tenant.id).run((tx) =>
+    tx.insert(scShiftTemplates).values({
+      traceyTenantId: membership.tenant.id,
+      name: parsed.data.name,
+      locationId: shiftRow.locationId,
+      role: shiftRow.role,
+      startHour: shiftRow.startsAt.getHours(),
+      startMinute: shiftRow.startsAt.getMinutes(),
+      endHour: shiftRow.endsAt.getHours(),
+      endMinute: shiftRow.endsAt.getMinutes(),
+      defaultNotes: shiftRow.notes,
+    }),
+  );
+  revalidatePath("/app/shift-templates");
+  revalidatePath("/app/schedule/new");
+  return { status: "ok", message: `Saved template "${parsed.data.name}".` };
 }
 
 /**

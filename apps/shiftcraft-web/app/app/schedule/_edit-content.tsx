@@ -31,6 +31,7 @@ import {
   unassignAction,
 } from "./actions";
 import { AssignForm } from "./_assign-form";
+import { SaveTemplateForm } from "./_save-template-form";
 import { ShiftComments, type ShiftComment } from "./_comments";
 import { deleteShiftCommentAction } from "./comment-actions";
 
@@ -434,6 +435,7 @@ export async function EditShiftContent({
             Duplicate +1 week
           </Button>
         </form>
+        {isAdmin && <SaveTemplateForm shiftId={shiftRow.id} />}
         <form action={deleteShiftAction} className="ml-auto">
           <input type="hidden" name="id" value={shiftRow.id} />
           <Button

@@ -119,9 +119,12 @@ export function EmployeeScheduleView({
     addDays(weekStart, i),
   );
   const rows = buildRows(shifts, employees, assignmentsByShift, weekStart, dayCount);
+  const colMin = dayCount > 7 ? "5.5rem" : "7rem";
   const gridCols = {
-    gridTemplateColumns: `12rem repeat(${dayCount}, minmax(7rem, 1fr))`,
+    gridTemplateColumns: `12rem repeat(${dayCount}, minmax(${colMin}, 1fr))`,
   };
+  const weekDivider = (i: number) =>
+    i === 7 ? "border-l-2 border-l-[var(--accent-deep)]" : "";
 
   // Detect "all empty" — only the open-shifts row exists and that row is
   // empty too. Means literally nothing was scheduled this week.
@@ -137,10 +140,10 @@ export function EmployeeScheduleView({
         <div className="border-r border-border px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Employee
         </div>
-        {dayHeaders.map((d) => (
+        {dayHeaders.map((d, i) => (
           <div
             key={d.toISOString()}
-            className="border-r border-border px-2 py-2 text-xs font-semibold last:border-r-0"
+            className={`border-r border-border px-2 py-2 text-xs font-semibold last:border-r-0 ${weekDivider(i)}`}
           >
             {fmtDayHeader(d)}
           </div>
@@ -192,7 +195,7 @@ export function EmployeeScheduleView({
             {row.shiftsByDay.map((cell, idx) => (
               <div
                 key={idx}
-                className="min-h-[4.5rem] space-y-1 border-r border-border p-1.5 last:border-r-0"
+                className={`min-h-[4.5rem] space-y-1 border-r border-border p-1.5 last:border-r-0 ${weekDivider(idx)}`}
               >
                 {cell.map((s) => (
                   <Link

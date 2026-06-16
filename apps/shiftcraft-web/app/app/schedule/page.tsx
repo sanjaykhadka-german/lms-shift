@@ -17,7 +17,11 @@ import { getManagedLocationIds, scopeArray } from "~/lib/manager-scope";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
 import { WeeklyLabourForecast } from "~/components/WeeklyLabourForecast";
-import { AreaScheduleView, type AreaShift } from "./_area-view";
+import {
+  AreaScheduleView,
+  type AreaShift,
+  type AreaShiftSer,
+} from "./_area-view";
 import { EmployeeScheduleView, type EmployeeRow } from "./_employee-view";
 import { bulkPublishWeekAction, duplicateWeekAction } from "./actions";
 import { InfoPopover } from "~/components/InfoPopover";
@@ -442,11 +446,11 @@ export default async function SchedulePage({
           )}
           {isAdmin && draftCount > 0 && (
             <details className="group relative">
-              <summary className="inline-flex h-9 cursor-pointer list-none items-center rounded-md bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--accent-ink)] shadow-sm [&::-webkit-details-marker]:hidden">
+              <summary className="inline-flex h-8 cursor-pointer list-none items-center gap-1.5 rounded-[var(--r-sm)] bg-[var(--accent)] px-3 text-[13px] font-semibold text-[var(--accent-ink)] shadow-[0_8px_18px_-10px_var(--accent-deep)] transition-[filter] hover:brightness-[0.97] [&::-webkit-details-marker]:hidden">
                 Publish {draftCount} draft{draftCount === 1 ? "" : "s"}
-                <span aria-hidden className="ml-1.5 text-xs">▾</span>
+                <span aria-hidden className="text-[10px] opacity-80 transition-transform group-open:rotate-180">▾</span>
               </summary>
-              <div className="absolute right-0 z-30 mt-1 w-60 overflow-hidden rounded-md border border-line bg-[var(--paper)] p-1 shadow-[var(--shadow-md)]">
+              <div className="absolute right-0 z-30 mt-1.5 w-60 overflow-hidden rounded-[var(--r-md)] border border-line bg-[var(--paper)] p-1 shadow-[var(--shadow-md)]">
                 <form action={bulkPublishWeekAction}>
                   <input type="hidden" name="weekStart" value={weekStart.toISOString()} />
                   <input type="hidden" name="weekEnd" value={weekEnd.toISOString()} />
@@ -570,9 +574,13 @@ export default async function SchedulePage({
 
       {view === "area" ? (
         <AreaScheduleView
-          weekStart={weekStart}
+          weekStartMs={weekStart.getTime()}
           dayCount={dayCount}
-          shifts={shifts as unknown as AreaShift[]}
+          shifts={shifts.map((s) => ({
+            ...s,
+            startsAtMs: s.startsAt.getTime(),
+            endsAtMs: s.endsAt.getTime(),
+          })) as unknown as AreaShiftSer[]}
           employees={employees}
         />
       ) : view === "employee" ? (

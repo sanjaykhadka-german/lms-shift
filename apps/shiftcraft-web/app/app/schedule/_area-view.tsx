@@ -19,6 +19,7 @@ import { Avatar } from "~/components/Avatar";
 import { fmtTime24 } from "~/lib/date-format";
 import { assignEmployeeViaDnd, moveShiftAction } from "./actions";
 
+// Date-bearing shape used by the (server-rendered) employee view.
 export interface AreaShift {
   id: string;
   locationId: string | null;
@@ -31,6 +32,15 @@ export interface AreaShift {
   acceptedCount: number;
   offeredCount: number;
   assigneeName: string | null;
+}
+
+// Serializable shape passed across the server→client boundary to the area
+// grid. Never pass Date objects to a client component — epoch-ms only;
+// Dates are reconstructed inside.
+export interface AreaShiftSer
+  extends Omit<AreaShift, "startsAt" | "endsAt"> {
+  startsAtMs: number;
+  endsAtMs: number;
 }
 
 interface AreaEmployee {
@@ -205,6 +215,8 @@ function DayCell({
     <div
       ref={setNodeRef}
       className={`min-h-[5rem] space-y-1 border-r border-border p-1.5 last:border-r-0 ${
+        dayIdx === 7 ? "border-l-2 border-l-[var(--accent-deep)]" : ""
+      } ${
         isOver ? "bg-[color-mix(in_srgb,var(--accent-deep)_10%,transparent)]" : ""
       }`}
     >
@@ -219,16 +231,23 @@ interface ShiftMove {
 }
 
 export function AreaScheduleView({
-  weekStart,
+  weekStartMs,
   dayCount = 7,
-  shifts,
+  shifts: serShifts,
   employees,
 }: {
-  weekStart: Date;
+  weekStartMs: number;
   dayCount?: number;
-  shifts: AreaShift[];
+  shifts: AreaShiftSer[];
   employees: AreaEmployee[];
 }) {
+  // Reconstruct Dates from the serializable props (see AreaShiftSer).
+  const weekStart = new Date(weekStartMs);
+  const shifts: AreaShift[] = serShifts.map((s) => ({
+    ...s,
+    startsAt: new Date(s.startsAtMs),
+    endsAt: new Date(s.endsAtMs),
+  }));
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -262,9 +281,14 @@ export function AreaScheduleView({
   const dayHeaders = Array.from({ length: dayCount }, (_, i) =>
     addDays(weekStart, i),
   );
+  // Denser columns in the 2-week view so more fits before scrolling.
+  const colMin = dayCount > 7 ? "5.5rem" : "7rem";
   const gridCols = {
-    gridTemplateColumns: `repeat(${dayCount}, minmax(7rem, 1fr))`,
+    gridTemplateColumns: `repeat(${dayCount}, minmax(${colMin}, 1fr))`,
   };
+  // Visual divider at the start of week 2 (14-day view only).
+  const weekDivider = (i: number) =>
+    i === 7 ? "border-l-2 border-l-[var(--accent-deep)]" : "";
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -355,10 +379,10 @@ export function AreaScheduleView({
         {/* Right: N-day area grid */}
         <div className="min-w-0 flex-1 overflow-x-auto rounded-lg border border-border bg-card shadow-sm">
           <div className="grid border-b border-border bg-muted/30" style={gridCols}>
-            {dayHeaders.map((d) => (
+            {dayHeaders.map((d, i) => (
               <div
                 key={d.toISOString()}
-                className="border-r border-border px-2 py-2 text-xs font-semibold last:border-r-0"
+                className={`border-r border-border px-2 py-2 text-xs font-semibold last:border-r-0 ${weekDivider(i)}`}
               >
                 {fmtDayHeader(d)}
               </div>
