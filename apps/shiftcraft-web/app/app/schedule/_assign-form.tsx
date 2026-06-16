@@ -27,7 +27,7 @@ export function AssignForm({ shiftId, availableEmployees }: Props) {
     <form action={formAction} className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
       <input type="hidden" name="shiftId" value={shiftId} />
       <div className="space-y-1.5">
-        <Label htmlFor="userId">Offer this shift to</Label>
+        <Label htmlFor="userId">Schedule this shift for</Label>
         <select
           id="userId"
           name="userId"
@@ -51,7 +51,7 @@ export function AssignForm({ shiftId, availableEmployees }: Props) {
         )}
       </div>
       <Button type="submit" disabled={pending}>
-        {pending ? "Sending…" : "Send offer"}
+        {pending ? "Scheduling…" : "Schedule"}
       </Button>
       {state.status === "ok" && (
         <p className="text-xs text-[var(--live)] sm:col-span-2">{state.message}</p>

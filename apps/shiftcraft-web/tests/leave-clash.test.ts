@@ -153,6 +153,11 @@ vi.mock("~/lib/email", () => ({
       state.emailSends.push(opts.to);
     },
   ),
+  notifyShiftScheduled: vi.fn(
+    async (opts: { to: { email: string; name: string | null } }) => {
+      state.emailSends.push(opts.to);
+    },
+  ),
 }));
 
 vi.mock("~/lib/email-prefs", () => ({

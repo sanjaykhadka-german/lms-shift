@@ -48,6 +48,7 @@ function buildRows(
   employees: EmployeeRow[],
   assignmentsByShift: Map<string, string[]>,
   weekStart: Date,
+  dayCount: number,
 ): RowCells[] {
   const dayIndexOf = (s: AreaShift) =>
     Math.floor((s.startsAt.getTime() - weekStart.getTime()) / 86_400_000);
@@ -63,7 +64,7 @@ function buildRows(
       email: e.email,
       appUserId: e.appUserId,
       isOpenShiftsRow: false,
-      shiftsByDay: Array.from({ length: 7 }, () => []),
+      shiftsByDay: Array.from({ length: dayCount }, () => []),
     });
   }
   const empByUserId = new Map<string, RowCells>();
@@ -77,12 +78,12 @@ function buildRows(
     email: null,
     appUserId: null,
     isOpenShiftsRow: true,
-    shiftsByDay: Array.from({ length: 7 }, () => []),
+    shiftsByDay: Array.from({ length: dayCount }, () => []),
   };
 
   for (const s of shifts) {
     const dayIdx = dayIndexOf(s);
-    if (dayIdx < 0 || dayIdx > 6) continue;
+    if (dayIdx < 0 || dayIdx >= dayCount) continue;
     const acceptedUserIds = assignmentsByShift.get(s.id) ?? [];
     if (acceptedUserIds.length === 0) {
       openRow.shiftsByDay[dayIdx]!.push(s);
@@ -103,17 +104,24 @@ function buildRows(
 
 export function EmployeeScheduleView({
   weekStart,
+  dayCount = 7,
   shifts,
   employees,
   assignmentsByShift,
 }: {
   weekStart: Date;
+  dayCount?: number;
   shifts: AreaShift[];
   employees: EmployeeRow[];
   assignmentsByShift: Map<string, string[]>;
 }) {
-  const dayHeaders = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
-  const rows = buildRows(shifts, employees, assignmentsByShift, weekStart);
+  const dayHeaders = Array.from({ length: dayCount }, (_, i) =>
+    addDays(weekStart, i),
+  );
+  const rows = buildRows(shifts, employees, assignmentsByShift, weekStart, dayCount);
+  const gridCols = {
+    gridTemplateColumns: `12rem repeat(${dayCount}, minmax(7rem, 1fr))`,
+  };
 
   // Detect "all empty" — only the open-shifts row exists and that row is
   // empty too. Means literally nothing was scheduled this week.
@@ -121,8 +129,11 @@ export function EmployeeScheduleView({
 
   return (
     <div className="min-w-0 overflow-x-auto rounded-lg border border-border bg-card shadow-sm">
-      {/* Header row: blank employee column + 7 day headers */}
-      <div className="grid grid-cols-[12rem_repeat(7,minmax(7rem,1fr))] border-b border-border bg-muted/30">
+      {/* Header row: blank employee column + N day headers */}
+      <div
+        className="grid border-b border-border bg-muted/30"
+        style={gridCols}
+      >
         <div className="border-r border-border px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Employee
         </div>
@@ -144,9 +155,10 @@ export function EmployeeScheduleView({
         rows.map((row) => (
           <div
             key={row.key}
-            className={`grid grid-cols-[12rem_repeat(7,minmax(7rem,1fr))] border-b border-border last:border-b-0 ${
+            className={`grid border-b border-border last:border-b-0 ${
               row.isOpenShiftsRow ? "bg-[color-mix(in_srgb,var(--warn)_6%,transparent)]" : ""
             }`}
+            style={gridCols}
           >
             {/* Left-rail cell: employee name + avatar (or "Open shifts" label) */}
             <div className="flex items-center gap-2 border-r border-border px-3 py-2">

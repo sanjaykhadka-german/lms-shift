@@ -122,6 +122,12 @@ export const scShifts = pgTable(
     endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
     status: text("status").notNull().default("draft"),
     notes: text("notes"),
+    // Scheduled meal/rest breaks, split into paid + unpaid minutes. The
+    // unpaid portion is deducted from net paid hours / labour cost; the
+    // paid portion is informational (still counts toward pay). Both default
+    // to 0 so existing shifts back-fill as "no break".
+    breakPaidMinutes: integer("break_paid_minutes").notNull().default(0),
+    breakUnpaidMinutes: integer("break_unpaid_minutes").notNull().default(0),
     // AUDIT.md #8 — required skill for the auto-scheduler. Null = no
     // requirement (any candidate is acceptable; the role text is
     // descriptive but not enforced). FK to per-tenant sc_skills is
@@ -142,6 +148,10 @@ export const scShifts = pgTable(
       sql`${t.status} in ('draft','published','cancelled')`,
     ),
     check("sc_shifts_time_chk", sql`${t.endsAt} > ${t.startsAt}`),
+    check(
+      "sc_shifts_break_chk",
+      sql`${t.breakPaidMinutes} >= 0 and ${t.breakUnpaidMinutes} >= 0`,
+    ),
   ],
 );
 

@@ -77,6 +77,7 @@ export async function forecastWeek(
           locationName: scLocations.name,
           startsAt: scShifts.startsAt,
           endsAt: scShifts.endsAt,
+          breakUnpaidMinutes: scShifts.breakUnpaidMinutes,
           acceptedUserId: scShiftAssignments.userId,
           hourlyRate: scEmployees.hourlyRate,
         })
@@ -145,9 +146,13 @@ export async function forecastWeek(
     if (seen.has(r.shiftId)) continue;
     seen.add(r.shiftId);
 
-    const hours = hoursBetween(r.startsAt, r.endsAt);
+    // Net paid hours = shift window minus the unpaid break.
+    const hours = Math.max(
+      0,
+      hoursBetween(r.startsAt, r.endsAt) - (r.breakUnpaidMinutes ?? 0) / 60,
+    );
     const rateNum = r.hourlyRate == null ? null : Number(r.hourlyRate);
-    const cost = projectShiftCost(r.startsAt, r.endsAt, rateNum);
+    const cost = rateNum == null ? 0 : hours * rateNum;
 
     totalHours += hours;
     totalCost += cost;

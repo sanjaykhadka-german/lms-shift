@@ -16,7 +16,7 @@ import {
 } from "@tracey/db";
 import { currentMembership, currentUser, requireUser } from "~/lib/auth/current";
 import { logAuditEvent } from "~/lib/audit";
-import { notifyShiftOffered } from "~/lib/email";
+import { notifyShiftOffered, notifyShiftScheduled } from "~/lib/email";
 import { getUnsubscribedUserIds } from "~/lib/email-prefs";
 import {
   findApprovedLeaveOverlap,
@@ -77,6 +77,10 @@ const shiftSchema = z
       .min(1, "End time is required")
       .transform((s) => new Date(s)),
     notes: z.string().trim().max(2000).optional().or(z.literal("")),
+    // Scheduled break minutes (paid + unpaid). Coerced from the form's
+    // number inputs; capped at a day to catch fat-finger entries.
+    breakPaidMinutes: z.coerce.number().int().min(0).max(1440).catch(0),
+    breakUnpaidMinutes: z.coerce.number().int().min(0).max(1440).catch(0),
     // AUDIT.md #8 — empty string maps to null (no skill required);
     // a UUID is validated against sc_skills server-side via the FK.
     requiredSkillId: z
@@ -114,6 +118,8 @@ export async function createShiftAction(
     startsAt: formData.get("startsAt"),
     endsAt: formData.get("endsAt"),
     notes: formData.get("notes") ?? "",
+    breakPaidMinutes: formData.get("breakPaidMinutes") ?? 0,
+    breakUnpaidMinutes: formData.get("breakUnpaidMinutes") ?? 0,
     requiredSkillId: formData.get("requiredSkillId") ?? "",
   });
   if (!parsed.success) {
@@ -148,6 +154,8 @@ export async function createShiftAction(
       startsAt: parsed.data.startsAt,
       endsAt: parsed.data.endsAt,
       notes: parsed.data.notes?.length ? parsed.data.notes : null,
+      breakPaidMinutes: parsed.data.breakPaidMinutes,
+      breakUnpaidMinutes: parsed.data.breakUnpaidMinutes,
       requiredSkillId: parsed.data.requiredSkillId,
       createdByUserId: user?.id ?? null,
     }),
@@ -167,6 +175,8 @@ export async function updateShiftAction(
     startsAt: formData.get("startsAt"),
     endsAt: formData.get("endsAt"),
     notes: formData.get("notes") ?? "",
+    breakPaidMinutes: formData.get("breakPaidMinutes") ?? 0,
+    breakUnpaidMinutes: formData.get("breakUnpaidMinutes") ?? 0,
     requiredSkillId: formData.get("requiredSkillId") ?? "",
   });
   if (!parsed.success) {
@@ -222,6 +232,8 @@ export async function updateShiftAction(
         startsAt: parsed.data.startsAt,
         endsAt: parsed.data.endsAt,
         notes: parsed.data.notes?.length ? parsed.data.notes : null,
+        breakPaidMinutes: parsed.data.breakPaidMinutes,
+        breakUnpaidMinutes: parsed.data.breakUnpaidMinutes,
         requiredSkillId: parsed.data.requiredSkillId,
         updatedAt: new Date(),
       })
@@ -642,10 +654,16 @@ export async function assignEmployeeAction(
   }
 
   try {
+    // Direct admin assignment is auto-approved — no employee accept/decline
+    // step. Insert as 'accepted' with respondedAt stamped now so the shift
+    // lands straight on the worker's roster (and in the employee schedule
+    // view, which only renders accepted assignments).
     await forTenant(membership.tenant.id).run((tx) =>
       tx.insert(scShiftAssignments).values({
         shiftId: parsed.data.shiftId,
         userId: parsed.data.userId,
+        status: "accepted",
+        respondedAt: new Date(),
       }),
     );
   } catch (err) {
@@ -660,7 +678,7 @@ export async function assignEmployeeAction(
   }
 
   // Email after commit. Best-effort — if the user has no email, the
-  // offer still exists in the DB and the employee will see it next
+  // assignment still exists in the DB and the employee will see it next
   // time they open /app/my-shifts.
   const [recipientRow] = await db
     .select({ email: users.email, name: users.name })
@@ -668,13 +686,90 @@ export async function assignEmployeeAction(
     .where(eq(users.id, parsed.data.userId))
     .limit(1);
   if (recipientRow) {
-    await notifyShiftOffered({ to: recipientRow, shift: shiftRow });
+    await notifyShiftScheduled({ to: recipientRow, shift: shiftRow });
   }
 
   revalidatePath(`/app/schedule/${parsed.data.shiftId}/edit`);
   revalidatePath("/app/schedule");
   revalidatePath("/app/my-shifts");
-  return { status: "ok", message: "Offer sent." };
+  return { status: "ok", message: "Scheduled." };
+}
+
+// Drag-and-drop assign: thin wrapper so the area grid can call the same
+// auto-approve assign path with plain args (it has no <form>/FormData).
+export async function assignEmployeeViaDnd(
+  shiftId: string,
+  userId: string,
+): Promise<FormState> {
+  const fd = new FormData();
+  fd.set("shiftId", shiftId);
+  fd.set("userId", userId);
+  return assignEmployeeAction({ status: "idle" }, fd);
+}
+
+// Drag-and-drop move: shift a shift's window by a whole number of days,
+// preserving its time-of-day and duration exactly (delta in days avoids any
+// timezone reconstruction). Dropping 7 days forward in the 2-week grid is how
+// "move to next week" works. Admin-only; scope-guarded on the shift's
+// current location.
+export async function moveShiftAction(
+  shiftId: string,
+  deltaDays: number,
+): Promise<{ ok: boolean; message?: string }> {
+  if (!Number.isInteger(deltaDays) || deltaDays === 0) {
+    return { ok: false, message: "No change." };
+  }
+  const membership = await requireAdminMembership();
+  const user = await currentUser();
+
+  const [shiftRow] = await forTenant(membership.tenant.id).run((tx) =>
+    tx
+      .select({
+        startsAt: scShifts.startsAt,
+        endsAt: scShifts.endsAt,
+        locationId: scShifts.locationId,
+      })
+      .from(scShifts)
+      .where(
+        and(
+          eq(scShifts.id, shiftId),
+          eq(scShifts.traceyTenantId, membership.tenant.id),
+        ),
+      )
+      .limit(1),
+  );
+  if (!shiftRow) return { ok: false, message: "Shift not found." };
+
+  // AUDIT.md #13 — a scoped manager may only move shifts at their locations.
+  if (user) {
+    const scopeErr = await guardLocationScope(
+      membership.tenant.id,
+      user.id,
+      membership.role,
+      shiftRow.locationId,
+    );
+    if (scopeErr) return { ok: false, message: scopeErr.message };
+  }
+
+  const ms = deltaDays * 86_400_000;
+  const newStart = new Date(shiftRow.startsAt.getTime() + ms);
+  const newEnd = new Date(shiftRow.endsAt.getTime() + ms);
+
+  await forTenant(membership.tenant.id).run((tx) =>
+    tx
+      .update(scShifts)
+      .set({ startsAt: newStart, endsAt: newEnd, updatedAt: new Date() })
+      .where(
+        and(
+          eq(scShifts.id, shiftId),
+          eq(scShifts.traceyTenantId, membership.tenant.id),
+        ),
+      ),
+  );
+
+  revalidatePath("/app/schedule");
+  revalidatePath("/app/my-shifts");
+  return { ok: true };
 }
 
 /**

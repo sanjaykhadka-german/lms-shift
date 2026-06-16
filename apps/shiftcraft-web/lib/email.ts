@@ -90,6 +90,29 @@ export async function notifyShiftOffered(opts: {
   });
 }
 
+// Direct admin assignment: the shift is already confirmed (no accept/decline
+// step) — see assignEmployeeAction. Wording reflects that the worker is
+// scheduled, not merely offered.
+export async function notifyShiftScheduled(opts: {
+  to: { email: string; name: string | null };
+  shift: { startsAt: Date; endsAt: Date; role: string; locationName: string | null };
+}): Promise<void> {
+  const greeting = `Hi ${displayName(opts.to.name, opts.to.email).split(" ")[0]},`;
+  const shiftLine = fmtShift(opts.shift);
+  await safeSend({
+    to: opts.to.email,
+    subject: `You're scheduled · ${shiftLine}`,
+    text: `${greeting}\n\nYou've been scheduled for a shift:\n\n  ${shiftLine}\n\nSee it on your shifts page: ${MY_SHIFTS_URL}`,
+    html: `
+      <p>${greeting}</p>
+      <p>You've been scheduled for a shift:</p>
+      <p><strong>${shiftLine}</strong></p>
+      <p><a href="${MY_SHIFTS_URL}">Open ShiftCraft</a> to see your roster.</p>
+    `,
+    context: "notifyShiftScheduled",
+  });
+}
+
 export async function notifySwapRequested(opts: {
   to: { email: string; name: string | null };
   from: { name: string | null; email: string };

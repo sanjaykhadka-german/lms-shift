@@ -38,6 +38,8 @@ interface Props {
     startsAt: string; // datetime-local format: YYYY-MM-DDTHH:mm
     endsAt: string;
     notes: string | null;
+    breakPaidMinutes?: number;
+    breakUnpaidMinutes?: number;
     requiredSkillId?: string | null;
   };
 }
@@ -208,6 +210,35 @@ export function ShiftForm({
             {state.fieldErrors.endsAt[0]}
           </p>
         )}
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="breakPaidMinutes">Paid break (min)</Label>
+        <Input
+          id="breakPaidMinutes"
+          name="breakPaidMinutes"
+          type="number"
+          min={0}
+          max={1440}
+          step={5}
+          defaultValue={defaultValues?.breakPaidMinutes ?? 0}
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="breakUnpaidMinutes">Unpaid break (min)</Label>
+        <Input
+          id="breakUnpaidMinutes"
+          name="breakUnpaidMinutes"
+          type="number"
+          min={0}
+          max={1440}
+          step={5}
+          defaultValue={defaultValues?.breakUnpaidMinutes ?? 0}
+        />
+        <p className="text-xs text-muted-foreground">
+          Unpaid minutes are deducted from net paid hours.
+        </p>
       </div>
 
       {skills.length > 0 && (

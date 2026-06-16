@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { and, asc, between, count, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, between, count, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import {
   forTenant,
   scEmployees,
@@ -75,6 +75,7 @@ export default async function SchedulePage({
     week?: string;
     location?: string;
     view?: string;
+    range?: string;
     copied?: string;
     skipped?: string;
   }>;
@@ -98,22 +99,28 @@ export default async function SchedulePage({
     week,
     location: locationFilter,
     view: viewRaw,
+    range: rangeRaw,
     copied,
     skipped,
   } = await searchParams;
+  // Area is the default view (bare /app/schedule). day/employee opt in.
   const view: ScheduleView =
-    viewRaw === "area" ? "area" : viewRaw === "employee" ? "employee" : "day";
+    viewRaw === "day" ? "day" : viewRaw === "employee" ? "employee" : "area";
+  // 1-week (default) or 2-week range. dayCount drives every grid + nav step.
+  const range: "1w" | "2w" = rangeRaw === "2w" ? "2w" : "1w";
+  const dayCount = range === "2w" ? 14 : 7;
   const copiedCount = Number.parseInt(copied ?? "", 10);
   const skippedCount = Number.parseInt(skipped ?? "", 10);
   const showCopyFlash = Number.isFinite(copiedCount) && copied !== undefined;
   const anchor = week ? new Date(`${week}T00:00:00`) : new Date();
   const weekStart = startOfWeek(isNaN(anchor.getTime()) ? new Date() : anchor);
-  const weekEnd = addDays(weekStart, 7); // exclusive
+  const weekEnd = addDays(weekStart, dayCount); // exclusive
 
   const qs = (overrides: {
     week?: string;
     location?: string | null;
     view?: ScheduleView | null;
+    range?: "1w" | "2w" | null;
   }) => {
     const params = new URLSearchParams();
     const w = overrides.week ?? week;
@@ -125,13 +132,16 @@ export default async function SchedulePage({
     if (loc) params.set("location", loc);
     const v =
       overrides.view === null ? undefined : (overrides.view ?? view);
-    if (v && v !== "day") params.set("view", v);
+    if (v && v !== "area") params.set("view", v);
+    const r =
+      overrides.range === null ? undefined : (overrides.range ?? range);
+    if (r && r !== "1w") params.set("range", r);
     const s = params.toString();
     return s ? `?${s}` : "";
   };
 
-  const prevWeek = fmtIsoDate(addDays(weekStart, -7));
-  const nextWeek = fmtIsoDate(addDays(weekStart, 7));
+  const prevWeek = fmtIsoDate(addDays(weekStart, -dayCount));
+  const nextWeek = fmtIsoDate(addDays(weekStart, dayCount));
   const thisWeek = fmtIsoDate(startOfWeek(new Date()));
 
   const ctx = forTenant(membership.tenant.id);
@@ -179,9 +189,7 @@ export default async function SchedulePage({
             eq(scShifts.traceyTenantId, membership.tenant.id),
             between(scShifts.startsAt, weekStart, weekEnd),
             locationFilter ? eq(scShifts.locationId, locationFilter) : undefined,
-            scopeIds
-              ? sql`${scShifts.locationId} = ANY(${scopeIds})`
-              : undefined,
+            scopeIds ? inArray(scShifts.locationId, scopeIds) : undefined,
           ),
         )
         .orderBy(asc(scShifts.startsAt)),
@@ -197,9 +205,7 @@ export default async function SchedulePage({
         .where(
           and(
             eq(scLocations.traceyTenantId, membership.tenant.id),
-            scopeIds
-              ? sql`${scLocations.id} = ANY(${scopeIds})`
-              : undefined,
+            scopeIds ? inArray(scLocations.id, scopeIds) : undefined,
           ),
         )
         .orderBy(asc(scLocations.name)),
@@ -249,7 +255,7 @@ export default async function SchedulePage({
         .where(
           and(
             eq(scShiftAssignments.status, "accepted"),
-            sql`${scShiftAssignments.shiftId} = ANY(${shiftIds})`,
+            inArray(scShiftAssignments.shiftId, shiftIds),
           ),
         ),
     );
@@ -266,7 +272,7 @@ export default async function SchedulePage({
   // is hidden for them. Each metric is bounded by the week being viewed
   // so navigating to a different week refreshes the counts.
   const weekStartIso = fmtIsoDate(weekStart);
-  const weekEndInclusiveIso = fmtIsoDate(addDays(weekStart, 6));
+  const weekEndInclusiveIso = fmtIsoDate(addDays(weekStart, dayCount - 1));
   const publishedCount = shifts.filter((s) => s.status === "published").length;
   const cancelledCount = shifts.filter((s) => s.status === "cancelled").length;
   const openShiftCount = shifts.filter(
@@ -323,9 +329,9 @@ export default async function SchedulePage({
     leaveApprovedThisWeek: leaveApprovedWeek[0]?.n ?? 0,
   };
 
-  // Group shifts by day index (0=Mon … 6=Sun).
+  // Group shifts by day index (0=Mon … dayCount-1).
   const days: Array<{ date: Date; shifts: typeof shifts }> = Array.from(
-    { length: 7 },
+    { length: dayCount },
     (_, i) => ({ date: addDays(weekStart, i), shifts: [] }),
   );
   for (const s of shifts) {
@@ -344,6 +350,18 @@ export default async function SchedulePage({
     ? locations.find((l) => l.id === locationFilter)
     : null;
 
+  // Per-location draft counts for the Publish menu (item 7). Built from the
+  // already-fetched shifts so it costs no extra query; reflects the active
+  // location filter when one is set.
+  const draftByLocation = new Map<string, number>();
+  for (const s of shifts) {
+    if (s.status !== "draft" || !s.locationId) continue;
+    draftByLocation.set(s.locationId, (draftByLocation.get(s.locationId) ?? 0) + 1);
+  }
+  const publishableLocations = locations
+    .map((l) => ({ id: l.id, name: l.name, draftCount: draftByLocation.get(l.id) ?? 0 }))
+    .filter((l) => l.draftCount > 0);
+
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-6 py-10">
       <div className="flex items-start justify-between gap-3">
@@ -361,14 +379,14 @@ export default async function SchedulePage({
             </InfoPopover>
           </h1>
           <p className="mt-1 text-sm text-ink-2">
-            {fmtRange(weekStart, addDays(weekStart, 6))} ·{" "}
+            {fmtRange(weekStart, addDays(weekStart, dayCount - 1))} ·{" "}
             {shifts.length} shift{shifts.length === 1 ? "" : "s"}
             {activeLocation ? ` · ${activeLocation.name}` : ""}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <div className="mr-1 inline-flex gap-0.5 rounded-[var(--r-sm)] border border-line bg-[var(--paper-2)] p-0.5">
-            {(["day", "area", "employee"] as const).map((v) => (
+            {(["area", "employee", "day"] as const).map((v) => (
               <Link
                 key={v}
                 href={`/app/schedule${qs({ view: v })}`}
@@ -379,6 +397,21 @@ export default async function SchedulePage({
                 }`}
               >
                 {v}
+              </Link>
+            ))}
+          </div>
+          <div className="mr-1 inline-flex gap-0.5 rounded-[var(--r-sm)] border border-line bg-[var(--paper-2)] p-0.5">
+            {(["1w", "2w"] as const).map((r) => (
+              <Link
+                key={r}
+                href={`/app/schedule${qs({ range: r })}`}
+                className={`rounded-[calc(var(--r-sm)-3px)] px-3 py-1.5 text-xs font-semibold uppercase transition-colors ${
+                  range === r
+                    ? "bg-[var(--raise)] text-ink shadow-[var(--shadow-sm)] dark:bg-[var(--accent)] dark:text-[var(--accent-ink)]"
+                    : "text-ink-2 hover:text-ink"
+                }`}
+              >
+                {r === "1w" ? "1 wk" : "2 wk"}
               </Link>
             ))}
           </div>
@@ -408,16 +441,40 @@ export default async function SchedulePage({
             </Button>
           )}
           {isAdmin && draftCount > 0 && (
-            <form action={bulkPublishWeekAction}>
-              <input type="hidden" name="weekStart" value={weekStart.toISOString()} />
-              <input type="hidden" name="weekEnd" value={weekEnd.toISOString()} />
-              {locationFilter && (
-                <input type="hidden" name="location" value={locationFilter} />
-              )}
-              <Button type="submit" variant="outline" size="sm">
+            <details className="group relative">
+              <summary className="inline-flex h-9 cursor-pointer list-none items-center rounded-md bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--accent-ink)] shadow-sm [&::-webkit-details-marker]:hidden">
                 Publish {draftCount} draft{draftCount === 1 ? "" : "s"}
-              </Button>
-            </form>
+                <span aria-hidden className="ml-1.5 text-xs">▾</span>
+              </summary>
+              <div className="absolute right-0 z-30 mt-1 w-60 overflow-hidden rounded-md border border-line bg-[var(--paper)] p-1 shadow-[var(--shadow-md)]">
+                <form action={bulkPublishWeekAction}>
+                  <input type="hidden" name="weekStart" value={weekStart.toISOString()} />
+                  <input type="hidden" name="weekEnd" value={weekEnd.toISOString()} />
+                  <button
+                    type="submit"
+                    className="flex w-full items-center justify-between rounded-[var(--r-sm)] px-3 py-2 text-left text-sm font-medium text-ink hover:bg-[var(--paper-2)]"
+                  >
+                    <span>All locations</span>
+                    <span className="font-mono text-xs text-ink-2">{draftCount}</span>
+                  </button>
+                </form>
+                {publishableLocations.length > 1 &&
+                  publishableLocations.map((loc) => (
+                    <form key={loc.id} action={bulkPublishWeekAction}>
+                      <input type="hidden" name="weekStart" value={weekStart.toISOString()} />
+                      <input type="hidden" name="weekEnd" value={weekEnd.toISOString()} />
+                      <input type="hidden" name="location" value={loc.id} />
+                      <button
+                        type="submit"
+                        className="flex w-full items-center justify-between rounded-[var(--r-sm)] px-3 py-2 text-left text-sm text-ink-2 hover:bg-[var(--paper-2)] hover:text-ink"
+                      >
+                        <span className="truncate">{loc.name}</span>
+                        <span className="font-mono text-xs text-ink-3">{loc.draftCount}</span>
+                      </button>
+                    </form>
+                  ))}
+              </div>
+            </details>
           )}
           {isAdmin && shifts.length > 0 && (
             <form action={duplicateWeekAction}>
@@ -514,12 +571,14 @@ export default async function SchedulePage({
       {view === "area" ? (
         <AreaScheduleView
           weekStart={weekStart}
+          dayCount={dayCount}
           shifts={shifts as unknown as AreaShift[]}
           employees={employees}
         />
       ) : view === "employee" ? (
         <EmployeeScheduleView
           weekStart={weekStart}
+          dayCount={dayCount}
           shifts={shifts as unknown as AreaShift[]}
           employees={employees as EmployeeRow[]}
           assignmentsByShift={assignmentsByShift}

@@ -239,6 +239,13 @@
       "when": 1780130159917,
       "tag": "0033_cynical_mastermind",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1781578646765,
+      "tag": "0034_tiresome_silverclaw",
+      "breakpoints": true
     }
   ]
 }
