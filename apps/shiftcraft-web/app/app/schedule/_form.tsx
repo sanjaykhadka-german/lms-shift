@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useRef } from "react";
+import { useActionState, useRef, useState } from "react";
+import type { ShiftBreak } from "@tracey/db";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
@@ -9,6 +10,13 @@ import {
   updateShiftAction,
   type FormState,
 } from "./actions";
+
+interface BreakRow {
+  id: number;
+  label: string;
+  minutes: string;
+  paid: boolean;
+}
 
 const initial: FormState = { status: "idle" };
 
@@ -38,8 +46,7 @@ interface Props {
     startsAt: string; // datetime-local format: YYYY-MM-DDTHH:mm
     endsAt: string;
     notes: string | null;
-    breakPaidMinutes?: number;
-    breakUnpaidMinutes?: number;
+    breaks?: ShiftBreak[];
     requiredSkillId?: string | null;
   };
 }
@@ -80,6 +87,39 @@ export function ShiftForm({
   const startsRef = useRef<HTMLInputElement | null>(null);
   const endsRef = useRef<HTMLInputElement | null>(null);
   const notesRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Dynamic break list. Serialized into a hidden `breaks` input on submit;
+  // the server derives paid/unpaid totals from it.
+  const nextBreakId = useRef(1);
+  const [breaks, setBreaks] = useState<BreakRow[]>(
+    (defaultValues?.breaks ?? []).map((b) => ({
+      id: nextBreakId.current++,
+      label: b.label ?? "",
+      minutes: String(b.minutes),
+      paid: b.paid,
+    })),
+  );
+  function addBreak() {
+    setBreaks((rows) => [
+      ...rows,
+      { id: nextBreakId.current++, label: "", minutes: "30", paid: false },
+    ]);
+  }
+  function removeBreak(id: number) {
+    setBreaks((rows) => rows.filter((r) => r.id !== id));
+  }
+  function updateBreak(id: number, patch: Partial<BreakRow>) {
+    setBreaks((rows) =>
+      rows.map((r) => (r.id === id ? { ...r, ...patch } : r)),
+    );
+  }
+  const breaksPayload = JSON.stringify(
+    breaks.map((b) => ({
+      label: b.label,
+      minutes: Number(b.minutes) || 0,
+      paid: b.paid,
+    })),
+  );
 
   function applyTemplate(id: string) {
     if (!id) return;
@@ -212,33 +252,80 @@ export function ShiftForm({
         )}
       </div>
 
-      <div className="space-y-1.5">
-        <Label htmlFor="breakPaidMinutes">Paid break (min)</Label>
-        <Input
-          id="breakPaidMinutes"
-          name="breakPaidMinutes"
-          type="number"
-          min={0}
-          max={1440}
-          step={5}
-          defaultValue={defaultValues?.breakPaidMinutes ?? 0}
-        />
-      </div>
-
-      <div className="space-y-1.5">
-        <Label htmlFor="breakUnpaidMinutes">Unpaid break (min)</Label>
-        <Input
-          id="breakUnpaidMinutes"
-          name="breakUnpaidMinutes"
-          type="number"
-          min={0}
-          max={1440}
-          step={5}
-          defaultValue={defaultValues?.breakUnpaidMinutes ?? 0}
-        />
-        <p className="text-xs text-muted-foreground">
-          Unpaid minutes are deducted from net paid hours.
-        </p>
+      <div className="space-y-2 sm:col-span-2">
+        <div className="flex items-center justify-between">
+          <Label>Breaks</Label>
+          <Button type="button" variant="outline" size="sm" onClick={addBreak}>
+            + Add break
+          </Button>
+        </div>
+        {/* Serialized list the server reads + derives paid/unpaid totals from. */}
+        <input type="hidden" name="breaks" value={breaksPayload} />
+        {breaks.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            No breaks. Add one or more — unpaid minutes are deducted from net
+            paid hours.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {breaks.map((b) => (
+              <li
+                key={b.id}
+                className="flex flex-wrap items-end gap-2 rounded-md border border-border bg-muted/30 p-2"
+              >
+                <div className="min-w-[120px] flex-1 space-y-1">
+                  <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                    Label (optional)
+                  </span>
+                  <Input
+                    value={b.label}
+                    onChange={(e) => updateBreak(b.id, { label: e.target.value })}
+                    placeholder="e.g. Lunch"
+                  />
+                </div>
+                <div className="w-24 space-y-1">
+                  <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                    Minutes
+                  </span>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={1440}
+                    step={5}
+                    value={b.minutes}
+                    onChange={(e) =>
+                      updateBreak(b.id, { minutes: e.target.value })
+                    }
+                  />
+                </div>
+                <div className="w-28 space-y-1">
+                  <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                    Type
+                  </span>
+                  <select
+                    value={b.paid ? "paid" : "unpaid"}
+                    onChange={(e) =>
+                      updateBreak(b.id, { paid: e.target.value === "paid" })
+                    }
+                    className="flex h-9 w-full rounded-md border border-[color:var(--input)] bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+                  >
+                    <option value="unpaid">Unpaid</option>
+                    <option value="paid">Paid</option>
+                  </select>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => removeBreak(b.id)}
+                  className="text-destructive hover:bg-destructive/10"
+                >
+                  Remove
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {skills.length > 0 && (

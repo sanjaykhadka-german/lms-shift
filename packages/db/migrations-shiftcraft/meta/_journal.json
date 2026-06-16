@@ -246,6 +246,13 @@
       "when": 1781578646765,
       "tag": "0034_tiresome_silverclaw",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1781586448746,
+      "tag": "0035_amazing_catseye",
+      "breakpoints": true
     }
   ]
 }

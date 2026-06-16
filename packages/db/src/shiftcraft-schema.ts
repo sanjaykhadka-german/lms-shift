@@ -111,6 +111,15 @@ export const scLocations = pgTable(
 // Drafts are visible only to managers/admins; published shifts can be offered
 // to staff via shift_assignments.
 
+// One scheduled break on a shift. `minutes` is the break length; `paid`
+// marks whether it counts toward paid hours. `label` is an optional name
+// ("Lunch", "Tea"). Stored as a JSONB array in sc_shifts.breaks.
+export type ShiftBreak = {
+  label: string | null;
+  minutes: number;
+  paid: boolean;
+};
+
 export const scShifts = pgTable(
   "sc_shifts",
   {
@@ -122,10 +131,12 @@ export const scShifts = pgTable(
     endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
     status: text("status").notNull().default("draft"),
     notes: text("notes"),
-    // Scheduled meal/rest breaks, split into paid + unpaid minutes. The
-    // unpaid portion is deducted from net paid hours / labour cost; the
-    // paid portion is informational (still counts toward pay). Both default
-    // to 0 so existing shifts back-fill as "no break".
+    // Scheduled meal/rest breaks. `breaks` is the source of truth: an ordered
+    // list of {label, minutes, paid} entries the admin defines per shift. The
+    // two *_minutes columns are denormalized totals (sum of paid / unpaid
+    // minutes) kept in sync on write so labour-cost math and older queries
+    // need no change. The unpaid total is deducted from net paid hours.
+    breaks: jsonb("breaks").$type<ShiftBreak[]>().notNull().default(sql`'[]'::jsonb`),
     breakPaidMinutes: integer("break_paid_minutes").notNull().default(0),
     breakUnpaidMinutes: integer("break_unpaid_minutes").notNull().default(0),
     // AUDIT.md #8 — required skill for the auto-scheduler. Null = no

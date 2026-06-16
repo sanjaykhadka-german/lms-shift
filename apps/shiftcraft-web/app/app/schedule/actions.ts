@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   db,
@@ -14,6 +14,7 @@ import {
   scShifts,
   scShiftTemplates,
   users,
+  type ShiftBreak,
 } from "@tracey/db";
 import { currentMembership, currentUser, requireUser } from "~/lib/auth/current";
 import { logAuditEvent } from "~/lib/audit";
@@ -78,10 +79,6 @@ const shiftSchema = z
       .min(1, "End time is required")
       .transform((s) => new Date(s)),
     notes: z.string().trim().max(2000).optional().or(z.literal("")),
-    // Scheduled break minutes (paid + unpaid). Coerced from the form's
-    // number inputs; capped at a day to catch fat-finger entries.
-    breakPaidMinutes: z.coerce.number().int().min(0).max(1440).catch(0),
-    breakUnpaidMinutes: z.coerce.number().int().min(0).max(1440).catch(0),
     // AUDIT.md #8 — empty string maps to null (no skill required);
     // a UUID is validated against sc_skills server-side via the FK.
     requiredSkillId: z
@@ -109,6 +106,45 @@ async function requireTenant() {
   return m.tenant;
 }
 
+// Breaks arrive as a JSON string from the form (a dynamic row list). Validate,
+// drop zero-minute rows, and derive the paid/unpaid totals kept on the shift.
+const breakEntrySchema = z.object({
+  label: z.string().trim().max(40).nullish(),
+  minutes: z.coerce.number().int().min(0).max(1440),
+  paid: z.coerce.boolean(),
+});
+
+function parseBreaks(raw: FormDataEntryValue | null): {
+  breaks: ShiftBreak[];
+  paidTotal: number;
+  unpaidTotal: number;
+} {
+  let arr: unknown = [];
+  if (typeof raw === "string" && raw.trim()) {
+    try {
+      arr = JSON.parse(raw);
+    } catch {
+      arr = [];
+    }
+  }
+  const parsed = z.array(breakEntrySchema).safeParse(arr);
+  const list = parsed.success ? parsed.data : [];
+  const breaks: ShiftBreak[] = list
+    .filter((b) => b.minutes > 0)
+    .map((b) => ({
+      label: b.label && b.label.trim() ? b.label.trim() : null,
+      minutes: b.minutes,
+      paid: b.paid,
+    }));
+  const paidTotal = breaks
+    .filter((b) => b.paid)
+    .reduce((s, b) => s + b.minutes, 0);
+  const unpaidTotal = breaks
+    .filter((b) => !b.paid)
+    .reduce((s, b) => s + b.minutes, 0);
+  return { breaks, paidTotal, unpaidTotal };
+}
+
 export async function createShiftAction(
   _prev: FormState,
   formData: FormData,
@@ -119,8 +155,6 @@ export async function createShiftAction(
     startsAt: formData.get("startsAt"),
     endsAt: formData.get("endsAt"),
     notes: formData.get("notes") ?? "",
-    breakPaidMinutes: formData.get("breakPaidMinutes") ?? 0,
-    breakUnpaidMinutes: formData.get("breakUnpaidMinutes") ?? 0,
     requiredSkillId: formData.get("requiredSkillId") ?? "",
   });
   if (!parsed.success) {
@@ -130,6 +164,7 @@ export async function createShiftAction(
       fieldErrors: parsed.error.flatten().fieldErrors,
     };
   }
+  const { breaks, paidTotal, unpaidTotal } = parseBreaks(formData.get("breaks"));
 
   const tenant = await requireTenant();
   const user = await currentUser();
@@ -155,8 +190,9 @@ export async function createShiftAction(
       startsAt: parsed.data.startsAt,
       endsAt: parsed.data.endsAt,
       notes: parsed.data.notes?.length ? parsed.data.notes : null,
-      breakPaidMinutes: parsed.data.breakPaidMinutes,
-      breakUnpaidMinutes: parsed.data.breakUnpaidMinutes,
+      breaks,
+      breakPaidMinutes: paidTotal,
+      breakUnpaidMinutes: unpaidTotal,
       requiredSkillId: parsed.data.requiredSkillId,
       createdByUserId: user?.id ?? null,
     }),
@@ -176,8 +212,6 @@ export async function updateShiftAction(
     startsAt: formData.get("startsAt"),
     endsAt: formData.get("endsAt"),
     notes: formData.get("notes") ?? "",
-    breakPaidMinutes: formData.get("breakPaidMinutes") ?? 0,
-    breakUnpaidMinutes: formData.get("breakUnpaidMinutes") ?? 0,
     requiredSkillId: formData.get("requiredSkillId") ?? "",
   });
   if (!parsed.success) {
@@ -187,6 +221,7 @@ export async function updateShiftAction(
       fieldErrors: parsed.error.flatten().fieldErrors,
     };
   }
+  const { breaks, paidTotal, unpaidTotal } = parseBreaks(formData.get("breaks"));
 
   const tenant = await requireTenant();
   // AUDIT.md #13 — scope check on both the destination location AND
@@ -233,8 +268,9 @@ export async function updateShiftAction(
         startsAt: parsed.data.startsAt,
         endsAt: parsed.data.endsAt,
         notes: parsed.data.notes?.length ? parsed.data.notes : null,
-        breakPaidMinutes: parsed.data.breakPaidMinutes,
-        breakUnpaidMinutes: parsed.data.breakUnpaidMinutes,
+        breaks,
+        breakPaidMinutes: paidTotal,
+        breakUnpaidMinutes: unpaidTotal,
         requiredSkillId: parsed.data.requiredSkillId,
         updatedAt: new Date(),
       })
@@ -302,6 +338,12 @@ export async function bulkPublishWeekAction(formData: FormData): Promise<void> {
       bulk: true,
     });
   }
+
+  // Notify accepted assignees now that their shifts are live.
+  await notifyAcceptedAssignees(
+    membership.tenant.id,
+    published.map((s) => s.id),
+  );
 
   revalidatePath("/app/schedule");
   revalidatePath("/app/coverage-gaps");
@@ -471,6 +513,46 @@ export async function duplicateWeekAction(formData: FormData): Promise<void> {
   redirect(`/app/schedule?${search.toString()}`);
 }
 
+// Email the accepted assignees of the given shifts that they're scheduled.
+// Called when shifts are published — assignments made while a shift was still
+// a draft are intentionally silent until then (see assignEmployeeAction).
+async function notifyAcceptedAssignees(tenantId: string, shiftIds: string[]) {
+  if (shiftIds.length === 0) return;
+  const rows = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({
+        email: users.email,
+        name: users.name,
+        role: scShifts.role,
+        startsAt: scShifts.startsAt,
+        endsAt: scShifts.endsAt,
+        locationName: scLocations.name,
+      })
+      .from(scShiftAssignments)
+      .innerJoin(users, eq(users.id, scShiftAssignments.userId))
+      .innerJoin(scShifts, eq(scShifts.id, scShiftAssignments.shiftId))
+      .leftJoin(scLocations, eq(scLocations.id, scShifts.locationId))
+      .where(
+        and(
+          inArray(scShiftAssignments.shiftId, shiftIds),
+          eq(scShiftAssignments.status, "accepted"),
+        ),
+      ),
+  );
+  for (const r of rows) {
+    if (!r.email) continue;
+    await notifyShiftScheduled({
+      to: { email: r.email, name: r.name },
+      shift: {
+        startsAt: r.startsAt,
+        endsAt: r.endsAt,
+        role: r.role,
+        locationName: r.locationName,
+      },
+    });
+  }
+}
+
 async function setShiftStatus(
   id: string,
   next: "draft" | "published" | "cancelled",
@@ -518,6 +600,9 @@ export async function publishShiftAction(formData: FormData): Promise<void> {
       endsAt: shift.endsAt.toISOString(),
     });
   }
+
+  // Notify accepted assignees now that the shift is live.
+  await notifyAcceptedAssignees(tenant.id, [id]);
 }
 
 export async function cancelShiftAction(formData: FormData): Promise<void> {
@@ -623,6 +708,7 @@ export async function assignEmployeeAction(
         startsAt: scShifts.startsAt,
         endsAt: scShifts.endsAt,
         role: scShifts.role,
+        status: scShifts.status,
         locationName: scLocations.name,
       })
       .from(scShifts)
@@ -678,16 +764,18 @@ export async function assignEmployeeAction(
     throw err;
   }
 
-  // Email after commit. Best-effort — if the user has no email, the
-  // assignment still exists in the DB and the employee will see it next
-  // time they open /app/my-shifts.
-  const [recipientRow] = await db
-    .select({ email: users.email, name: users.name })
-    .from(users)
-    .where(eq(users.id, parsed.data.userId))
-    .limit(1);
-  if (recipientRow) {
-    await notifyShiftScheduled({ to: recipientRow, shift: shiftRow });
+  // Email after commit — but ONLY for published shifts. Assigning someone to
+  // a draft (e.g. dragging onto an unpublished slot) shouldn't notify them
+  // yet; the email goes out when the schedule is published.
+  if (shiftRow.status === "published") {
+    const [recipientRow] = await db
+      .select({ email: users.email, name: users.name })
+      .from(users)
+      .where(eq(users.id, parsed.data.userId))
+      .limit(1);
+    if (recipientRow) {
+      await notifyShiftScheduled({ to: recipientRow, shift: shiftRow });
+    }
   }
 
   revalidatePath(`/app/schedule/${parsed.data.shiftId}/edit`);

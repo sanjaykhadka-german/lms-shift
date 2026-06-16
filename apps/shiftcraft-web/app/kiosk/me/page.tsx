@@ -145,6 +145,7 @@ export default async function KioskMePage() {
           startsAt: scShifts.startsAt,
           endsAt: scShifts.endsAt,
           role: scShifts.role,
+          breaks: scShifts.breaks,
         })
         .from(scShiftAssignments)
         .innerJoin(scShifts, eq(scShifts.id, scShiftAssignments.shiftId))
@@ -244,8 +245,15 @@ export default async function KioskMePage() {
         startsAt: todayShifts[0].startsAt.toISOString(),
         endsAt: todayShifts[0].endsAt.toISOString(),
         role: todayShifts[0].role,
+        breaks: todayShifts[0].breaks ?? [],
       }
     : null;
+
+  // How many breaks this user has started today — surfaced on the kiosk so the
+  // multi-break flow is visible against the scheduled breaks above.
+  const breaksTaken = todayTenantEvents.filter(
+    (e) => e.appUserId === appUserId && e.eventType === "break_start",
+  ).length;
 
   const announcement = pinnedAnnouncementRows[0] ?? null;
 
@@ -261,6 +269,7 @@ export default async function KioskMePage() {
         segmentStartedAt={segmentStartedAt?.toISOString() ?? null}
         locationName={locationName}
         todayShift={todayShift}
+        breaksTaken={breaksTaken}
         whosHere={whosHere}
         announcement={announcement}
         requireSelfie={requireSelfie}

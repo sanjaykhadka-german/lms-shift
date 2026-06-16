@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { clearActorAction, kioskPunchAction } from "../actions";
-import type { ScClockEventType } from "@tracey/db";
+import type { ScClockEventType, ShiftBreak } from "@tracey/db";
 import type { ClockStatus } from "~/lib/clock";
 
 export interface PunchScreenProps {
@@ -21,7 +21,10 @@ export interface PunchScreenProps {
     startsAt: string;
     endsAt: string;
     role: string;
+    breaks: ShiftBreak[];
   } | null;
+  /** Count of breaks the user has started today (break_start events). */
+  breaksTaken: number;
   whosHere: Array<{
     id: string;
     name: string;
@@ -225,6 +228,36 @@ export function PunchScreen(props: PunchScreenProps) {
             {fmtTime(todayShift.startsAt)} – {fmtTime(todayShift.endsAt)} ·{" "}
             {todayShift.role}
           </div>
+          {todayShift.breaks.length > 0 && (
+            <div className="mt-3 border-t border-[rgba(244,238,227,0.13)] pt-3">
+              <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-wider text-[#766b5e]">
+                <span>
+                  Scheduled breaks ({todayShift.breaks.length})
+                </span>
+                <span>Taken today: {props.breaksTaken}</span>
+              </div>
+              <ul className="mt-1.5 flex flex-wrap gap-1.5">
+                {todayShift.breaks.map((b, i) => (
+                  <li
+                    key={i}
+                    className="rounded-full border border-[rgba(244,238,227,0.18)] px-2.5 py-1 text-xs"
+                  >
+                    {b.label ? `${b.label} · ` : ""}
+                    {b.minutes}m
+                    <span className="text-[#766b5e]">
+                      {" "}
+                      {b.paid ? "paid" : "unpaid"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs text-[#766b5e]">
+                Use <span className="font-medium">Start break</span> /{" "}
+                <span className="font-medium">End break</span> below for each
+                break you take.
+              </p>
+            </div>
+          )}
         </section>
       ) : (
         <section className="rounded-lg border border-[rgba(244,238,227,0.13)] bg-[rgba(244,238,227,0.04)] p-4 text-sm text-[#766b5e]">

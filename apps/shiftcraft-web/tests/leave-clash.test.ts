@@ -18,6 +18,7 @@ const state = {
         startsAt: Date;
         endsAt: Date;
         role: string;
+        status: string;
         locationName: string | null;
       },
   leaveRows: [] as LeaveRow[],
@@ -38,6 +39,9 @@ function reset() {
     startsAt: new Date("2026-06-05T08:00:00Z"),
     endsAt: new Date("2026-06-05T16:00:00Z"),
     role: "Butcher",
+    // Published so the post-assign "you're scheduled" email path is exercised;
+    // assigning to a draft is intentionally silent until publish.
+    status: "published",
     locationName: "Brunswick",
   };
   state.leaveRows = [];
@@ -229,6 +233,20 @@ describe("assignEmployeeAction clash guard (AUDIT.md #6)", () => {
       email: "alice@example.com",
       name: "Alice",
     });
+  });
+
+  it("assigns to a draft shift without sending an email", async () => {
+    state.leaveRows = [];
+    state.shift = { ...state.shift!, status: "draft" };
+    const { assignEmployeeAction } = await load();
+    const result = await assignEmployeeAction(
+      { status: "idle" },
+      fd({ shiftId: SHIFT_ID, userId: USER_ID }),
+    );
+    expect(result.status).toBe("ok");
+    expect(state.inserts).toHaveLength(1);
+    // Draft assignment is silent — the email fires at publish, not assign.
+    expect(state.emailSends).toHaveLength(0);
   });
 
   it("refuses when the shift doesn't exist", async () => {

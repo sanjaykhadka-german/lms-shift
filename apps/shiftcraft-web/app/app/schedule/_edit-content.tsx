@@ -88,8 +88,7 @@ export async function EditShiftContent({
         endsAt: scShifts.endsAt,
         status: scShifts.status,
         notes: scShifts.notes,
-        breakPaidMinutes: scShifts.breakPaidMinutes,
-        breakUnpaidMinutes: scShifts.breakUnpaidMinutes,
+        breaks: scShifts.breaks,
         requiredSkillId: scShifts.requiredSkillId,
       })
       .from(scShifts)
@@ -255,8 +254,7 @@ export async function EditShiftContent({
             startsAt: toLocalInput(shiftRow.startsAt),
             endsAt: toLocalInput(shiftRow.endsAt),
             notes: shiftRow.notes,
-            breakPaidMinutes: shiftRow.breakPaidMinutes,
-            breakUnpaidMinutes: shiftRow.breakUnpaidMinutes,
+            breaks: shiftRow.breaks,
             requiredSkillId: shiftRow.requiredSkillId,
           }}
         />
