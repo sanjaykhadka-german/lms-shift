@@ -1,0 +1,19 @@
+{
+  "name": "ShiftCraft Kiosk",
+  "short_name": "Kiosk",
+  "description": "On-premise clock in / out for your workplace.",
+  "start_url": "/kiosk",
+  "scope": "/kiosk",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#17130f",
+  "theme_color": "#17130f",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

@@ -22,6 +22,11 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+// Pass-through fetch handler. We don't cache (the kiosk needs live data), but
+// registering a fetch listener lets the browser treat the app as an
+// installable PWA ("Add to home screen" / Install).
+self.addEventListener("fetch", () => {});
+
 self.addEventListener("push", (event) => {
   let payload = {};
   try {
@@ -32,8 +37,8 @@ self.addEventListener("push", (event) => {
   const title = payload.title || "ShiftCraft";
   const options = {
     body: payload.body || "",
-    icon: payload.icon || "/icon-192.png",
-    badge: payload.badge || "/icon-96.png",
+    icon: payload.icon || "/icon.svg",
+    badge: payload.badge || "/icon.svg",
     data: { actionUrl: payload.actionUrl || "/" },
     tag: payload.tag || undefined,
     renotify: !!payload.tag,

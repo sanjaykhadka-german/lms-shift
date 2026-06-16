@@ -136,9 +136,12 @@ export default async function KiosksAdminPage({
     // need to fan out across every tenant schema to find the row.
     pairUrl = `${origin}/kiosk/pair?code=${pairedDevice.pairingCode}&t=${tenantId}`;
     qrDataUrl = await QRCode.toDataURL(pairUrl, {
-      margin: 1,
-      width: 256,
-      errorCorrectionLevel: "M",
+      // Quiet zone must be ≥4 modules or many camera scanners won't lock on;
+      // margin:1 was the reason the code "wouldn't scan". Larger render + a
+      // bit more error correction also helps phone cameras at arm's length.
+      margin: 4,
+      width: 320,
+      errorCorrectionLevel: "Q",
     });
   }
 
@@ -216,9 +219,9 @@ export default async function KiosksAdminPage({
               <img
                 src={qrDataUrl}
                 alt={`QR code to pair ${pairedDevice.label}`}
-                width={256}
-                height={256}
-                className="rounded-md border border-border bg-white p-2"
+                width={320}
+                height={320}
+                className="rounded-md border border-border bg-white p-3"
               />
               <span className="text-[11px] text-muted-foreground">
                 Scan on the kiosk
