@@ -26,14 +26,12 @@ export function KioskSignIn({
   tenantName,
   locationName,
   whosHere,
-  rosterCount,
   allowVisitors,
 }: {
   people: KioskPerson[];
   tenantName: string;
   locationName: string;
   whosHere: WhosHerePerson[];
-  rosterCount: number;
   allowVisitors: boolean;
 }) {
   const [selected, setSelected] = useState<KioskPerson | null>(null);
@@ -63,8 +61,8 @@ export function KioskSignIn({
       <KioskDashboard
         tenantName={tenantName}
         locationName={locationName}
+        roster={people}
         whosHere={whosHere}
-        rosterCount={rosterCount}
         allowVisitors={allowVisitors}
         onStart={() => setStarted(true)}
       />

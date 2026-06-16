@@ -228,7 +228,6 @@ export default async function KioskHome({
             tenantName={paired.tenantName}
             locationName={paired.locationName}
             whosHere={whosHere}
-            rosterCount={roster.length}
             allowVisitors={paired.allowVisitors}
           />
         </>
