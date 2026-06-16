@@ -752,6 +752,93 @@ export async function removePinAction(formData: FormData): Promise<void> {
   revalidatePath(`/app/employees/${employeeId}/edit`);
 }
 
+// ─── Login password reset (admin override) ───
+//
+// Lets a Manager+ set a new web-login password for an employee's attached auth
+// account (app.users) — e.g. the worker forgot theirs and there's no email
+// delivery set up. No "current password" needed (that's the self-service flow
+// on /app/settings). Bumps passwordChangedAt so any JWT minted before now is
+// rejected at the next requireUser(), forcing a re-login with the new password.
+
+export type ResetPasswordFormState =
+  | { status: "idle" }
+  | { status: "ok"; message: string }
+  | { status: "error"; message: string };
+
+const resetPasswordSchema = z
+  .object({
+    next: z.string().min(8, "Use at least 8 characters.").max(200, "Too long."),
+    confirm: z.string(),
+  })
+  .refine((d) => d.next === d.confirm, {
+    message: "Passwords don't match.",
+    path: ["confirm"],
+  });
+
+export async function resetEmployeePasswordAction(
+  appUserId: string,
+  _prev: ResetPasswordFormState,
+  formData: FormData,
+): Promise<ResetPasswordFormState> {
+  const membership = await currentMembership();
+  if (!membership || !isAtLeastManager(membership.role)) {
+    return {
+      status: "error",
+      message: "You don't have permission to reset passwords.",
+    };
+  }
+  const tenantId = membership.tenant.id;
+
+  const parsed = resetPasswordSchema.safeParse({
+    next: formData.get("next") ?? "",
+    confirm: formData.get("confirm") ?? "",
+  });
+  if (!parsed.success) {
+    return {
+      status: "error",
+      message: parsed.error.errors[0]?.message ?? "Invalid password.",
+    };
+  }
+
+  // Confirm the target is an employee in THIS tenant before touching the
+  // shared app.users row (defence against editing arbitrary user ids).
+  const employeeId = await findEmployeeIdByAppUser(tenantId, appUserId);
+  if (!employeeId) {
+    return { status: "error", message: "Employee not found in this workspace." };
+  }
+  // …and that they're actually a member of this tenant.
+  const [memberRow] = await db
+    .select({ userId: members.userId })
+    .from(members)
+    .where(and(eq(members.userId, appUserId), eq(members.tenantId, tenantId)))
+    .limit(1);
+  if (!memberRow) {
+    return { status: "error", message: "That employee has no login account." };
+  }
+
+  const newHash = await hashPassword(parsed.data.next);
+  await db
+    .update(users)
+    .set({
+      passwordHash: newHash,
+      passwordChangedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, appUserId));
+
+  await logAuditEvent({
+    action: "shiftcraft.employee.password_reset",
+    targetKind: "app_user",
+    targetId: appUserId,
+  });
+
+  revalidatePath(`/app/employees/${employeeId}/edit`);
+  return {
+    status: "ok",
+    message: "Password reset. The employee must sign in with the new password.",
+  };
+}
+
 // ─── Workspace role management ───
 //
 // Changes the role on `app.members` for the auth user attached to this

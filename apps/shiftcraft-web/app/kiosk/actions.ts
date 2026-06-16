@@ -31,6 +31,9 @@ import {
 // to a small Postgres row keyed on device_id.
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 5;
+// Loose UUID guard for the name-select flow's appUserId field.
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 interface RateLimitEntry {
   count: number;
   windowStart: number;
@@ -90,42 +93,64 @@ export async function submitPinAction(
     return { status: "locked", resetInSec: rl.resetInSec };
   }
 
-  // Bcrypt-compare against every PIN row in the tenant. O(N) per
-  // submission — fine for a single workplace (38 GB users today).
-  // For larger tenants we'd pre-filter to employees attached to this
-  // device's location (sc_employees.location_id) — kept simple for v1.
-  const candidates = await forTenant(deviceClaim.tenantId).run((tx) =>
-    tx
-      .select({
-        appUserId: scEmployeePins.appUserId,
-        pinHash: scEmployeePins.pinHash,
-      })
-      .from(scEmployeePins)
-      .where(eq(scEmployeePins.traceyTenantId, deviceClaim.tenantId)),
-  );
+  // Name-select flow: the kiosk sends the chosen employee's id, so we verify
+  // the PIN against just that one person. This both scopes the bcrypt work to
+  // a single hash and means a duplicate PIN can never clock the wrong person
+  // (the name already identifies them).
+  const targetUserId = String(formData.get("appUserId") ?? "").trim();
 
   let matched: { appUserId: string } | null = null;
-  let matchCount = 0;
-  for (const c of candidates) {
-    if (await verifyPassword(pin, c.pinHash)) {
-      matchCount += 1;
-      matched = { appUserId: c.appUserId };
-    }
-  }
 
-  if (matchCount === 0) {
-    return { status: "error", message: "Wrong PIN. Try again." };
-  }
-
-  if (matchCount > 1) {
-    // setPinAction's collision check should prevent this. If it slips
-    // through (e.g. PINs set via direct DB write), refuse rather than
-    // pick arbitrarily — and don't reveal the collision to the kiosk
-    // user. Log server-side so an admin can fix it.
-    console.warn(
-      `[kiosk] PIN collision in tenant ${deviceClaim.tenantId} — refusing`,
+  if (UUID_RE.test(targetUserId)) {
+    const [row] = await forTenant(deviceClaim.tenantId).run((tx) =>
+      tx
+        .select({ pinHash: scEmployeePins.pinHash })
+        .from(scEmployeePins)
+        .where(
+          and(
+            eq(scEmployeePins.traceyTenantId, deviceClaim.tenantId),
+            eq(scEmployeePins.appUserId, targetUserId),
+          ),
+        )
+        .limit(1),
     );
-    return { status: "error", message: "Wrong PIN. Try again." };
+    if (row && (await verifyPassword(pin, row.pinHash))) {
+      matched = { appUserId: targetUserId };
+    }
+    if (!matched) {
+      return { status: "error", message: "Wrong PIN. Try again." };
+    }
+  } else {
+    // Fallback (no name selected): bcrypt-compare against every PIN row in the
+    // tenant. O(N) per submission — fine for a single workplace.
+    const candidates = await forTenant(deviceClaim.tenantId).run((tx) =>
+      tx
+        .select({
+          appUserId: scEmployeePins.appUserId,
+          pinHash: scEmployeePins.pinHash,
+        })
+        .from(scEmployeePins)
+        .where(eq(scEmployeePins.traceyTenantId, deviceClaim.tenantId)),
+    );
+
+    let matchCount = 0;
+    for (const c of candidates) {
+      if (await verifyPassword(pin, c.pinHash)) {
+        matchCount += 1;
+        matched = { appUserId: c.appUserId };
+      }
+    }
+
+    if (matchCount === 0) {
+      return { status: "error", message: "Wrong PIN. Try again." };
+    }
+    if (matchCount > 1) {
+      // Duplicate PIN with no name selected — refuse rather than guess.
+      console.warn(
+        `[kiosk] PIN collision in tenant ${deviceClaim.tenantId} — refusing`,
+      );
+      return { status: "error", message: "Wrong PIN. Try again." };
+    }
   }
 
   // Success: clear the rate limit, mint a 60-sec actor cookie, redirect.

@@ -7,7 +7,16 @@ import { submitPinAction, type SubmitPinState } from "./actions";
 const INITIAL: SubmitPinState = { status: "idle" };
 const PIN_LENGTH = 4;
 
-export function KioskNumpad() {
+export function KioskNumpad({
+  appUserId,
+  personName,
+  onBack,
+}: {
+  /** When set (name-select flow), the PIN is verified against just this user. */
+  appUserId?: string;
+  personName?: string;
+  onBack?: () => void;
+} = {}) {
   const [state, formAction] = useActionState(submitPinAction, INITIAL);
   const [pin, setPin] = useState("");
 
@@ -39,6 +48,26 @@ export function KioskNumpad() {
       className="mx-auto flex w-full max-w-sm flex-col items-center gap-6"
     >
       <input type="hidden" name="pin" value={pin} />
+      {appUserId ? (
+        <input type="hidden" name="appUserId" value={appUserId} />
+      ) : null}
+
+      {personName ? (
+        <div className="text-center">
+          {onBack ? (
+            <button
+              type="button"
+              onClick={onBack}
+              className="mb-1 text-xs text-[#a89c8c] hover:text-[#f4eee3]"
+            >
+              ← Not you?
+            </button>
+          ) : null}
+          <div className="font-display text-xl font-semibold">
+            Hi {personName}
+          </div>
+        </div>
+      ) : null}
 
       <PinDots length={PIN_LENGTH} entered={pin.length} />
 

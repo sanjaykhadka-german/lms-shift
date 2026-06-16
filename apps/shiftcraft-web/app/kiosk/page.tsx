@@ -1,17 +1,19 @@
 import { cookies } from "next/headers";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import {
   forTenant,
+  scEmployeePins,
   scKioskDevices,
   scLocations,
   tenants,
+  users,
   db,
 } from "@tracey/db";
 import {
   KIOSK_DEVICE_COOKIE,
   verifyDeviceCookie,
 } from "~/lib/kiosk/cookies";
-import { KioskNumpad } from "./_numpad";
+import { KioskSignIn, type KioskPerson } from "./_signin";
 
 export const metadata = { title: "Kiosk" };
 // The kiosk surface is always fresh — clock state, who's-here, last-seen
@@ -19,6 +21,7 @@ export const metadata = { title: "Kiosk" };
 export const dynamic = "force-dynamic";
 
 interface PairedState {
+  tenantId: string;
   tenantName: string;
   locationName: string;
   requireSelfie: boolean;
@@ -75,10 +78,41 @@ async function resolvePairing(): Promise<PairedState | null> {
     .limit(1);
 
   return {
+    tenantId: claim.tenantId,
     tenantName: tenantRow?.name ?? "Workspace",
     locationName: device.locationName ?? "—",
     requireSelfie: device.requireSelfie,
   };
+}
+
+// Roster for the name-select sign-in: every employee in the company who has a
+// kiosk PIN, resolved to a display name + avatar. Names live in the shared app
+// schema (users); the PIN rows live per-tenant.
+async function loadRoster(tenantId: string): Promise<KioskPerson[]> {
+  const pinRows = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({ appUserId: scEmployeePins.appUserId })
+      .from(scEmployeePins)
+      .where(eq(scEmployeePins.traceyTenantId, tenantId)),
+  );
+  const ids = pinRows.map((r) => r.appUserId);
+  if (ids.length === 0) return [];
+  const rows = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      image: users.image,
+    })
+    .from(users)
+    .where(inArray(users.id, ids));
+  return rows
+    .map((u) => ({
+      id: u.id,
+      name: u.name ?? u.email ?? "—",
+      image: u.image,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function errorMessage(reason: string | undefined): string | null {
@@ -126,6 +160,7 @@ export default async function KioskHome({
       : errorMessage(error);
   const punched_msg = punchedLabel(punched);
   const paired = await resolvePairing();
+  const roster = paired ? await loadRoster(paired.tenantId) : [];
 
   if (!paired) {
     return (
@@ -172,7 +207,7 @@ export default async function KioskHome({
               {errMsg}
             </p>
           ) : null}
-          <KioskNumpad />
+          <KioskSignIn people={roster} />
         </>
       )}
     </main>

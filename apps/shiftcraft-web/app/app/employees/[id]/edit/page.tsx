@@ -17,6 +17,7 @@ import { Button } from "~/components/ui/button";
 import { EmployeeForm } from "../../new/_form";
 import { deleteEmployeeAction } from "../../new/actions";
 import { SetPinCard } from "./_set_pin_card";
+import { ResetPasswordCard } from "./_reset_password_card";
 import { RoleCard } from "./_role_card";
 import { PayrollPiiCard } from "./_payroll_card";
 import { EmployeeAwardProfileCard } from "./_employee_award_card";
@@ -213,6 +214,10 @@ export default async function EditEmployeePage({
           hasPin={pinRow !== null}
           lastUsedAt={pinRow?.lastUsedAt ?? null}
         />
+      ) : null}
+
+      {row.appUserId && memberRow && isAtLeastManager(membership.role) ? (
+        <ResetPasswordCard appUserId={row.appUserId} />
       ) : null}
 
       {row.appUserId && memberRow && isAtLeastManager(membership.role) ? (
