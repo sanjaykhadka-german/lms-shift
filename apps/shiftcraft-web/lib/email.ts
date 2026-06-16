@@ -24,7 +24,17 @@ function client(): Resend {
   return resend;
 }
 
-const APP_URL = APPS.shiftcraft.url;
+// Base URL for links in outbound email. This module is server-only, so we
+// prefer a *runtime* env var (`SHIFTCRAFT_URL`) which Render injects at request
+// time — unlike `NEXT_PUBLIC_SHIFTCRAFT_URL` (via APPS.shiftcraft.url), which
+// Next inlines at BUILD time and therefore can't be changed without a rebuild.
+// Falls back to the build-time value, then localhost. Trailing slash trimmed
+// so we never emit `//app/...`.
+const APP_URL = (
+  process.env.SHIFTCRAFT_URL ||
+  APPS.shiftcraft.url ||
+  "http://localhost:4100"
+).replace(/\/+$/, "");
 const MY_SHIFTS_URL = `${APP_URL}/app/my-shifts`;
 const ANNOUNCEMENTS_URL = `${APP_URL}/app/announcements`;
 
