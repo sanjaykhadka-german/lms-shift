@@ -1169,6 +1169,54 @@ export const scDocumentSignatures = pgTable(
   ],
 );
 
+// ─── Visitor sign-in logbook ─────────────────────────────────────────
+//
+// Reception kiosk visitor book, ported from the standalone visitor-app.
+// A visitor signs in on arrival (append) and out on departure (update).
+// Visitors are NOT app users — identity is the free-text name/company/
+// mobile they enter at the kiosk. `visitingEmployeeId` optionally links to
+// an sc_employees row when the host is on staff; `visitingPerson` always
+// carries the typed name. Signatures (sign-in + sign-out) are PNG bytea,
+// matching the kiosk-selfie storage approach.
+export const scVisitorSignins = pgTable(
+  "sc_visitor_signins",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    locationId: uuid("location_id"),
+    visitorName: text("visitor_name").notNull(),
+    visitorCompany: text("visitor_company"),
+    visitorMobile: text("visitor_mobile").notNull(),
+    visitingPerson: text("visiting_person").notNull(),
+    visitingEmployeeId: uuid("visiting_employee_id").references(
+      () => scEmployees.id,
+      { onDelete: "set null" },
+    ),
+    visitReason: text("visit_reason"),
+    signInSignature: bytea("sign_in_signature"),
+    signOutSignature: bytea("sign_out_signature"),
+    signedInAt: timestamp("signed_in_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    signedOutAt: timestamp("signed_out_at", { withTimezone: true }),
+    source: text("source").notNull().default("kiosk"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("sc_visitor_signins_tenant_signed_idx").on(
+      t.traceyTenantId,
+      t.signedInAt,
+    ),
+    index("sc_visitor_signins_location_signed_idx").on(
+      t.locationId,
+      t.signedInAt,
+    ),
+  ],
+);
+
 // ─── Tenant config (AUDIT.md Phase 2 #3a) ────────────────────────────
 //
 // Workspace-level settings, one row per tenant. v1 only carries the AU
@@ -1770,6 +1818,8 @@ export type ScTimesheetApprovalStatus = "approved" | "disputed";
 export type ScShiftStatus = "draft" | "published" | "cancelled";
 export type ScDocumentSignature = typeof scDocumentSignatures.$inferSelect;
 export type NewScDocumentSignature = typeof scDocumentSignatures.$inferInsert;
+export type ScVisitorSignin = typeof scVisitorSignins.$inferSelect;
+export type NewScVisitorSignin = typeof scVisitorSignins.$inferInsert;
 export type ScTenantConfig = typeof scTenantConfig.$inferSelect;
 export type NewScTenantConfig = typeof scTenantConfig.$inferInsert;
 export type ScHolidayRegion =

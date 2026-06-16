@@ -253,6 +253,13 @@
       "when": 1781586448746,
       "tag": "0035_amazing_catseye",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1781648699689,
+      "tag": "0036_good_supreme_intelligence",
+      "breakpoints": true
     }
   ]
 }
