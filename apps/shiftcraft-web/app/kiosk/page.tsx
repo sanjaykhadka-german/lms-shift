@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import {
   forTenant,
   scEmployeePins,
@@ -13,6 +13,10 @@ import {
   KIOSK_DEVICE_COOKIE,
   verifyDeviceCookie,
 } from "~/lib/kiosk/cookies";
+import {
+  loadWhosHereAtLocation,
+  type WhosHerePerson,
+} from "~/lib/kiosk/whos-here";
 import { KioskSignIn, type KioskPerson } from "./_signin";
 
 export const metadata = { title: "Kiosk" };
@@ -22,6 +26,7 @@ export const dynamic = "force-dynamic";
 
 interface PairedState {
   tenantId: string;
+  locationId: string | null;
   tenantName: string;
   locationName: string;
   requireSelfie: boolean;
@@ -79,6 +84,7 @@ async function resolvePairing(): Promise<PairedState | null> {
 
   return {
     tenantId: claim.tenantId,
+    locationId: claim.locationId,
     tenantName: tenantRow?.name ?? "Workspace",
     locationName: device.locationName ?? "—",
     requireSelfie: device.requireSelfie,
@@ -160,7 +166,12 @@ export default async function KioskHome({
       : errorMessage(error);
   const punched_msg = punchedLabel(punched);
   const paired = await resolvePairing();
-  const roster = paired ? await loadRoster(paired.tenantId) : [];
+  const [roster, whosHere]: [KioskPerson[], WhosHerePerson[]] = paired
+    ? await Promise.all([
+        loadRoster(paired.tenantId),
+        loadWhosHereAtLocation(paired.tenantId, paired.locationId),
+      ])
+    : [[], []];
 
   if (!paired) {
     return (
@@ -190,16 +201,18 @@ export default async function KioskHome({
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-10 px-6 py-12">
-      <header className="space-y-1 text-center">
-        <div className="font-mono text-xs uppercase tracking-[0.2em] text-[#766b5e]">
-          {paired.tenantName}
-        </div>
-        <h1 className="font-display text-3xl font-semibold tracking-tight">
-          {paired.locationName}
-        </h1>
-      </header>
       {punched_msg ? (
-        <PunchedSplash message={punched_msg} />
+        <>
+          <header className="space-y-1 text-center">
+            <div className="font-mono text-xs uppercase tracking-[0.2em] text-[#766b5e]">
+              {paired.tenantName}
+            </div>
+            <h1 className="font-display text-3xl font-semibold tracking-tight">
+              {paired.locationName}
+            </h1>
+          </header>
+          <PunchedSplash message={punched_msg} />
+        </>
       ) : (
         <>
           {errMsg ? (
@@ -207,7 +220,13 @@ export default async function KioskHome({
               {errMsg}
             </p>
           ) : null}
-          <KioskSignIn people={roster} />
+          <KioskSignIn
+            people={roster}
+            tenantName={paired.tenantName}
+            locationName={paired.locationName}
+            whosHere={whosHere}
+            rosterCount={roster.length}
+          />
         </>
       )}
     </main>

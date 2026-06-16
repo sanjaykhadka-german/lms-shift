@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { KioskNumpad } from "./_numpad";
+import { KioskDashboard } from "./_dashboard";
+import type { WhosHerePerson } from "~/lib/kiosk/whos-here";
 
 export interface KioskPerson {
   id: string;
@@ -19,8 +21,22 @@ function initials(name: string): string {
 // Kiosk sign-in: pick your name from the roster, then enter your PIN. The PIN
 // is verified against the selected person only (see submitPinAction), so a
 // shared PIN can never clock the wrong person.
-export function KioskSignIn({ people }: { people: KioskPerson[] }) {
+export function KioskSignIn({
+  people,
+  tenantName,
+  locationName,
+  whosHere,
+  rosterCount,
+}: {
+  people: KioskPerson[];
+  tenantName: string;
+  locationName: string;
+  whosHere: WhosHerePerson[];
+  rosterCount: number;
+}) {
   const [selected, setSelected] = useState<KioskPerson | null>(null);
+  // Landing dashboard is shown first; the CTA flips this to reveal the grid.
+  const [started, setStarted] = useState(false);
   const [q, setQ] = useState("");
 
   const filtered = useMemo(() => {
@@ -40,6 +56,18 @@ export function KioskSignIn({ people }: { people: KioskPerson[] }) {
     );
   }
 
+  if (!started && people.length > 0) {
+    return (
+      <KioskDashboard
+        tenantName={tenantName}
+        locationName={locationName}
+        whosHere={whosHere}
+        rosterCount={rosterCount}
+        onStart={() => setStarted(true)}
+      />
+    );
+  }
+
   if (people.length === 0) {
     return (
       <p className="max-w-md text-center text-sm text-[#a89c8c]">
@@ -52,10 +80,21 @@ export function KioskSignIn({ people }: { people: KioskPerson[] }) {
 
   return (
     <div className="w-full max-w-2xl space-y-5">
-      <div className="text-center">
+      <div className="flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => {
+            setStarted(false);
+            setQ("");
+          }}
+          className="rounded-md border border-[rgba(244,238,227,0.18)] px-3 py-1.5 text-xs text-[#a89c8c] hover:bg-[rgba(244,238,227,0.08)]"
+        >
+          ← Back
+        </button>
         <p className="font-mono text-xs uppercase tracking-[0.2em] text-[#766b5e]">
           Tap your name
         </p>
+        <span className="w-[52px]" aria-hidden />
       </div>
       <input
         type="search"

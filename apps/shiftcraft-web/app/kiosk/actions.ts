@@ -179,7 +179,8 @@ export async function clearActorAction(): Promise<void> {
 // Server-side guard for the selfie blob the client sends. Defends against
 // a manipulated form posting a 10 MB image to bloat the DB. Allowed inputs:
 // data:image/jpeg;base64,<base64>  with decoded size ≤ MAX_SELFIE_BYTES.
-const MAX_SELFIE_BYTES = 50 * 1024;
+// 150 KB headroom for the 640×480 @ q0.6 captures (larger kiosk preview).
+const MAX_SELFIE_BYTES = 150 * 1024;
 const DATA_URL_RE = /^data:image\/jpeg;base64,(.+)$/i;
 
 interface DecodedSelfie {

@@ -19,7 +19,8 @@ import { findNearestWithinRadius, type GeofenceCandidate } from "~/lib/geofence"
 // apps/shiftcraft-web/app/kiosk/actions.ts so a tampered client can't
 // post a 10 MB blob to bloat the DB. Allowed input:
 //   data:image/jpeg;base64,<base64>   with decoded size ≤ MAX_SELFIE_BYTES
-const MAX_SELFIE_BYTES = 50 * 1024;
+// 150 KB headroom for the 640×480 @ q0.6 captures (larger preview).
+const MAX_SELFIE_BYTES = 150 * 1024;
 const DATA_URL_RE = /^data:image\/jpeg;base64,(.+)$/i;
 
 function decodeSelfie(raw: string): { buffer: Buffer } | null {

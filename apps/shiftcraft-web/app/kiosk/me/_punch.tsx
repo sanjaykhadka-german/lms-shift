@@ -193,8 +193,20 @@ export function PunchScreen(props: PunchScreenProps) {
     on_break: "On break",
   };
 
+  // Recolor the "inside" punch screen so it reads as a distinct surface from
+  // the dark landing dashboard: a raised paper panel with a status-coloured
+  // top edge (emerald on shift, amber on break, lime when clocked out).
+  const panelAccent =
+    clockStatus === "working"
+      ? "border-t-[color:var(--live)]"
+      : clockStatus === "on_break"
+        ? "border-t-[color:var(--warn)]"
+        : "border-t-[color:var(--accent)]";
+
   return (
-    <>
+    <div
+      className={`space-y-6 rounded-2xl border border-t-4 border-[rgba(244,238,227,0.13)] ${panelAccent} bg-[var(--paper)] p-6 shadow-xl`}
+    >
       <header className="flex items-center gap-4 border-b border-[rgba(244,238,227,0.13)] pb-5">
         <Avatar name={user.name} image={user.image} />
         <div className="min-w-0 flex-1">
@@ -358,7 +370,7 @@ export function PunchScreen(props: PunchScreenProps) {
           triggers clearActorAction without needing to import the server
           action call directly into client code. */}
       <form ref={idleFormRef} action={clearActorAction} className="hidden" />
-    </>
+    </div>
   );
 }
 
@@ -447,7 +459,7 @@ function SelfieModal({
     async function start() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user", width: 320, height: 240 },
+          video: { facingMode: "user", width: 640, height: 480 },
           audio: false,
         });
         if (cancelled) {
@@ -483,15 +495,15 @@ function SelfieModal({
       return;
     }
     const canvas = document.createElement("canvas");
-    canvas.width = 320;
-    canvas.height = 240;
+    canvas.width = 640;
+    canvas.height = 480;
     const ctx = canvas.getContext("2d");
     if (!ctx) {
       onSkip();
       return;
     }
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.6);
     onCapture(dataUrl);
   };
 
@@ -501,7 +513,7 @@ function SelfieModal({
       aria-modal="true"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
     >
-      <div className="w-full max-w-md space-y-4 rounded-xl border border-[rgba(244,238,227,0.13)] bg-[#17130f] p-6 shadow-2xl">
+      <div className="w-full max-w-2xl space-y-4 rounded-xl border border-[rgba(244,238,227,0.13)] bg-[#17130f] p-6 shadow-2xl sm:max-w-3xl">
         <div className="text-center">
           <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#766b5e]">
             {event === "in" ? "Clocking in" : "Clocking out"}

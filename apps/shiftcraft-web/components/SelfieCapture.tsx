@@ -34,7 +34,7 @@ export function SelfieCapture({
     async function start() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user", width: 320, height: 240 },
+          video: { facingMode: "user", width: 640, height: 480 },
           audio: false,
         });
         if (cancelled) {
@@ -70,15 +70,15 @@ export function SelfieCapture({
       return;
     }
     const canvas = document.createElement("canvas");
-    canvas.width = 320;
-    canvas.height = 240;
+    canvas.width = 640;
+    canvas.height = 480;
     const ctx = canvas.getContext("2d");
     if (!ctx) {
       onSkip();
       return;
     }
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.6);
     onCapture(dataUrl);
   }
 
@@ -91,7 +91,7 @@ export function SelfieCapture({
         if (e.target === e.currentTarget) onCancel();
       }}
     >
-      <div className="w-full max-w-md space-y-4 rounded-xl border border-border bg-card p-6 shadow-2xl">
+      <div className="w-full max-w-2xl space-y-4 rounded-xl border border-border bg-card p-6 shadow-2xl sm:max-w-3xl">
         <div className="text-center">
           <h3 className="text-lg font-semibold">{title}</h3>
           <p className="mt-1 text-xs text-muted-foreground">
