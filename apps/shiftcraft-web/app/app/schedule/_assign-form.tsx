@@ -57,9 +57,17 @@ export function AssignForm({ shiftId, availableEmployees }: Props) {
         <p className="text-xs text-[var(--live)] sm:col-span-2">{state.message}</p>
       )}
       {state.status === "error" && !state.fieldErrors && (
-        <p className="text-xs text-[color:var(--destructive)] sm:col-span-2">
-          {state.message}
-        </p>
+        <div className="sm:col-span-2 space-y-1.5">
+          <p className="text-xs text-[color:var(--destructive)]">
+            {state.message}
+          </p>
+          {state.canOverride && (
+            <label className="flex items-center gap-2 text-xs text-ink-2">
+              <input type="checkbox" name="force" value="1" />
+              Assign anyway (override the conflict)
+            </label>
+          )}
+        </div>
       )}
     </form>
   );

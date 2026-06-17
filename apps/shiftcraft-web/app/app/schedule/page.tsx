@@ -86,6 +86,8 @@ export default async function SchedulePage({
     range?: string;
     copied?: string;
     skipped?: string;
+    assigned?: string;
+    flagged?: string;
   }>;
 }) {
   const membership = await currentMembership();
@@ -110,6 +112,8 @@ export default async function SchedulePage({
     range: rangeRaw,
     copied,
     skipped,
+    assigned,
+    flagged,
   } = await searchParams;
   // Area is the default view (bare /app/schedule). day/employee opt in.
   const view: ScheduleView =
@@ -119,6 +123,8 @@ export default async function SchedulePage({
   const dayCount = range === "2w" ? 14 : 7;
   const copiedCount = Number.parseInt(copied ?? "", 10);
   const skippedCount = Number.parseInt(skipped ?? "", 10);
+  const assignedCount = Number.parseInt(assigned ?? "", 10);
+  const flaggedCount = Number.parseInt(flagged ?? "", 10);
   const showCopyFlash = Number.isFinite(copiedCount) && copied !== undefined;
   const anchor = week ? new Date(`${week}T00:00:00`) : new Date();
   const weekStart = startOfWeek(isNaN(anchor.getTime()) ? new Date() : anchor);
@@ -514,6 +520,18 @@ export default async function SchedulePage({
                     <option value="8">8 weeks</option>
                   </select>
                 </label>
+                <label className="flex w-full items-center gap-2 text-xs text-ink-2">
+                  <input
+                    type="checkbox"
+                    name="carryAssignments"
+                    defaultChecked
+                  />
+                  Carry staff assignments
+                </label>
+                <label className="flex w-full items-center gap-2 text-xs text-ink-2">
+                  <input type="checkbox" name="force" />
+                  Assign even if unavailable / on leave
+                </label>
                 <Button type="submit" variant="outline" size="sm">
                   Copy
                 </Button>
@@ -590,6 +608,13 @@ export default async function SchedulePage({
                   Skipped {skippedCount} that already had a matching shift.
                 </span>
               )}{" "}
+              {assignedCount > 0 && (
+                <span className="text-ink-2">
+                  {" "}
+                  Carried {assignedCount} staff assignment
+                  {assignedCount === 1 ? "" : "s"}.
+                </span>
+              )}{" "}
               Review and publish when ready.
             </>
           ) : (
@@ -598,6 +623,16 @@ export default async function SchedulePage({
               {skippedCount > 0 ? ` (${skippedCount} duplicates skipped)` : ""}.
             </>
           )}
+        </div>
+      )}
+
+      {flaggedCount > 0 && (
+        <div className="rounded-[var(--r-sm)] border border-[color-mix(in_srgb,var(--destructive)_45%,transparent)] bg-[color-mix(in_srgb,var(--destructive)_10%,transparent)] px-4 py-2 text-sm font-medium text-ink">
+          ⚠ {flaggedCount} assignment{flaggedCount === 1 ? "" : "s"} couldn&rsquo;t
+          be carried — those staff are unavailable or on approved leave that
+          week. Those shifts were left unfilled. Re-copy with{" "}
+          <span className="font-semibold">&ldquo;assign even if unavailable&rdquo;</span>{" "}
+          to override, or fill them manually.
         </div>
       )}
 

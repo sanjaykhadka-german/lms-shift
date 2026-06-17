@@ -24,6 +24,7 @@ import {
   findApprovedLeaveOverlap,
   findUsersWithLeaveConflict,
 } from "~/lib/time-off-impact";
+import { checkAvailability } from "~/lib/availability-check";
 import { emitWebhook } from "~/lib/webhooks";
 import { isAtLeastManager } from "~/lib/roles";
 import {
@@ -62,10 +63,88 @@ function fmtConflict(c: {
   return `${type} ${c.startDate} → ${c.endDate}`;
 }
 
+// ─── Carry assignments when copying a week ────────────────────────────
+//
+// When a week is copied with "carry staff" on, each cloned shift inherits
+// the source shift's accepted assignees. Before re-assigning we check the
+// new date against the employee's approved leave + declared availability.
+// A conflict is flagged (the assignment is skipped, leaving the cloned
+// shift unfilled) unless the manager ticked "override". Used by
+// repeatWeekAction.
+interface CarryRequest {
+  destShiftId: string;
+  userId: string;
+  startsAt: Date;
+  endsAt: Date;
+}
+interface CarryConflict {
+  userId: string;
+  date: string;
+  reason: string;
+  forced: boolean;
+}
+
+async function buildCarriedAssignments(
+  tenantId: string,
+  requests: CarryRequest[],
+  availabilityByUser: Map<string, Record<string, string> | null>,
+  force: boolean,
+): Promise<{
+  values: Array<typeof scShiftAssignments.$inferInsert>;
+  conflicts: CarryConflict[];
+}> {
+  const values: Array<typeof scShiftAssignments.$inferInsert> = [];
+  const conflicts: CarryConflict[] = [];
+  for (const r of requests) {
+    let reason: string | null = null;
+    const leave = await findApprovedLeaveOverlap(
+      tenantId,
+      r.userId,
+      r.startsAt,
+      r.endsAt,
+    );
+    if (leave.length > 0) {
+      reason = fmtConflict(leave[0]!);
+    } else {
+      const avail = checkAvailability(
+        availabilityByUser.get(r.userId) ?? null,
+        r.startsAt,
+        r.endsAt,
+      );
+      if (avail.kind === "mismatch") reason = avail.reason;
+    }
+    const date = r.startsAt.toISOString().slice(0, 10);
+    if (reason && !force) {
+      // Skip — leave the cloned shift unfilled and flag it for the admin.
+      conflicts.push({ userId: r.userId, date, reason, forced: false });
+      continue;
+    }
+    if (reason) {
+      // Overridden: still flag it (for the audit trail) but assign anyway.
+      conflicts.push({ userId: r.userId, date, reason, forced: true });
+    }
+    values.push({
+      shiftId: r.destShiftId,
+      userId: r.userId,
+      status: "accepted",
+      respondedAt: new Date(),
+    });
+  }
+  return { values, conflicts };
+}
+
 export type FormState =
   | { status: "idle" }
   | { status: "ok"; message: string }
-  | { status: "error"; message: string; fieldErrors?: Record<string, string[]> };
+  | {
+      status: "error";
+      message: string;
+      fieldErrors?: Record<string, string[]>;
+      // Set when the only blocker is a leave/availability conflict a manager
+      // may override by re-submitting with force. Drives the "assign anyway"
+      // affordance in _assign-form.tsx.
+      canOverride?: boolean;
+    };
 
 const shiftSchema = z
   .object({
@@ -531,6 +610,11 @@ export async function repeatWeekAction(formData: FormData): Promise<void> {
   const weeks = Number.isFinite(weeksRaw)
     ? Math.min(12, Math.max(1, Math.trunc(weeksRaw)))
     : 1;
+  // Carry the source week's accepted assignees onto the cloned shifts (default
+  // on). `force` re-assigns even when the new date conflicts with the
+  // employee's approved leave or declared availability.
+  const carryAssignments = formData.get("carryAssignments") !== "off";
+  const force = formData.get("force") === "on";
 
   const membership = await currentMembership();
   if (!membership) throw new Error("You must belong to a workspace.");
@@ -553,6 +637,7 @@ export async function repeatWeekAction(formData: FormData): Promise<void> {
   const sourceShifts = await forTenant(tenantId).run((tx) =>
     tx
       .select({
+        id: scShifts.id,
         locationId: scShifts.locationId,
         role: scShifts.role,
         startsAt: scShifts.startsAt,
@@ -573,6 +658,58 @@ export async function repeatWeekAction(formData: FormData): Promise<void> {
         ),
       ),
   );
+
+  // When carrying assignments, pull the accepted assignees for the source
+  // shifts plus each assignee's availability (for the conflict check below).
+  const assigneesBySourceShift = new Map<string, string[]>();
+  const availabilityByUser = new Map<string, Record<string, string> | null>();
+  if (carryAssignments && sourceShifts.length > 0) {
+    const sourceIds = sourceShifts.map((s) => s.id);
+    const assignmentRows = await forTenant(tenantId).run((tx) =>
+      tx
+        .select({
+          shiftId: scShiftAssignments.shiftId,
+          userId: scShiftAssignments.userId,
+        })
+        .from(scShiftAssignments)
+        .where(
+          and(
+            inArray(scShiftAssignments.shiftId, sourceIds),
+            eq(scShiftAssignments.status, "accepted"),
+          ),
+        ),
+    );
+    for (const a of assignmentRows) {
+      const arr = assigneesBySourceShift.get(a.shiftId) ?? [];
+      arr.push(a.userId);
+      assigneesBySourceShift.set(a.shiftId, arr);
+    }
+    const userIds = [...new Set(assignmentRows.map((a) => a.userId))];
+    if (userIds.length > 0) {
+      const empRows = await forTenant(tenantId).run((tx) =>
+        tx
+          .select({
+            appUserId: scEmployees.appUserId,
+            availability: scEmployees.availability,
+          })
+          .from(scEmployees)
+          .where(
+            and(
+              eq(scEmployees.traceyTenantId, tenantId),
+              inArray(scEmployees.appUserId, userIds),
+            ),
+          ),
+      );
+      for (const e of empRows) {
+        if (e.appUserId) {
+          availabilityByUser.set(
+            e.appUserId,
+            (e.availability as Record<string, string> | null) ?? null,
+          );
+        }
+      }
+    }
+  }
 
   const destShifts = await forTenant(tenantId).run((tx) =>
     tx
@@ -600,6 +737,9 @@ export async function repeatWeekAction(formData: FormData): Promise<void> {
   let copied = 0;
   let skipped = 0;
   const toInsert: Array<typeof scShifts.$inferInsert> = [];
+  // Parallel to toInsert: which source shift each clone came from + its new
+  // window, so we can re-attach the carried assignees once the rows have IDs.
+  const insertMeta: Array<{ sourceShiftId: string; startsAt: Date; endsAt: Date }> = [];
   for (let k = 1; k <= weeks; k++) {
     const offsetMs = k * WEEK_MS;
     for (const s of sourceShifts) {
@@ -624,13 +764,55 @@ export async function repeatWeekAction(formData: FormData): Promise<void> {
         requiredSkillId: s.requiredSkillId,
         createdByUserId: me?.id ?? null,
       });
+      insertMeta.push({ sourceShiftId: s.id, startsAt: newStart, endsAt: newEnd });
       destKeys.add(key);
       copied += 1;
     }
   }
 
+  let assigned = 0;
+  let flagged = 0;
   if (toInsert.length > 0) {
-    await forTenant(tenantId).run((tx) => tx.insert(scShifts).values(toInsert));
+    await forTenant(tenantId).run(async (tx) => {
+      // RETURNING ids come back in VALUES order, so we can zip against
+      // insertMeta to map each clone to its source shift's assignees.
+      const inserted = await tx
+        .insert(scShifts)
+        .values(toInsert)
+        .returning({ id: scShifts.id });
+
+      if (carryAssignments) {
+        const requests: CarryRequest[] = [];
+        inserted.forEach((row, i) => {
+          const meta = insertMeta[i]!;
+          for (const userId of assigneesBySourceShift.get(meta.sourceShiftId) ?? []) {
+            requests.push({
+              destShiftId: row.id,
+              userId,
+              startsAt: meta.startsAt,
+              endsAt: meta.endsAt,
+            });
+          }
+        });
+        if (requests.length > 0) {
+          const { values, conflicts } = await buildCarriedAssignments(
+            tenantId,
+            requests,
+            availabilityByUser,
+            force,
+          );
+          assigned = values.length;
+          // Flagged = conflicts that were skipped (not forced through).
+          flagged = conflicts.filter((c) => !c.forced).length;
+          if (values.length > 0) {
+            await tx
+              .insert(scShiftAssignments)
+              .values(values)
+              .onConflictDoNothing();
+          }
+        }
+      }
+    });
   }
 
   await logAuditEvent({
@@ -641,6 +823,10 @@ export async function repeatWeekAction(formData: FormData): Promise<void> {
       weeks,
       copied,
       skipped,
+      carryAssignments,
+      force,
+      assigned,
+      flagged,
       locationFilter: locationId || null,
     },
   });
@@ -654,6 +840,8 @@ export async function repeatWeekAction(formData: FormData): Promise<void> {
     copied: String(copied),
     skipped: String(skipped),
   });
+  if (assigned > 0) search.set("assigned", String(assigned));
+  if (flagged > 0) search.set("flagged", String(flagged));
   if (locationId) search.set("location", locationId);
   redirect(`/app/schedule?${search.toString()}`);
 }
@@ -1193,18 +1381,32 @@ export async function assignEmployeeAction(
   }
 
   // Roster-clash guard (AUDIT.md #6): if the worker has an approved
-  // time-off request overlapping the shift window, refuse the assign.
+  // time-off request overlapping the shift window, refuse the assign —
+  // unless the manager explicitly overrides ("assign anyway").
+  const force = formData.get("force") === "on" || formData.get("force") === "1";
   const conflicts = await findApprovedLeaveOverlap(
     membership.tenant.id,
     parsed.data.userId,
     shiftRow.startsAt,
     shiftRow.endsAt,
   );
-  if (conflicts.length > 0) {
+  if (conflicts.length > 0 && !force) {
     return {
       status: "error",
-      message: `Can't assign — that employee is on ${fmtConflict(conflicts[0]!)}.`,
+      message: `That employee is on ${fmtConflict(conflicts[0]!)}. Tick "assign anyway" to override.`,
+      canOverride: true,
     };
+  }
+  if (conflicts.length > 0 && force) {
+    await logAuditEvent({
+      action: "shiftcraft.schedule.assign_override",
+      targetKind: "sc_shift",
+      targetId: parsed.data.shiftId,
+      details: {
+        userId: parsed.data.userId,
+        conflict: fmtConflict(conflicts[0]!),
+      },
+    });
   }
 
   try {
