@@ -54,6 +54,9 @@ type NavItem = {
   // workspace-wide config, integrations). Location Managers see the rest of
   // the Admin section, scoped to their location(s).
   ownerOnly?: boolean;
+  // Manager-gated item living in a section that isn't itself admin-only (e.g.
+  // Timesheets pinned under Schedule in Overview). Hidden from regular staff.
+  adminOnly?: boolean;
 };
 
 type NavSection = {
@@ -68,6 +71,7 @@ const SECTIONS: NavSection[] = [
     items: [
       { href: "/app", label: "Dashboard", icon: LayoutDashboard },
       { href: "/app/schedule", label: "Schedule", icon: CalendarDays },
+      { href: "/app/timesheets", label: "Timesheets", icon: ClipboardList, adminOnly: true },
       { href: "/app/announcements", label: "Announcements", icon: Megaphone },
     ],
   },
@@ -110,7 +114,6 @@ const SECTIONS: NavSection[] = [
       { href: "/app/shift-templates", label: "Shift templates", icon: CalendarDays },
       { href: "/app/swaps", label: "Swap requests", icon: Repeat },
       { href: "/app/coverage-gaps", label: "Coverage gaps", icon: AlertCircle },
-      { href: "/app/timesheets", label: "Timesheets", icon: ClipboardList },
       { href: "/app/admin/daily-sales", label: "Daily sales", icon: DollarSign },
       { href: "/app/admin/documents-expiring", label: "Doc expiry digest", icon: FileText },
       { href: "/app/admin/kiosks", label: "Kiosks", icon: Tablet },
@@ -147,7 +150,10 @@ export function Sidebar({
   const fullAdmin = isWorkspaceAdmin(role);
   const sections = SECTIONS.filter((s) => !s.adminOnly || canSeeAdmin).map((s) => ({
     ...s,
-    items: s.items.filter((item) => !item.ownerOnly || fullAdmin),
+    items: s.items.filter(
+      (item) =>
+        (!item.ownerOnly || fullAdmin) && (!item.adminOnly || canSeeAdmin),
+    ),
   }));
 
   // Mobile drawer state. Closes automatically on route change so the user

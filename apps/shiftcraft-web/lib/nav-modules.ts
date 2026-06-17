@@ -17,6 +17,7 @@ export const NAV_MODULES: NavModule[] = [
   // Overview
   { label: "Dashboard", href: "/app" },
   { label: "Schedule", href: "/app/schedule" },
+  { label: "Timesheets", href: "/app/timesheets", adminOnly: true },
   { label: "Announcements", href: "/app/announcements" },
   // My work
   { label: "My profile", href: "/app/welcome" },
@@ -42,7 +43,6 @@ export const NAV_MODULES: NavModule[] = [
   { label: "Shift templates", href: "/app/shift-templates", adminOnly: true },
   { label: "Swap requests", href: "/app/swaps", adminOnly: true },
   { label: "Coverage gaps", href: "/app/coverage-gaps", adminOnly: true },
-  { label: "Timesheets", href: "/app/timesheets", adminOnly: true },
   { label: "Daily sales", href: "/app/admin/daily-sales", adminOnly: true },
   { label: "Doc expiry digest", href: "/app/admin/documents-expiring", adminOnly: true },
   { label: "Kiosks", href: "/app/admin/kiosks", adminOnly: true },

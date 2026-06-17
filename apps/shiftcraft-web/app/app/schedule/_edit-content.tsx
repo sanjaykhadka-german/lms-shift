@@ -27,11 +27,11 @@ import {
   bulkOfferShiftAction,
   cancelShiftAction,
   copyShiftToDateAction,
-  deleteShiftAction,
   duplicateShiftAction,
   publishShiftAction,
   unassignAction,
 } from "./actions";
+import { DeleteShiftButton } from "./_delete-shift-button";
 import { AssignForm } from "./_assign-form";
 import { SaveTemplateForm } from "./_save-template-form";
 import { ShiftComments, type ShiftComment } from "./_comments";
@@ -461,17 +461,7 @@ export async function EditShiftContent({
           </Button>
         </form>
         {isAdmin && <SaveTemplateForm shiftId={shiftRow.id} />}
-        <form action={deleteShiftAction} className="ml-auto">
-          <input type="hidden" name="id" value={shiftRow.id} />
-          <Button
-            type="submit"
-            variant="outline"
-            size="sm"
-            className="border-destructive/40 text-destructive hover:bg-destructive/10"
-          >
-            Delete
-          </Button>
-        </form>
+        <DeleteShiftButton shiftId={shiftRow.id} />
       </section>
     </div>
   );

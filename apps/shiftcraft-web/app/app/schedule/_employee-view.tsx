@@ -1,7 +1,22 @@
 import Link from "next/link";
-import { Avatar } from "~/components/Avatar";
 import { fmtTime24 } from "~/lib/date-format";
 import type { AreaShift } from "./_area-view";
+import { EmployeeSummaryCell } from "./_employee-summary";
+
+// Per-employee totals for the summary modal. Gross scheduled time (end − start)
+// across all non-cancelled shifts in the visible range.
+function rowShiftsForTotals(row: { shiftsByDay: AreaShift[][] }): AreaShift[] {
+  return row.shiftsByDay.flat().filter((s) => s.status !== "cancelled");
+}
+function rowTotalMs(row: { shiftsByDay: AreaShift[][] }): number {
+  return rowShiftsForTotals(row).reduce(
+    (acc, s) => acc + (s.endsAt.getTime() - s.startsAt.getTime()),
+    0,
+  );
+}
+function rowShiftCount(row: { shiftsByDay: AreaShift[][] }): number {
+  return rowShiftsForTotals(row).length;
+}
 
 // Per-employee row schedule. Same shift payload as the Area view, but
 // pivoted: rows = employees (plus a pinned "Open shifts" row at top),
@@ -32,6 +47,7 @@ export interface EmployeeRow {
   fullName: string;
   email: string | null;
   appUserId: string | null;
+  hourlyRate: string | null;
 }
 
 interface RowCells {
@@ -39,6 +55,7 @@ interface RowCells {
   fullName: string;
   email: string | null;
   appUserId: string | null;
+  hourlyRate: string | null;
   isOpenShiftsRow: boolean;
   shiftsByDay: AreaShift[][];
 }
@@ -63,6 +80,7 @@ function buildRows(
       fullName: e.fullName,
       email: e.email,
       appUserId: e.appUserId,
+      hourlyRate: e.hourlyRate,
       isOpenShiftsRow: false,
       shiftsByDay: Array.from({ length: dayCount }, () => []),
     });
@@ -77,6 +95,7 @@ function buildRows(
     fullName: "Open shifts",
     email: null,
     appUserId: null,
+    hourlyRate: null,
     isOpenShiftsRow: true,
     shiftsByDay: Array.from({ length: dayCount }, () => []),
   };
@@ -119,9 +138,13 @@ export function EmployeeScheduleView({
     addDays(weekStart, i),
   );
   const rows = buildRows(shifts, employees, assignmentsByShift, weekStart, dayCount);
-  const colMin = dayCount > 7 ? "5.5rem" : "7rem";
+  // In the 2-week view, shrink columns (and the employee rail) so all 14 days
+  // fit on screen without horizontal scrolling.
+  const twoWeek = dayCount > 7;
+  const colMin = twoWeek ? "4rem" : "7rem";
+  const railWidth = twoWeek ? "8.5rem" : "12rem";
   const gridCols = {
-    gridTemplateColumns: `12rem repeat(${dayCount}, minmax(${colMin}, 1fr))`,
+    gridTemplateColumns: `${railWidth} repeat(${dayCount}, minmax(${colMin}, 1fr))`,
   };
   const weekDivider = (i: number) =>
     i === 7 ? "border-l-2 border-l-[var(--accent-deep)]" : "";
@@ -176,18 +199,14 @@ export function EmployeeScheduleView({
                   </span>
                 </>
               ) : (
-                <>
-                  <Avatar
-                    name={row.fullName}
-                    email={row.email ?? ""}
-                    image={null}
-                    sizeClass="h-7 w-7"
-                    textClass="text-[10px]"
-                  />
-                  <span className="truncate text-xs font-medium">
-                    {row.fullName}
-                  </span>
-                </>
+                <EmployeeSummaryCell
+                  fullName={row.fullName}
+                  email={row.email}
+                  hourlyRate={row.hourlyRate}
+                  totalMs={rowTotalMs(row)}
+                  shiftCount={rowShiftCount(row)}
+                  rangeLabel={twoWeek ? "Fortnight total" : "Week total"}
+                />
               )}
             </div>
 
@@ -195,7 +214,7 @@ export function EmployeeScheduleView({
             {row.shiftsByDay.map((cell, idx) => (
               <div
                 key={idx}
-                className={`min-h-[4.5rem] space-y-1 border-r border-border p-1.5 last:border-r-0 ${weekDivider(idx)}`}
+                className={`min-h-[4.5rem] space-y-1 border-r border-border last:border-r-0 ${twoWeek ? "p-1" : "p-1.5"} ${weekDivider(idx)}`}
               >
                 {cell.map((s) => (
                   <Link

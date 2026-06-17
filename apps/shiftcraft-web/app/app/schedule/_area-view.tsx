@@ -19,6 +19,7 @@ import { Avatar } from "~/components/Avatar";
 import { fmtTime24 } from "~/lib/date-format";
 import {
   assignEmployeeViaDnd,
+  copyShiftByDeltaAction,
   copyShiftInPlaceAction,
   moveShiftAction,
 } from "./actions";
@@ -306,8 +307,10 @@ export function AreaScheduleView({
   const dayHeaders = Array.from({ length: dayCount }, (_, i) =>
     addDays(weekStart, i),
   );
-  // Denser columns in the 2-week view so more fits before scrolling.
-  const colMin = dayCount > 7 ? "5.5rem" : "7rem";
+  // Denser columns in the 2-week view so all 14 days fit on screen (the grid
+  // flexes to fill the container; the small min keeps chips legible if the
+  // viewport is too narrow and it has to scroll).
+  const colMin = dayCount > 7 ? "4rem" : "7rem";
   const gridCols = {
     gridTemplateColumns: `repeat(${dayCount}, minmax(${colMin}, 1fr))`,
   };
@@ -357,13 +360,31 @@ export function AreaScheduleView({
       return;
     }
 
-    // Shift dragged onto a day cell → move by whole days.
+    // Shift dragged onto a day cell. Dropping on a PAST date (before today)
+    // copies the shift there and leaves the original in place; today/future
+    // moves it as before.
     if (a.data.current?.type === "shift" && over.data.current?.type === "cell") {
       const movedShiftId = a.data.current.shiftId as string;
       const sourceDayIdx = a.data.current.dayIdx as number;
       const targetDayIdx = over.data.current.dayIdx as number;
       const deltaDays = targetDayIdx - sourceDayIdx;
       if (deltaDays === 0) return;
+
+      const targetDate = addDays(weekStart, targetDayIdx);
+      targetDate.setHours(0, 0, 0, 0);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const isPast = targetDate.getTime() < today.getTime();
+
+      if (isPast) {
+        startTransition(async () => {
+          const res = await copyShiftByDeltaAction(movedShiftId, deltaDays);
+          if (!res.ok) setError(res.message ?? "Couldn't copy that shift.");
+          router.refresh();
+        });
+        return;
+      }
+
       startTransition(async () => {
         applyMove({ shiftId: movedShiftId, deltaDays });
         const res = await moveShiftAction(movedShiftId, deltaDays);

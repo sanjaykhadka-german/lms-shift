@@ -293,7 +293,7 @@ export function KioskSignIn({
                   No one matches “{q}”.
                 </p>
               ) : (
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7">
                   {searchRows.map((p) => (
                     <NameCard key={p.id} person={p} onSelect={pick} />
                   ))}
@@ -317,7 +317,7 @@ export function KioskSignIn({
                     <h3 className="sticky top-0 z-10 bg-[#1a1512] py-2 font-mono text-sm font-semibold uppercase tracking-[0.18em] text-[var(--accent)]">
                       {letter}
                     </h3>
-                    <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                    <div className="mb-3 grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7">
                       {rows.map((p) => (
                         <NameCard key={p.id} person={p} onSelect={pick} />
                       ))}
@@ -390,10 +390,10 @@ function NameCard({
     <button
       type="button"
       onClick={() => onSelect(person)}
-      className="flex min-h-[100px] flex-col items-center gap-2 rounded-xl border border-line bg-[rgba(244,238,227,0.04)] p-4 text-center transition hover:border-[var(--accent)] active:bg-[rgba(244,238,227,0.1)]"
+      className="flex min-h-[84px] flex-col items-center gap-1.5 rounded-xl border border-line bg-[rgba(244,238,227,0.04)] p-3 text-center transition hover:border-[var(--accent)] active:bg-[rgba(244,238,227,0.1)]"
     >
       <span
-        className={`relative flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-lg font-semibold text-white ${
+        className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-base font-semibold text-white ${
           onShift ? "" : "opacity-50"
         }`}
         style={{ backgroundColor: c }}
@@ -403,9 +403,9 @@ function NameCard({
           <img
             src={person.image}
             alt=""
-            width={56}
-            height={56}
-            className="h-14 w-14 rounded-full object-cover"
+            width={44}
+            height={44}
+            className="h-11 w-11 rounded-full object-cover"
           />
         ) : (
           initials(person.name)
@@ -416,19 +416,19 @@ function NameCard({
           }`}
         />
       </span>
-      <span className="line-clamp-2 text-sm font-medium text-[#f4eee3]">
+      <span className="line-clamp-2 text-[13px] font-medium leading-tight text-[#f4eee3]">
         {person.name}
       </span>
       {onShift ? (
-        <span className="font-mono text-xs tabular-nums text-[color-mix(in_srgb,var(--live)_60%,white)]">
+        <span className="font-mono text-[11px] tabular-nums text-[color-mix(in_srgb,var(--live)_60%,white)]">
           on shift · {fmtSince(person.since!)}
         </span>
       ) : person.sched ? (
-        <span className="font-mono text-xs tabular-nums text-[#a89c8c]">
+        <span className="font-mono text-[11px] tabular-nums text-[#a89c8c]">
           scheduled {fmtSince(person.sched.startsAt)}–{fmtSince(person.sched.endsAt)}
         </span>
       ) : (
-        <span className="font-mono text-xs text-[#766b5e]">not in</span>
+        <span className="font-mono text-[11px] text-[#766b5e]">not in</span>
       )}
     </button>
   );

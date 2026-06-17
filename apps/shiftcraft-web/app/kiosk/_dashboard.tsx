@@ -98,9 +98,6 @@ export function KioskDashboard({
               className="flex min-h-[88px] flex-col items-center justify-center rounded-xl border border-line bg-[rgba(244,238,227,0.1)] px-6 py-6 text-center text-lg font-semibold text-[#f4eee3] transition hover:bg-[rgba(244,238,227,0.16)] active:translate-y-px"
             >
               Visitor
-              <span className="mt-0.5 text-sm font-medium text-[#a89c8c]">
-                Sign in
-              </span>
             </Link>
           ) : null}
         </div>

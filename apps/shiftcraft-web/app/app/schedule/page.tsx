@@ -232,6 +232,7 @@ export default async function SchedulePage({
               fullName: scEmployees.fullName,
               email: scEmployees.email,
               appUserId: scEmployees.appUserId,
+              hourlyRate: scEmployees.hourlyRate,
             })
             .from(scEmployees)
             .where(
@@ -248,6 +249,7 @@ export default async function SchedulePage({
             fullName: string;
             email: string | null;
             appUserId: string | null;
+            hourlyRate: string | null;
           }>,
         ),
   ]);
@@ -398,13 +400,13 @@ export default async function SchedulePage({
             {activeLocation ? ` · ${activeLocation.name}` : ""}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <div className="mr-1 inline-flex gap-0.5 rounded-[var(--r-sm)] border border-line bg-[var(--paper-2)] p-0.5">
             {(["area", "employee", "day"] as const).map((v) => (
               <Link
                 key={v}
                 href={`/app/schedule${qs({ view: v })}`}
-                className={`rounded-[calc(var(--r-sm)-3px)] px-3 py-1.5 text-xs font-semibold capitalize transition-colors ${
+                className={`whitespace-nowrap rounded-[calc(var(--r-sm)-3px)] px-3 py-1.5 text-xs font-semibold capitalize transition-colors ${
                   view === v
                     ? "bg-[var(--raise)] text-ink shadow-[var(--shadow-sm)] dark:bg-[var(--accent)] dark:text-[var(--accent-ink)]"
                     : "text-ink-2 hover:text-ink"
@@ -419,7 +421,7 @@ export default async function SchedulePage({
               <Link
                 key={r}
                 href={`/app/schedule${qs({ range: r })}`}
-                className={`rounded-[calc(var(--r-sm)-3px)] px-3 py-1.5 text-xs font-semibold uppercase transition-colors ${
+                className={`whitespace-nowrap rounded-[calc(var(--r-sm)-3px)] px-3 py-1.5 text-xs font-semibold uppercase transition-colors ${
                   range === r
                     ? "bg-[var(--raise)] text-ink shadow-[var(--shadow-sm)] dark:bg-[var(--accent)] dark:text-[var(--accent-ink)]"
                     : "text-ink-2 hover:text-ink"
@@ -456,7 +458,7 @@ export default async function SchedulePage({
           )}
           {isAdmin && draftCount > 0 && (
             <details className="group relative">
-              <summary className="inline-flex h-8 cursor-pointer list-none items-center gap-1.5 rounded-[var(--r-sm)] bg-[var(--accent)] px-3 text-[13px] font-semibold text-[var(--accent-ink)] shadow-[0_8px_18px_-10px_var(--accent-deep)] transition-[filter] hover:brightness-[0.97] [&::-webkit-details-marker]:hidden">
+              <summary className="inline-flex h-8 cursor-pointer list-none items-center gap-1.5 whitespace-nowrap rounded-[var(--r-sm)] bg-[var(--accent)] px-3 text-[13px] font-semibold text-[var(--accent-ink)] shadow-[0_8px_18px_-10px_var(--accent-deep)] transition-[filter] hover:brightness-[0.97] [&::-webkit-details-marker]:hidden">
                 Publish {draftCount} draft{draftCount === 1 ? "" : "s"}
                 <span aria-hidden className="text-[10px] opacity-80 transition-transform group-open:rotate-180">▾</span>
               </summary>
@@ -492,7 +494,7 @@ export default async function SchedulePage({
           )}
           {isAdmin && shifts.length > 0 && (
             <details className="relative">
-              <summary className="inline-flex h-8 cursor-pointer list-none items-center rounded-[var(--r-sm)] border border-[color:var(--input)] px-3 text-sm font-medium hover:bg-[color-mix(in_srgb,var(--ink)_5%,transparent)]">
+              <summary className="inline-flex h-8 cursor-pointer list-none items-center whitespace-nowrap rounded-[var(--r-sm)] border border-[color:var(--input)] px-3 text-[13px] font-medium hover:bg-[color-mix(in_srgb,var(--ink)_5%,transparent)]">
                 Copy week
               </summary>
               <form
@@ -540,7 +542,7 @@ export default async function SchedulePage({
           )}
           {isAdmin && shifts.length > 0 && (
             <details className="relative">
-              <summary className="inline-flex h-8 cursor-pointer list-none items-center rounded-[var(--r-sm)] border border-[color:var(--input)] px-3 text-sm font-medium hover:bg-[color-mix(in_srgb,var(--ink)_5%,transparent)]">
+              <summary className="inline-flex h-8 cursor-pointer list-none items-center whitespace-nowrap rounded-[var(--r-sm)] border border-[color:var(--input)] px-3 text-[13px] font-medium hover:bg-[color-mix(in_srgb,var(--ink)_5%,transparent)]">
                 Copy a day
               </summary>
               <form

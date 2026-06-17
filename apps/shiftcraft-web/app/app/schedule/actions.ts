@@ -1128,9 +1128,13 @@ export async function cancelShiftAction(formData: FormData): Promise<void> {
   await setShiftStatus(id, "cancelled");
 }
 
-export async function deleteShiftAction(formData: FormData): Promise<void> {
-  const id = String(formData.get("id") ?? "");
-  if (!id) return;
+// Returns {ok} rather than redirecting: the delete button lives inside the
+// intercepted @modal route, and a server-side redirect() from there lands on a
+// 404. The client button navigates back to /app/schedule itself instead.
+export async function deleteShiftAction(
+  id: string,
+): Promise<{ ok: boolean; message?: string }> {
+  if (!id) return { ok: false, message: "Missing shift id." };
   const tenant = await requireTenant();
   await forTenant(tenant.id).run((tx) =>
     tx
@@ -1138,7 +1142,7 @@ export async function deleteShiftAction(formData: FormData): Promise<void> {
       .where(and(eq(scShifts.id, id), eq(scShifts.traceyTenantId, tenant.id))),
   );
   revalidatePath("/app/schedule");
-  redirect("/app/schedule");
+  return { ok: true };
 }
 
 export async function duplicateShiftAction(formData: FormData): Promise<void> {
@@ -1348,6 +1352,78 @@ export async function copyShiftInPlaceAction(
       role: source.role,
       startsAt: source.startsAt,
       endsAt: source.endsAt,
+      status: "draft",
+      notes: source.notes,
+      breaks: source.breaks,
+      breakPaidMinutes: source.breakPaidMinutes,
+      breakUnpaidMinutes: source.breakUnpaidMinutes,
+      requiredSkillId: source.requiredSkillId,
+      createdByUserId: user?.id ?? null,
+    }),
+  );
+
+  revalidatePath("/app/schedule");
+  revalidatePath("/app/my-shifts");
+  return { ok: true };
+}
+
+// Copy a shift onto another day, offset by whole days, leaving the original in
+// place. Powers drag-onto-a-past-date in the area grid: dropping a scheduled
+// shift on a date before today duplicates it there (rather than moving it).
+// The copy lands as an unassigned draft. Returns {ok} like moveShiftAction.
+export async function copyShiftByDeltaAction(
+  shiftId: string,
+  deltaDays: number,
+): Promise<{ ok: boolean; message?: string }> {
+  if (!Number.isInteger(deltaDays) || deltaDays === 0) {
+    return { ok: false, message: "No change." };
+  }
+  const membership = await requireAdminMembership();
+  const user = await currentUser();
+
+  const [source] = await forTenant(membership.tenant.id).run((tx) =>
+    tx
+      .select({
+        locationId: scShifts.locationId,
+        role: scShifts.role,
+        startsAt: scShifts.startsAt,
+        endsAt: scShifts.endsAt,
+        notes: scShifts.notes,
+        breaks: scShifts.breaks,
+        breakPaidMinutes: scShifts.breakPaidMinutes,
+        breakUnpaidMinutes: scShifts.breakUnpaidMinutes,
+        requiredSkillId: scShifts.requiredSkillId,
+      })
+      .from(scShifts)
+      .where(
+        and(
+          eq(scShifts.id, shiftId),
+          eq(scShifts.traceyTenantId, membership.tenant.id),
+        ),
+      )
+      .limit(1),
+  );
+  if (!source) return { ok: false, message: "Shift not found." };
+
+  // AUDIT.md #13 — a scoped manager may only copy shifts at their locations.
+  if (user) {
+    const scopeErr = await guardLocationScope(
+      membership.tenant.id,
+      user.id,
+      membership.role,
+      source.locationId,
+    );
+    if (scopeErr) return { ok: false, message: scopeErr.message };
+  }
+
+  const ms = deltaDays * 86_400_000;
+  await forTenant(membership.tenant.id).run((tx) =>
+    tx.insert(scShifts).values({
+      traceyTenantId: membership.tenant.id,
+      locationId: source.locationId,
+      role: source.role,
+      startsAt: new Date(source.startsAt.getTime() + ms),
+      endsAt: new Date(source.endsAt.getTime() + ms),
       status: "draft",
       notes: source.notes,
       breaks: source.breaks,
