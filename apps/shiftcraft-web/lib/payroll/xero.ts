@@ -92,13 +92,20 @@ export interface XeroExchangeResult {
 
 export async function exchangeAuthCode(
   callbackUrl: string,
+  state?: string,
 ): Promise<XeroExchangeResult> {
   const cfg = requireConfigured();
+  // `state` MUST be passed: xero-node's apiCallback validates the returned
+  // state against `this.config.state`, and openid-client throws
+  // "checks.state argument is missing" if we leave it undefined while Xero
+  // echoes one back. The caller (the callback route) has already matched this
+  // value against the state cookie.
   const client = new XeroClient({
     clientId: cfg.clientId,
     clientSecret: cfg.clientSecret,
     redirectUris: [cfg.redirectUri],
     scopes: SCOPES,
+    state,
   });
   await client.initialize();
   const tokenSet = await client.apiCallback(callbackUrl);

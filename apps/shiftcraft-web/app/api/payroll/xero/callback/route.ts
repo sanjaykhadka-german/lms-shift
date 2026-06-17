@@ -18,6 +18,17 @@ import { logAuditEvent } from "~/lib/audit";
 
 const STATE_COOKIE = "sc_xero_oauth_state";
 
+// Behind Render's proxy, req.url is the INTERNAL origin (http://localhost:10000),
+// so redirects built from it send the browser to a dead address. Reconstruct
+// the public origin from the forwarded headers the proxy sets.
+function publicOrigin(req: NextRequest): string {
+  const host =
+    req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+  const proto =
+    req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() ?? "https";
+  return host ? `${proto}://${host}` : new URL(req.url).origin;
+}
+
 export async function GET(req: NextRequest): Promise<NextResponse> {
   if (!isXeroConfigured()) {
     return NextResponse.json(
@@ -26,6 +37,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     );
   }
 
+  const base = publicOrigin(req);
   const url = new URL(req.url);
   const errParam = url.searchParams.get("error");
   if (errParam) {
@@ -34,7 +46,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(
       new URL(
         `/app/admin/payroll?xero_error=${encodeURIComponent(desc)}`,
-        req.url,
+        base,
       ),
     );
   }
@@ -45,7 +57,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(
       new URL(
         "/app/admin/payroll?xero_error=missing_code_or_state",
-        req.url,
+        base,
       ),
     );
   }
@@ -54,7 +66,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const expected = jar.get(STATE_COOKIE)?.value;
   if (!expected || expected !== state) {
     return NextResponse.redirect(
-      new URL("/app/admin/payroll?xero_error=state_mismatch", req.url),
+      new URL("/app/admin/payroll?xero_error=state_mismatch", base),
     );
   }
   // Single-use state — invalidate immediately whether or not the
@@ -63,15 +75,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   const membership = await currentMembership();
   if (!membership) {
-    return NextResponse.redirect(new URL("/sign-in", req.url));
+    return NextResponse.redirect(new URL("/sign-in", base));
   }
   const user = await currentUser();
   if (!user) {
-    return NextResponse.redirect(new URL("/sign-in", req.url));
+    return NextResponse.redirect(new URL("/sign-in", base));
   }
 
   try {
-    const exchange = await exchangeAuthCode(req.url);
+    const exchange = await exchangeAuthCode(req.url, state);
     await saveConnection(membership.tenant.id, user.id, exchange);
     await logAuditEvent({
       action: "shiftcraft.xero.connected",
@@ -82,7 +94,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       },
     });
     return NextResponse.redirect(
-      new URL("/app/admin/payroll?connected=1", req.url),
+      new URL("/app/admin/payroll?connected=1", base),
     );
   } catch (err) {
     const message =
@@ -90,7 +102,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(
       new URL(
         `/app/admin/payroll?xero_error=${encodeURIComponent(message)}`,
-        req.url,
+        base,
       ),
     );
   }
