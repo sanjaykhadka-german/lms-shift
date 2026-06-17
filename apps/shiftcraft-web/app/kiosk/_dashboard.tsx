@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { LiveClock } from "~/components/LiveClock";
-import { fmtSince, initials, ringColor } from "~/lib/kiosk/avatar";
 import type { WhosHerePerson } from "~/lib/kiosk/whos-here";
 
 interface RosterPerson {
@@ -13,10 +12,9 @@ interface RosterPerson {
 }
 
 /**
- * The kiosk landing "dashboard": company + location header with a live clock
- * and date, a vertical roster showing every employee and whether they're
- * currently on the clock, and a big call-to-action that reveals the
- * name-select sign-in flow.
+ * The kiosk landing "chooser": company + location header with a live clock, a
+ * one-line "on the clock now" summary, and two big buttons — Employee (reveals
+ * the name-select roster) or Visitor (jumps to the visitor sign-in form).
  */
 export function KioskDashboard({
   tenantName,
@@ -24,54 +22,51 @@ export function KioskDashboard({
   roster,
   whosHere,
   allowVisitors,
-  onStart,
+  onEmployee,
 }: {
   tenantName: string;
   locationName: string;
   roster: RosterPerson[];
   whosHere: WhosHerePerson[];
   allowVisitors: boolean;
-  onStart: () => void;
+  onEmployee: () => void;
 }) {
   const [dateLabel, setDateLabel] = useState("");
   useEffect(() => {
     setDateLabel(
       new Date().toLocaleDateString(undefined, {
-        weekday: "short",
+        weekday: "long",
         day: "numeric",
-        month: "short",
+        month: "long",
       }),
     );
   }, []);
 
-  // Merge the roster with who's-on-the-clock so every employee is listed with
-  // a clear status. On-shift people sort to the top, then alphabetical.
-  const sinceById = new Map(whosHere.map((p) => [p.id, p.since]));
-  const rows = roster
-    .map((p) => ({ ...p, since: sinceById.get(p.id) ?? null }))
-    .sort((a, b) => {
-      if (!!a.since !== !!b.since) return a.since ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
-
   return (
-    <div className="w-full max-w-4xl space-y-7 rounded-2xl border border-[rgba(244,238,227,0.13)] bg-[#1a1512] p-8 shadow-xl sm:p-10">
-      <header className="flex items-start justify-between gap-4">
+    <div className="w-full max-w-4xl overflow-hidden rounded-2xl border border-line bg-[#1a1512] shadow-xl">
+      {/* Lime header band: tenant + location on the left, clock + date right. */}
+      <header className="flex items-start justify-between gap-4 bg-[var(--accent)] px-8 py-6 text-[var(--accent-ink)]">
         <div className="min-w-0">
-          <div className="font-mono text-xs uppercase tracking-[0.22em] text-[#a89c8c]">
+          <div className="font-mono text-xs uppercase tracking-[0.22em] text-[var(--accent-ink)]/70">
             {tenantName}
           </div>
-          <h1 className="mt-1 truncate font-display text-3xl font-semibold tracking-tight text-[#f4eee3] sm:text-4xl">
+          <h1 className="mt-1 truncate font-display text-3xl font-semibold tracking-tight sm:text-4xl">
             {locationName}
           </h1>
         </div>
         <div className="shrink-0 text-right">
-          <LiveClock variant="kiosk" className="text-3xl sm:text-4xl" />
-          <div className="mt-1 text-sm text-[#a89c8c]">{dateLabel || " "}</div>
+          {/* Dark inset chip — LiveClock renders light digits + lime seconds,
+              which would be illegible directly on the lime band. */}
+          <div className="inline-block rounded-xl bg-[#17130f] px-4 py-2">
+            <LiveClock variant="kiosk" className="text-3xl sm:text-4xl" />
+          </div>
+          <div className="mt-1.5 text-sm font-medium text-[var(--accent-ink)]/70">
+            {dateLabel || " "}
+          </div>
         </div>
       </header>
 
-      <div>
+      <div className="space-y-7 p-8 sm:p-10">
         <div className="flex items-center gap-2 text-base">
           <span
             aria-hidden
@@ -83,81 +78,33 @@ export function KioskDashboard({
           </span>
         </div>
 
-        {rows.length === 0 ? (
-          <p className="mt-4 text-sm text-[#a89c8c]">
-            No employees have a kiosk PIN yet.
-          </p>
-        ) : (
-          <ul className="mt-4 max-h-[46vh] space-y-2 overflow-y-auto pr-1">
-            {rows.map((p) => {
-              const onShift = !!p.since;
-              const c = ringColor(p.id);
-              return (
-                <li
-                  key={p.id}
-                  className="flex items-center gap-3 rounded-xl border border-[rgba(244,238,227,0.1)] bg-[rgba(244,238,227,0.04)] px-4 py-3"
-                >
-                  <span
-                    className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white ${
-                      onShift ? "" : "opacity-50"
-                    }`}
-                    style={{ backgroundColor: c }}
-                  >
-                    {p.image ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={p.image}
-                        alt=""
-                        width={44}
-                        height={44}
-                        className="h-11 w-11 rounded-full object-cover"
-                      />
-                    ) : (
-                      initials(p.name)
-                    )}
-                    <span
-                      className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[#1a1512] ${
-                        onShift ? "bg-[var(--live)]" : "bg-[#6b6052]"
-                      }`}
-                    />
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-base font-medium text-[#f4eee3]">
-                    {p.name}
-                  </span>
-                  {onShift ? (
-                    <span className="shrink-0 font-mono text-xs tabular-nums text-[color-mix(in_srgb,var(--live)_60%,white)]">
-                      on shift · since {fmtSince(p.since!)}
-                    </span>
-                  ) : (
-                    <span className="shrink-0 font-mono text-xs text-[#766b5e]">
-                      not clocked in
-                    </span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
-
-      <button
-        type="button"
-        onClick={onStart}
-        className="w-full rounded-xl bg-[var(--accent)] px-6 py-6 text-lg font-semibold text-[var(--accent-ink)] shadow-sm transition hover:bg-[var(--accent-deep)] active:translate-y-px"
-      >
-        Tap your name or scan your badge to clock in / out
-      </button>
-
-      {allowVisitors ? (
-        <div className="text-center">
-          <Link
-            href="/kiosk/visitor"
-            className="text-sm font-medium text-[#a89c8c] underline-offset-4 hover:text-[#f4eee3] hover:underline"
+        <div
+          className={`grid gap-4 ${allowVisitors ? "sm:grid-cols-2" : "grid-cols-1"}`}
+        >
+          <button
+            type="button"
+            onClick={onEmployee}
+            className="flex min-h-[88px] flex-col items-center justify-center rounded-xl bg-[var(--accent)] px-6 py-6 text-center text-lg font-semibold text-[var(--accent-ink)] shadow-sm transition hover:bg-[var(--accent-deep)] active:translate-y-px"
           >
-            Visitor? Sign in here
-          </Link>
+            Employee
+            <span className="mt-0.5 text-sm font-medium text-[var(--accent-ink)]/70">
+              Clock in / out
+            </span>
+          </button>
+
+          {allowVisitors ? (
+            <Link
+              href="/kiosk/visitor"
+              className="flex min-h-[88px] flex-col items-center justify-center rounded-xl border border-line bg-[rgba(244,238,227,0.1)] px-6 py-6 text-center text-lg font-semibold text-[#f4eee3] transition hover:bg-[rgba(244,238,227,0.16)] active:translate-y-px"
+            >
+              Visitor
+              <span className="mt-0.5 text-sm font-medium text-[#a89c8c]">
+                Sign in
+              </span>
+            </Link>
+          ) : null}
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }

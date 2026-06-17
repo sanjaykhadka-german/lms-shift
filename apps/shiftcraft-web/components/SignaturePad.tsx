@@ -117,7 +117,7 @@ export function SignaturePad({
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between">
-        <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-[#766b5e]">
+        <span className="font-mono text-xs uppercase tracking-[0.14em] text-[#a89c8c]">
           {label}
           {required ? " *" : ""}
         </span>
@@ -125,14 +125,14 @@ export function SignaturePad({
           <button
             type="button"
             onClick={undo}
-            className="rounded-md border border-[rgba(244,238,227,0.18)] px-2.5 py-1 text-[11px] text-[#a89c8c] hover:bg-[rgba(244,238,227,0.08)]"
+            className="rounded-md border border-line bg-[rgba(244,238,227,0.1)] px-3 py-1.5 text-xs font-medium text-[#f4eee3] hover:bg-[rgba(244,238,227,0.16)]"
           >
             Undo
           </button>
           <button
             type="button"
             onClick={clear}
-            className="rounded-md border border-[rgba(244,238,227,0.18)] px-2.5 py-1 text-[11px] text-[#a89c8c] hover:bg-[rgba(244,238,227,0.08)]"
+            className="rounded-md border border-line bg-[rgba(244,238,227,0.1)] px-3 py-1.5 text-xs font-medium text-[#f4eee3] hover:bg-[rgba(244,238,227,0.16)]"
           >
             Clear
           </button>
@@ -148,7 +148,7 @@ export function SignaturePad({
       />
       <input ref={hiddenRef} type="hidden" name={name} defaultValue="" />
       {!hasInk ? (
-        <p className="mt-1 text-[11px] text-[#766b5e]">
+        <p className="mt-1 text-xs text-[#a89c8c]">
           Sign above with your finger, stylus, or mouse.
         </p>
       ) : null}

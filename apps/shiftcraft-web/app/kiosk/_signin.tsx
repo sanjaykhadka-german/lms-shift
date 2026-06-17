@@ -7,6 +7,7 @@ import { KioskDashboard } from "./_dashboard";
 import { LiveClock } from "~/components/LiveClock";
 import { fmtSince, initials, ringColor } from "~/lib/kiosk/avatar";
 import type { WhosHerePerson } from "~/lib/kiosk/whos-here";
+import type { ScheduledPerson } from "~/lib/kiosk/scheduled";
 
 export interface KioskPerson {
   id: string;
@@ -14,8 +15,19 @@ export interface KioskPerson {
   image: string | null;
 }
 
-// A roster person merged with their live on-shift "since" time (null = not in).
-type RosterRow = KioskPerson & { since: string | null };
+// A roster person merged with live status: on-shift "since" time (null = not
+// in) and today's scheduled window (null = not scheduled here today).
+type RosterRow = KioskPerson & {
+  since: string | null;
+  sched: { startsAt: string; endsAt: string } | null;
+};
+
+type Filter = "all" | "onshift" | "scheduled";
+const FILTERS: { key: Filter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "onshift", label: "On shift" },
+  { key: "scheduled", label: "Scheduled" },
+];
 
 const LETTERS = ["#", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("")];
 
@@ -34,18 +46,21 @@ export function KioskSignIn({
   tenantName,
   locationName,
   whosHere,
+  scheduledToday,
   allowVisitors,
 }: {
   people: KioskPerson[];
   tenantName: string;
   locationName: string;
   whosHere: WhosHerePerson[];
+  scheduledToday: ScheduledPerson[];
   allowVisitors: boolean;
 }) {
   const [selected, setSelected] = useState<KioskPerson | null>(null);
-  // Landing dashboard is shown first; the CTA flips this to reveal the grid.
-  const [started, setStarted] = useState(false);
+  // Chooser screen is shown first; the Employee button flips to the roster.
+  const [mode, setMode] = useState<"choose" | "employee">("choose");
   const [q, setQ] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const groupRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -67,36 +82,59 @@ export function KioskSignIn({
     () => new Map(whosHere.map((p) => [p.id, p.since])),
     [whosHere],
   );
+  const schedById = useMemo(
+    () => new Map(scheduledToday.map((s) => [s.id, s])),
+    [scheduledToday],
+  );
 
-  // Search results: on-shift first, then alphabetical (mirrors the dashboard
-  // sort). Only used while the search box has content.
+  const toRow = useMemo(
+    () =>
+      (p: KioskPerson): RosterRow => ({
+        ...p,
+        since: sinceById.get(p.id) ?? null,
+        sched: schedById.get(p.id) ?? null,
+      }),
+    [sinceById, schedById],
+  );
+
+  // Apply the active filter first; search + grouping operate on this subset.
+  const base = useMemo(
+    () =>
+      people.filter((p) => {
+        if (filter === "onshift") return sinceById.has(p.id);
+        if (filter === "scheduled") return schedById.has(p.id);
+        return true;
+      }),
+    [people, filter, sinceById, schedById],
+  );
+
+  // Search results: on-shift first, then alphabetical. Only when searching.
   const searchRows = useMemo<RosterRow[]>(() => {
     const needle = q.trim().toLowerCase();
     if (!needle) return [];
-    return people
+    return base
       .filter((p) => p.name.toLowerCase().includes(needle))
-      .map((p) => ({ ...p, since: sinceById.get(p.id) ?? null }))
+      .map(toRow)
       .sort((a, b) => {
         if (!!a.since !== !!b.since) return a.since ? -1 : 1;
         return a.name.localeCompare(b.name);
       });
-  }, [people, q, sinceById]);
+  }, [base, q, toRow]);
 
-  // Idle (no search) view: the full roster grouped alphabetically. Groups stay
-  // purely alphabetical; status only colours the card, never the order.
+  // Idle (no search) view: grouped alphabetically. Groups stay purely
+  // alphabetical; status only colours the card, never the order.
   const groups = useMemo(() => {
     const byLetter = new Map<string, RosterRow[]>();
-    for (const p of people) {
+    for (const p of base) {
       const letter = bucketOf(p.name);
-      const row: RosterRow = { ...p, since: sinceById.get(p.id) ?? null };
       const arr = byLetter.get(letter);
-      if (arr) arr.push(row);
-      else byLetter.set(letter, [row]);
+      if (arr) arr.push(toRow(p));
+      else byLetter.set(letter, [toRow(p)]);
     }
     for (const arr of byLetter.values())
       arr.sort((a, b) => a.name.localeCompare(b.name));
     return byLetter;
-  }, [people, sinceById]);
+  }, [base, toRow]);
 
   const jumpTo = (letter: string) => {
     const el = groupRefs.current[letter];
@@ -116,7 +154,7 @@ export function KioskSignIn({
     );
   }
 
-  if (!started && people.length > 0) {
+  if (mode === "choose" && people.length > 0) {
     return (
       <KioskDashboard
         tenantName={tenantName}
@@ -124,7 +162,7 @@ export function KioskSignIn({
         roster={people}
         whosHere={whosHere}
         allowVisitors={allowVisitors}
-        onStart={() => setStarted(true)}
+        onEmployee={() => setMode("employee")}
       />
     );
   }
@@ -144,6 +182,12 @@ export function KioskSignIn({
     setSelected(p);
     setQ("");
   };
+  const emptyFilterLabel =
+    filter === "onshift"
+      ? "No one is on shift right now."
+      : filter === "scheduled"
+        ? "No one is scheduled here today."
+        : "No one to show.";
 
   return (
     <div className="w-full max-w-5xl overflow-hidden rounded-2xl border border-line bg-[#1a1512] shadow-xl">
@@ -169,14 +213,15 @@ export function KioskSignIn({
         </div>
       </header>
 
-      <div className="space-y-6 p-8">
+      <div className="space-y-5 p-8">
         {/* Toolbar: back, instruction, on-shift status. */}
         <div className="flex items-center justify-between gap-4">
           <button
             type="button"
             onClick={() => {
-              setStarted(false);
+              setMode("choose");
               setQ("");
+              setFilter("all");
             }}
             className="inline-flex min-h-[44px] items-center rounded-full border border-line bg-[rgba(244,238,227,0.1)] px-4 py-2 text-sm font-medium text-[#f4eee3] transition hover:bg-[rgba(244,238,227,0.16)]"
           >
@@ -192,6 +237,38 @@ export function KioskSignIn({
             />
             {whosHere.length} on shift / {people.length}
           </span>
+        </div>
+
+        {/* Filter chips */}
+        <div className="flex flex-wrap gap-2">
+          {FILTERS.map((f) => {
+            const active = filter === f.key;
+            const count =
+              f.key === "onshift"
+                ? whosHere.length
+                : f.key === "scheduled"
+                  ? scheduledToday.length
+                  : people.length;
+            return (
+              <button
+                key={f.key}
+                type="button"
+                onClick={() => setFilter(f.key)}
+                className={
+                  active
+                    ? "inline-flex min-h-[44px] items-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--accent-ink)]"
+                    : "inline-flex min-h-[44px] items-center gap-2 rounded-full border border-line px-4 py-2 text-sm font-medium text-[#a89c8c] transition hover:bg-[rgba(244,238,227,0.08)]"
+                }
+              >
+                {f.label}
+                <span
+                  className={`font-mono text-xs ${active ? "text-[var(--accent-ink)]/70" : "text-[#766b5e]"}`}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         {/* Search */}
@@ -222,6 +299,10 @@ export function KioskSignIn({
                   ))}
                 </div>
               )
+            ) : base.length === 0 ? (
+              <p className="py-8 text-center text-sm text-[#766b5e]">
+                {emptyFilterLabel}
+              </p>
             ) : (
               LETTERS.map((letter) => {
                 const rows = groups.get(letter);
@@ -248,7 +329,7 @@ export function KioskSignIn({
           </div>
 
           {/* A–Z jump rail — only meaningful in the grouped (idle) view. */}
-          {!searching ? (
+          {!searching && base.length > 0 ? (
             <nav
               aria-label="Jump to letter"
               className="absolute right-0 top-0 flex flex-col items-center font-mono text-xs"
@@ -341,6 +422,10 @@ function NameCard({
       {onShift ? (
         <span className="font-mono text-xs tabular-nums text-[color-mix(in_srgb,var(--live)_60%,white)]">
           on shift · {fmtSince(person.since!)}
+        </span>
+      ) : person.sched ? (
+        <span className="font-mono text-xs tabular-nums text-[#a89c8c]">
+          scheduled {fmtSince(person.sched.startsAt)}–{fmtSince(person.sched.endsAt)}
         </span>
       ) : (
         <span className="font-mono text-xs text-[#766b5e]">not in</span>

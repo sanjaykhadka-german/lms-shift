@@ -28,12 +28,6 @@ export interface PunchScreenProps {
   breaksTaken: number;
   /** Milliseconds worked so far today (computed at page load). */
   workedTodayMs: number;
-  whosHere: Array<{
-    id: string;
-    name: string;
-    image: string | null;
-    since: string;
-  }>;
   announcement: { title: string; body: string } | null;
   requireSelfie: boolean;
 }
@@ -86,7 +80,6 @@ export function PunchScreen(props: PunchScreenProps) {
     clockStatus,
     locationName,
     todayShift,
-    whosHere,
     announcement,
     requireSelfie,
   } = props;
@@ -327,34 +320,6 @@ export function PunchScreen(props: PunchScreenProps) {
             </form>
           );
         })}
-      </section>
-
-      <section>
-        <div className="mb-2 font-mono text-[10px] uppercase tracking-wider text-[#766b5e]">
-          On shift at {locationName} now
-        </div>
-        {whosHere.length === 0 ? (
-          <p className="text-sm text-[#766b5e]">
-            Nobody clocked in here yet today.
-          </p>
-        ) : (
-          <ul className="space-y-2">
-            {whosHere.map((p) => (
-              <li
-                key={p.id}
-                className="flex items-center gap-3 rounded-md border border-[rgba(244,238,227,0.13)] bg-[rgba(244,238,227,0.04)] px-3 py-2"
-              >
-                <Avatar name={p.name} image={p.image} small />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm">{p.name}</div>
-                </div>
-                <div className="text-xs tabular-nums text-[#766b5e]">
-                  since {fmtTime(p.since)}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
       </section>
 
       {selfieFor ? (

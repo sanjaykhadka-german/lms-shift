@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { submitPinAction, type SubmitPinState } from "./actions";
 
@@ -19,6 +19,7 @@ export function KioskNumpad({
 } = {}) {
   const [state, formAction] = useActionState(submitPinAction, INITIAL);
   const [pin, setPin] = useState("");
+  const formRef = useRef<HTMLFormElement>(null);
 
   // Auto-clear the entered PIN after any non-idle result so the next user
   // starts from blank. Without this the failed PIN would linger in the
@@ -28,6 +29,15 @@ export function KioskNumpad({
       setPin("");
     }
   }, [state]);
+
+  // Auto-submit the instant the 4th digit lands — no "Enter" tap needed. On a
+  // wrong PIN the effect above resets pin to "" (length ≠ 4, so this won't
+  // re-fire); on success the server action redirects. No submit loop.
+  useEffect(() => {
+    if (pin.length === PIN_LENGTH && state.status !== "locked") {
+      formRef.current?.requestSubmit();
+    }
+  }, [pin, state.status]);
 
   const handleDigit = (d: string) => {
     setPin((p) => (p.length >= PIN_LENGTH ? p : p + d));
@@ -44,6 +54,7 @@ export function KioskNumpad({
 
   return (
     <form
+      ref={formRef}
       action={formAction}
       className="mx-auto flex w-full max-w-sm flex-col items-center gap-6"
     >
@@ -105,7 +116,13 @@ export function KioskNumpad({
         </PadButton>
       </div>
 
-      <SubmitRow disabled={pin.length !== PIN_LENGTH || state.status === "locked"} />
+      {/* No manual submit — the PIN auto-submits on the 4th digit. This
+          sr-only button gives requestSubmit() a submitter and keeps native
+          form submission working. */}
+      <button type="submit" className="sr-only" tabIndex={-1}>
+        Enter
+      </button>
+      <SubmitStatus />
     </form>
   );
 }
@@ -159,15 +176,14 @@ function PadButton({
   );
 }
 
-function SubmitRow({ disabled }: { disabled: boolean }) {
+// Pending feedback while the PIN is verified. The PIN auto-submits, so there's
+// no button to press — this just shows progress.
+function SubmitStatus() {
   const { pending } = useFormStatus();
+  if (!pending) return null;
   return (
-    <button
-      type="submit"
-      disabled={disabled || pending}
-      className="h-14 w-full rounded-xl bg-primary text-base font-semibold text-primary-foreground disabled:opacity-40"
-    >
-      {pending ? "Checking…" : "Enter"}
-    </button>
+    <p className="text-sm font-medium text-[#a89c8c]" role="status">
+      Checking…
+    </p>
   );
 }

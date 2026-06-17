@@ -107,35 +107,40 @@ export default async function KioskVisitorPage({
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-6 px-6 py-10">
-      <header className="flex items-center justify-between gap-4">
-        <div>
-          <div className="font-mono text-xs uppercase tracking-[0.2em] text-[#766b5e]">
-            Visitor sign-in
+    <main className="flex min-h-screen items-start justify-center px-6 py-10">
+      <div className="w-full max-w-2xl overflow-hidden rounded-2xl border border-line bg-[#1a1512] shadow-xl">
+        {/* Lime header band — matches the kiosk landing/roster panels. */}
+        <header className="flex items-center justify-between gap-4 bg-[var(--accent)] px-8 py-6 text-[var(--accent-ink)]">
+          <div className="min-w-0">
+            <div className="font-mono text-xs uppercase tracking-[0.22em] text-[var(--accent-ink)]/70">
+              Visitor sign-in
+            </div>
+            <h1 className="mt-1 truncate font-display text-2xl font-semibold tracking-tight sm:text-3xl">
+              {locationName}
+            </h1>
           </div>
-          <h1 className="mt-0.5 font-display text-2xl font-semibold tracking-tight">
-            {locationName}
-          </h1>
+          <Link
+            href="/kiosk"
+            className="shrink-0 rounded-full bg-[#17130f] px-4 py-2 text-sm font-medium text-[#f4eee3] transition hover:bg-[#241e19]"
+          >
+            ← Kiosk
+          </Link>
+        </header>
+
+        <div className="space-y-6 p-8">
+          {error === "missing" ? (
+            <p className="rounded-md border border-[color-mix(in_srgb,var(--danger)_40%,transparent)] bg-[color-mix(in_srgb,var(--danger)_15%,transparent)] px-4 py-2 text-sm text-[color-mix(in_srgb,var(--danger)_60%,white)]">
+              Please fill in your name, mobile, who you're visiting, and sign
+              before signing in.
+            </p>
+          ) : null}
+
+          <VisitorForm
+            signedInVisitors={signedInVisitors}
+            employeeNames={employeeNames}
+          />
         </div>
-        <Link
-          href="/kiosk"
-          className="rounded-md border border-[rgba(244,238,227,0.18)] px-3 py-1.5 text-xs text-[#a89c8c] hover:bg-[rgba(244,238,227,0.08)]"
-        >
-          ← Kiosk
-        </Link>
-      </header>
-
-      {error === "missing" ? (
-        <p className="rounded-md border border-[color-mix(in_srgb,var(--danger)_40%,transparent)] bg-[color-mix(in_srgb,var(--danger)_15%,transparent)] px-4 py-2 text-sm text-[color-mix(in_srgb,var(--danger)_60%,white)]">
-          Please fill in your name, mobile, who you're visiting, and sign before
-          signing in.
-        </p>
-      ) : null}
-
-      <VisitorForm
-        signedInVisitors={signedInVisitors}
-        employeeNames={employeeNames}
-      />
+      </div>
     </main>
   );
 }

@@ -20,7 +20,7 @@ import {
   verifyDeviceCookie,
 } from "~/lib/kiosk/cookies";
 import { aggregateClockTotals, stateFor } from "~/lib/clock";
-import { PunchScreen, type PunchScreenProps } from "./_punch";
+import { PunchScreen } from "./_punch";
 
 export const metadata = { title: "Kiosk · Punch" };
 export const dynamic = "force-dynamic";
@@ -200,47 +200,6 @@ export default async function KioskMePage() {
       ? null
       : (latestUserEventRows[0]?.occurredAt ?? null);
 
-  // Build the "who's here now at this location" set. Walk today's tenant
-  // events grouped by user; if the latest is `in` or `break_end` AND the
-  // location matches our kiosk, the user is currently on-shift here.
-  const lastByUser = new Map<
-    string,
-    { eventType: string; locationId: string | null; occurredAt: Date }
-  >();
-  for (const e of todayTenantEvents) {
-    lastByUser.set(e.appUserId, e);
-  }
-  const hereUserIds: string[] = [];
-  for (const [uid, last] of lastByUser.entries()) {
-    if (
-      (last.eventType === "in" || last.eventType === "break_end") &&
-      last.locationId === locationId
-    ) {
-      hereUserIds.push(uid);
-    }
-  }
-  let whosHere: PunchScreenProps["whosHere"] = [];
-  if (hereUserIds.length > 0) {
-    const peopleRows = await db
-      .select({
-        id: users.id,
-        name: users.name,
-        email: users.email,
-        image: users.image,
-      })
-      .from(users)
-      .where(sql`${users.id} in ${hereUserIds}`);
-    whosHere = peopleRows.map((p) => ({
-      id: p.id,
-      name: p.name ?? p.email ?? "—",
-      image: p.image,
-      since: lastByUser.get(p.id)!.occurredAt.toISOString(),
-    }));
-    whosHere.sort((a, b) =>
-      a.since.localeCompare(b.since),
-    );
-  }
-
   const todayShift = todayShifts[0]
     ? {
         startsAt: todayShifts[0].startsAt.toISOString(),
@@ -283,7 +242,6 @@ export default async function KioskMePage() {
         todayShift={todayShift}
         breaksTaken={breaksTaken}
         workedTodayMs={workedTodayMs}
-        whosHere={whosHere}
         announcement={announcement}
         requireSelfie={requireSelfie}
       />

@@ -17,6 +17,10 @@ import {
   loadWhosHereAtLocation,
   type WhosHerePerson,
 } from "~/lib/kiosk/whos-here";
+import {
+  loadScheduledTodayAtLocation,
+  type ScheduledPerson,
+} from "~/lib/kiosk/scheduled";
 import { KioskSignIn, type KioskPerson } from "./_signin";
 
 export const metadata = { title: "Kiosk" };
@@ -169,12 +173,17 @@ export default async function KioskHome({
       : errorMessage(error);
   const punched_msg = punchedLabel(punched);
   const paired = await resolvePairing();
-  const [roster, whosHere]: [KioskPerson[], WhosHerePerson[]] = paired
+  const [roster, whosHere, scheduled]: [
+    KioskPerson[],
+    WhosHerePerson[],
+    ScheduledPerson[],
+  ] = paired
     ? await Promise.all([
         loadRoster(paired.tenantId),
         loadWhosHereAtLocation(paired.tenantId, paired.locationId),
+        loadScheduledTodayAtLocation(paired.tenantId, paired.locationId),
       ])
-    : [[], []];
+    : [[], [], []];
 
   if (!paired) {
     return (
@@ -228,6 +237,7 @@ export default async function KioskHome({
             tenantName={paired.tenantName}
             locationName={paired.locationName}
             whosHere={whosHere}
+            scheduledToday={scheduled}
             allowVisitors={paired.allowVisitors}
           />
         </>

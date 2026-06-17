@@ -16,7 +16,7 @@ export interface SignedInVisitor {
 const INPUT =
   "h-12 w-full rounded-xl border border-[rgba(244,238,227,0.18)] bg-[rgba(244,238,227,0.05)] px-4 text-base text-[#f4eee3] placeholder:text-[#766b5e] focus:outline-none focus:ring-2 focus:ring-[rgba(244,238,227,0.25)]";
 const LABEL =
-  "mb-1.5 block font-mono text-[11px] uppercase tracking-[0.14em] text-[#766b5e]";
+  "mb-1.5 block font-mono text-xs uppercase tracking-[0.14em] text-[#a89c8c]";
 
 function fmtTime(iso: string): string {
   return new Date(iso).toLocaleTimeString(undefined, {
