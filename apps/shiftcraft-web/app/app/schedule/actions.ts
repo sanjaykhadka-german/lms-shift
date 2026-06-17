@@ -1362,6 +1362,8 @@ export async function saveShiftAsTemplateAction(
         startsAt: scShifts.startsAt,
         endsAt: scShifts.endsAt,
         notes: scShifts.notes,
+        breaks: scShifts.breaks,
+        requiredSkillId: scShifts.requiredSkillId,
       })
       .from(scShifts)
       .where(
@@ -1406,6 +1408,8 @@ export async function saveShiftAsTemplateAction(
       endHour: shiftRow.endsAt.getHours(),
       endMinute: shiftRow.endsAt.getMinutes(),
       defaultNotes: shiftRow.notes,
+      defaultBreaks: shiftRow.breaks,
+      requiredSkillId: shiftRow.requiredSkillId,
     }),
   );
   revalidatePath("/app/shift-templates");

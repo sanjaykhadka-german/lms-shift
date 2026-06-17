@@ -800,6 +800,17 @@ export const scShiftTemplates = pgTable(
     endHour: integer("end_hour").notNull(),
     endMinute: integer("end_minute").notNull().default(0),
     defaultNotes: text("default_notes"),
+    // Default scheduled breaks carried by the template, same {label, minutes,
+    // paid} shape as sc_shifts.breaks. Prefilled into the break editor when a
+    // shift is created from this template so common breaks aren't re-entered.
+    defaultBreaks: jsonb("default_breaks")
+      .$type<ShiftBreak[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    // Default required skill for the auto-scheduler (mirrors
+    // sc_shifts.required_skill_id). Null = no requirement. FK to per-tenant
+    // sc_skills is attached in the per-tenant migration, nullable on purpose.
+    requiredSkillId: uuid("required_skill_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

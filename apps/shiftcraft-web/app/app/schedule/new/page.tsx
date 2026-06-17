@@ -33,6 +33,8 @@ export default async function NewShiftPage() {
           endHour: scShiftTemplates.endHour,
           endMinute: scShiftTemplates.endMinute,
           defaultNotes: scShiftTemplates.defaultNotes,
+          defaultBreaks: scShiftTemplates.defaultBreaks,
+          requiredSkillId: scShiftTemplates.requiredSkillId,
         })
         .from(scShiftTemplates)
         .where(eq(scShiftTemplates.traceyTenantId, tenantId))

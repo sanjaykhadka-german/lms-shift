@@ -267,6 +267,13 @@
       "when": 1781650773033,
       "tag": "0037_opposite_grim_reaper",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1781657878208,
+      "tag": "0038_calm_goliath",
+      "breakpoints": true
     }
   ]
 }

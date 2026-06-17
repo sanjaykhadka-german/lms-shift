@@ -30,6 +30,8 @@ export interface ShiftTemplateSummary {
   endHour: number;
   endMinute: number;
   defaultNotes: string | null;
+  defaultBreaks: ShiftBreak[];
+  requiredSkillId: string | null;
 }
 
 interface Props {
@@ -87,6 +89,7 @@ export function ShiftForm({
   const startsRef = useRef<HTMLInputElement | null>(null);
   const endsRef = useRef<HTMLInputElement | null>(null);
   const notesRef = useRef<HTMLTextAreaElement | null>(null);
+  const skillRef = useRef<HTMLSelectElement | null>(null);
 
   // Dynamic break list. Serialized into a hidden `breaks` input on submit;
   // the server derives paid/unpaid totals from it.
@@ -148,6 +151,18 @@ export function ShiftForm({
     if (notesRef.current && t.defaultNotes) {
       notesRef.current.value = t.defaultNotes;
     }
+    // Prefill the break editor + required skill from the template. Breaks are
+    // React state (the hidden `breaks` input is derived from it), so set it
+    // directly; the skill <select> is uncontrolled, so set its value via ref.
+    setBreaks(
+      (t.defaultBreaks ?? []).map((b) => ({
+        id: nextBreakId.current++,
+        label: b.label ?? "",
+        minutes: String(b.minutes),
+        paid: b.paid,
+      })),
+    );
+    if (skillRef.current) skillRef.current.value = t.requiredSkillId ?? "";
   }
 
   return (
@@ -332,6 +347,7 @@ export function ShiftForm({
         <div className="space-y-1.5 sm:col-span-2">
           <Label htmlFor="requiredSkillId">Required skill (optional)</Label>
           <select
+            ref={skillRef}
             id="requiredSkillId"
             name="requiredSkillId"
             defaultValue={defaultValues?.requiredSkillId ?? ""}
