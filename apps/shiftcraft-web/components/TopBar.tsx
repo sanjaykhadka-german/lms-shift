@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { usePathname } from "next/navigation";
+import { GlobalSearch } from "./GlobalSearch";
 import { LiveClock } from "./LiveClock";
 import { ThemeToggle } from "./ThemeToggle";
 
@@ -82,6 +83,7 @@ export function TopBar({
         )}
       </div>
       <div className="ml-auto flex items-center gap-3">
+        <GlobalSearch />
         <LiveClock />
         {bell}
         <ThemeToggle />
