@@ -7,9 +7,11 @@ import {
   HOLIDAY_REGION_LABELS,
 } from "~/lib/holidays";
 import { getTenantAwardProfile } from "~/lib/award-profile";
+import { getClockPolicy } from "~/lib/clock-policy";
 import { HolidayRegionForm } from "./_form";
 import { InfoPopover } from "~/components/InfoPopover";
 import { AwardProfileForm } from "./_award_form";
+import { ClockPolicyForm } from "./_clock_form";
 
 export const metadata = { title: "Workspace settings · ShiftCraft" };
 export const dynamic = "force-dynamic";
@@ -21,9 +23,10 @@ export default async function WorkspaceSettingsPage() {
   // to their site and can't change tenant-wide config.
   if (!isWorkspaceAdmin(membership.role)) redirect("/app");
 
-  const [currentRegion, awardProfile] = await Promise.all([
+  const [currentRegion, awardProfile, clockPolicy] = await Promise.all([
     getTenantHolidayRegion(membership.tenant.id),
     getTenantAwardProfile(membership.tenant.id),
+    getClockPolicy(membership.tenant.id),
   ]);
 
   return (
@@ -61,6 +64,18 @@ export default async function WorkspaceSettingsPage() {
             regions={HOLIDAY_REGIONS}
             labels={HOLIDAY_REGION_LABELS}
           />
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
+        <h2 className="text-sm font-semibold">Clock-in policy</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Control how staff clock in and out from the web app. Kiosk
+          clock-in at a paired device is governed separately and isn&rsquo;t
+          affected by these settings.
+        </p>
+        <div className="mt-4">
+          <ClockPolicyForm current={clockPolicy} />
         </div>
       </section>
 

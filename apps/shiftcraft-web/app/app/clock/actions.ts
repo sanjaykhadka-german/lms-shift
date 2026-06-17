@@ -14,6 +14,7 @@ import {
 import { currentMembership, currentUser } from "~/lib/auth/current";
 import { validateTransition } from "~/lib/clock";
 import { findNearestWithinRadius, type GeofenceCandidate } from "~/lib/geofence";
+import { getClockPolicy, hasScheduledShiftNow } from "~/lib/clock-policy";
 
 // AUDIT.md #7b — mobile selfie capture. Mirrors the kiosk's defense in
 // apps/shiftcraft-web/app/kiosk/actions.ts so a tampered client can't
@@ -66,11 +67,23 @@ async function recordPunch(
   }
 
   const tenantId = membership.tenant.id;
+
+  // Clock-in policy (web punches only — the kiosk path lives in
+  // app/kiosk/actions.ts and is unaffected). Read once up front.
+  const policy = await getClockPolicy(tenantId);
+  if (!policy.allowWebClock) {
+    return {
+      status: "error",
+      message: "Web clock-in is turned off for this workspace. Use a kiosk.",
+    };
+  }
+
+  const isInOut = eventType === "in" || eventType === "out";
   const locationIdRaw = String(formData.get("locationId") ?? "").trim();
   let locationId = locationIdRaw.length > 0 ? locationIdRaw : null;
   let source: ScClockEventSource = "manual";
   const notesRaw = String(formData.get("notes") ?? "").trim();
-  const notes = notesRaw.length > 0 ? notesRaw : null;
+  let notes = notesRaw.length > 0 ? notesRaw : null;
 
   // AUDIT.md #7a — when the client sends a GPS reading, resolve to a
   // location server-side and tag the punch with source='geofence'.
@@ -117,6 +130,15 @@ async function recordPunch(
       locationId = match.locationId;
       source = "geofence";
     }
+  }
+
+  // Policy: require the punch to resolve inside a location geofence.
+  if (isInOut && policy.requireGeofence && source !== "geofence") {
+    return {
+      status: "error",
+      message:
+        "You must be at a work location to clock in. Turn on location and try again.",
+    };
   }
 
   // Enforce a valid state transition based on the most recent event. The DB
@@ -168,6 +190,33 @@ async function recordPunch(
         // chip on the timesheet audit pane.
         selfieStatus = "denied";
       }
+    }
+  }
+
+  // Policy: require a selfie on in/out punches.
+  if (isInOut && policy.requireSelfie && selfieStatus !== "captured") {
+    return {
+      status: "error",
+      message: "A photo is required to clock in or out.",
+    };
+  }
+
+  // Policy: scheduled-shift gate + unscheduled-shift flagging. Only relevant
+  // on clock-in, and only worth a query when one of the two toggles is on
+  // (default tenants skip it and behave exactly as before).
+  if (eventType === "in" && (policy.requireScheduledShift || policy.allowUnscheduledClockIn)) {
+    const scheduled = await hasScheduledShiftNow(tenantId, user.id, new Date());
+    if (policy.requireScheduledShift && !scheduled && !policy.allowUnscheduledClockIn) {
+      return {
+        status: "error",
+        message:
+          "You can only clock in for a scheduled shift. Ask a manager to add you to the roster.",
+      };
+    }
+    // Starting work with no roster slot → tag it so it surfaces on the
+    // timesheet's scheduled-vs-actual view for admin review.
+    if (!scheduled) {
+      notes = notes ? `Unscheduled shift — ${notes}` : "Unscheduled shift";
     }
   }
 

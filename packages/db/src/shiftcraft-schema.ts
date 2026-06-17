@@ -1286,6 +1286,27 @@ export const scTenantConfig = pgTable(
     // defaults from @tracey/award. The validated shape lives in
     // lib/timesheet-classifier.ts (AwardProfileOverrides).
     awardProfile: jsonb("award_profile"),
+    // ─── Clock-in policy (web punch controls) ───
+    // Admins decide how staff may clock in from the web app (not the kiosk,
+    // which is always allowed at a paired device). All default to the prior
+    // behaviour: web clock-in on, no extra requirements, scheduled shift not
+    // required. Enforced in app/app/clock/actions.ts → recordPunch.
+    allowWebClock: boolean("allow_web_clock").notNull().default(true),
+    // When false, a web punch with no matching scheduled assignment is
+    // rejected (kiosk + admin edits are exempt). When true, staff may start
+    // an unscheduled shift; those punches are flagged for admin review.
+    allowUnscheduledClockIn: boolean("allow_unscheduled_clock_in")
+      .notNull()
+      .default(false),
+    // Require the browser to send GPS that resolves to a location geofence.
+    requireGeofence: boolean("require_geofence").notNull().default(false),
+    // Require a selfie on in/out punches from the web.
+    requireSelfie: boolean("require_selfie").notNull().default(false),
+    // Require a scheduled assignment to clock in from the web (see
+    // allowUnscheduledClockIn for the escape hatch).
+    requireScheduledShift: boolean("require_scheduled_shift")
+      .notNull()
+      .default(false),
     updatedByUserId: uuid("updated_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),

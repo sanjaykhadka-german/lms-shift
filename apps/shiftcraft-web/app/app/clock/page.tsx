@@ -10,6 +10,7 @@ import {
   stateFor,
 } from "~/lib/clock";
 import { ClockPanel } from "./_panel";
+import { getClockPolicy } from "~/lib/clock-policy";
 import { Badge } from "~/components/ui/badge";
 import { InfoPopover } from "~/components/InfoPopover";
 
@@ -30,7 +31,7 @@ export default async function ClockPage() {
 
   const tenantId = membership.tenant.id;
 
-  const [events, latestEvent, locations] = await Promise.all([
+  const [events, latestEvent, locations, clockPolicy] = await Promise.all([
     getTodayEventsForUser(tenantId, user.id),
     getLatestEventForUser(tenantId, user.id),
     forTenant(tenantId).run((tx) =>
@@ -40,6 +41,7 @@ export default async function ClockPage() {
         .where(eq(scLocations.traceyTenantId, tenantId))
         .orderBy(asc(scLocations.name)),
     ),
+    getClockPolicy(tenantId),
   ]);
 
   // Current status must come from the user's *latest* event regardless of
@@ -98,14 +100,30 @@ export default async function ClockPage() {
         </p>
       </div>
 
-      <ClockPanel
-        status={status}
-        segmentStartedAtIso={timerAnchor?.toISOString() ?? null}
-        locations={locations}
-        defaultLocationId={lastLocation}
-        baseWorkMs={baseTotals.workMs}
-        baseBreakMs={baseTotals.breakMs}
-      />
+      {!clockPolicy.allowWebClock ? (
+        <div className="rounded-[var(--r-lg)] border border-line bg-[var(--paper)] p-5 text-sm text-ink-2 shadow-[var(--shadow-sm)]">
+          Web clock-in is turned off for this workspace. Please clock in at a
+          kiosk device.
+        </div>
+      ) : (
+        <>
+          {clockPolicy.allowUnscheduledClockIn ? (
+            <div className="rounded-[var(--r-sm)] border border-line-soft bg-paper-2 px-4 py-3 text-xs text-ink-2">
+              <strong className="text-ink">Starting an unscheduled shift?</strong>{" "}
+              Just clock in as normal — if you&rsquo;re not rostered right now
+              we&rsquo;ll flag it on your timesheet for a manager to review.
+            </div>
+          ) : null}
+          <ClockPanel
+            status={status}
+            segmentStartedAtIso={timerAnchor?.toISOString() ?? null}
+            locations={locations}
+            defaultLocationId={lastLocation}
+            baseWorkMs={baseTotals.workMs}
+            baseBreakMs={baseTotals.breakMs}
+          />
+        </>
+      )}
 
       <section className="overflow-hidden rounded-[var(--r-lg)] border border-line bg-[var(--paper)] shadow-[var(--shadow-sm)]">
         <div className="flex items-center justify-between border-b border-line-soft px-5 py-3.5">

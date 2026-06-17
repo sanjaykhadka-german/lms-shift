@@ -270,3 +270,55 @@ export async function setAwardProfileAction(
   revalidatePath("/app/admin/settings");
   return { status: "ok", message: "Award profile saved." };
 }
+
+// ─── Clock-in policy ──────────────────────────────────────────────────
+//
+// Five booleans on sc_tenant_config that control how staff clock in from
+// the web app (not the kiosk). Submitted as checkboxes ("on"/absent).
+// Enforced in app/app/clock/actions.ts → recordPunch and read via
+// lib/clock-policy.ts.
+
+export async function setClockPolicyAction(
+  _prev: SettingsFormState,
+  formData: FormData,
+): Promise<SettingsFormState> {
+  const me = await currentUser();
+  const membership = await currentMembership();
+  if (!me || !membership || !isWorkspaceAdmin(membership.role)) {
+    return {
+      status: "error",
+      message: "Only Managers and Admins can change workspace settings.",
+    };
+  }
+  const tenantId = membership.tenant.id;
+
+  const cb = (k: string) => formData.get(k) === "on";
+  const values = {
+    allowWebClock: cb("allowWebClock"),
+    allowUnscheduledClockIn: cb("allowUnscheduledClockIn"),
+    requireGeofence: cb("requireGeofence"),
+    requireSelfie: cb("requireSelfie"),
+    requireScheduledShift: cb("requireScheduledShift"),
+  };
+
+  await forTenant(tenantId).run((tx) =>
+    tx
+      .insert(scTenantConfig)
+      .values({ traceyTenantId: tenantId, ...values, updatedByUserId: me.id })
+      .onConflictDoUpdate({
+        target: scTenantConfig.traceyTenantId,
+        set: { ...values, updatedByUserId: me.id, updatedAt: new Date() },
+      }),
+  );
+
+  await logAuditEvent({
+    action: "shiftcraft.tenant.clock_policy_changed",
+    targetKind: "tenant",
+    targetId: tenantId,
+    details: values,
+  });
+
+  revalidatePath("/app/admin/settings");
+  revalidatePath("/app/clock");
+  return { status: "ok", message: "Clock-in policy saved." };
+}
