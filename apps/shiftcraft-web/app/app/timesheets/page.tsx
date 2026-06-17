@@ -45,7 +45,7 @@ import {
   type AwardProfileOverrides,
 } from "~/lib/timesheet-classifier";
 import { getTenantAwardProfile } from "~/lib/award-profile";
-import { TimesheetRow } from "./_row";
+import { TimesheetRow, type AnomalyFix } from "./_row";
 import { BulkSelectionForm } from "./_bulk_form";
 import { ApprovalButtons } from "./_approval_buttons";
 import { InfoPopover } from "~/components/InfoPopover";
@@ -83,6 +83,8 @@ interface RowTotals {
   plannedDailyMs: number[];
   plannedTotalMs: number;
   anomalies: AnomalyKind[];
+  /** One-click correction targets for the actionable anomalies above. */
+  anomalyFixes: AnomalyFix[];
   /** AUDIT.md Phase 2 #3b.3 — pre-formatted classifier breakdown for the
    *  row's main line: "28h ord · 2h OT 1.5× · 1h OT 2×". Null when no
    *  worked minutes (matches the existing dash-style empty state). */
@@ -675,8 +677,10 @@ export default async function TimesheetsPage({
       }
     }
     // Track whether the user was left open at week-end (anomaly signal)
-    // BEFORE force-closing for the aggregation.
+    // BEFORE force-closing for the aggregation. Capture the open punch's day
+    // too — that's where the missing clock-out belongs (the "Fix" target).
     const hadOpenAtWeekEnd = open !== null;
+    const openPunchDayIso = open ? fmtIsoDate(open.startedAt) : null;
     if (open) closeOpen(weekEnd);
 
     const perDay = Array.from({ length: 7 }, () => 0);
@@ -785,6 +789,28 @@ export default async function TimesheetsPage({
     if (hadOpenAtWeekEnd) anomalies.push("no_clockout");
     if (plannedTotalMs > 0 && totalWork === 0) anomalies.push("no_show");
 
+    // One-click fix targets for the actionable anomalies. no_clockout → add the
+    // missing clock-out on the open punch's day; no_show → add a clock-in on the
+    // first day that was rostered but had no work.
+    const anomalyFixes: AnomalyFix[] = [];
+    if (hadOpenAtWeekEnd && openPunchDayIso) {
+      anomalyFixes.push({
+        kind: "no_clockout",
+        dayIso: openPunchDayIso,
+        eventType: "out",
+      });
+    }
+    if (plannedTotalMs > 0 && totalWork === 0) {
+      const missingDayIdx = planned.findIndex((ms, i) => ms > 0 && perDay[i] === 0);
+      if (missingDayIdx >= 0) {
+        anomalyFixes.push({
+          kind: "no_show",
+          dayIso: fmtIsoDate(addDays(weekStart, missingDayIdx)),
+          eventType: "in",
+        });
+      }
+    }
+
     const approval = approvalByUser.get(m.userId);
     const rate = deptByUserId.get(m.userId)?.hourlyRate ?? null;
     const costAud =
@@ -842,6 +868,7 @@ export default async function TimesheetsPage({
       plannedDailyMs: planned,
       plannedTotalMs,
       anomalies,
+      anomalyFixes,
       awardBreakdownDisplay: fmtBreakdown(breakdown),
       publicHolidayCount: countPublicHolidays(breakdown),
       awardCostAud,
@@ -1282,6 +1309,7 @@ export default async function TimesheetsPage({
                           showCost={anyCost}
                           showCheckbox={showCheckbox}
                           anomalies={r.anomalies}
+                          anomalyFixes={r.anomalyFixes}
                           weekStartIso={weekStartIso}
                           weekLabel={weekLabel}
                           approvalStatus={r.approvalStatus}

@@ -60,6 +60,16 @@ export type AnomalyKind =
   | "no_clockout"
   | "no_show";
 
+// A one-click correction target for an actionable anomaly: opens the Add Punch
+// modal on the given day, pre-set to the punch type that fixes it (a missing
+// clock-out for "no_clockout", a clock-in for "no_show"). Only the fixable
+// kinds get an entry; "overtime_week"/"long_shift" are informational.
+export interface AnomalyFix {
+  kind: Extract<AnomalyKind, "no_clockout" | "no_show">;
+  dayIso: string;
+  eventType: "in" | "out";
+}
+
 export interface RowProps {
   userId: string;
   name: string;
@@ -80,6 +90,10 @@ export interface RowProps {
   showCost: boolean;
   showCheckbox: boolean;
   anomalies: AnomalyKind[];
+  /** Correction targets for the actionable anomalies in `anomalies` (a
+   *  missing clock-out / no-show). Empty when the week is approved or no fix
+   *  applies. Drives the clickable anomaly chips. */
+  anomalyFixes: AnomalyFix[];
   // Detail-panel payload — passed through verbatim. The panel renders
   // lazily (only when the user clicks Details) so this only allocates
   // when needed.
@@ -152,6 +166,7 @@ export function TimesheetRow({
   showCost,
   showCheckbox,
   anomalies,
+  anomalyFixes,
   weekStartIso,
   weekLabel,
   approvalStatus,
@@ -218,15 +233,48 @@ export function TimesheetRow({
               {name}
             </button>
             {isAdmin && anomalies.length > 0
-              ? anomalies.map((a) => (
-                  <span
-                    key={a}
-                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${ANOMALY_LABEL[a].classes}`}
-                    title={anomalyHint(a)}
-                  >
-                    {ANOMALY_LABEL[a].label}
-                  </span>
-                ))
+              ? anomalies.map((a) => {
+                  const fix = anomalyFixes.find((f) => f.kind === a);
+                  // A fixable anomaly on an editable week becomes a button that
+                  // opens the Add Punch modal on the right day, pre-set to the
+                  // punch type that resolves it.
+                  if (fix && !isLocked) {
+                    return (
+                      <button
+                        key={a}
+                        type="button"
+                        onClick={() =>
+                          setModalCtx({
+                            mode: "add",
+                            appUserId: userId,
+                            userName: name,
+                            dateIso: fix.dayIso,
+                            defaultEventType: fix.eventType,
+                          })
+                        }
+                        title={`${anomalyHint(a)} — click to add the missing punch`}
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider hover:opacity-90 ${ANOMALY_LABEL[a].classes}`}
+                      >
+                        {ANOMALY_LABEL[a].label}
+                        <span
+                          aria-hidden
+                          className="font-normal normal-case opacity-80"
+                        >
+                          · Fix
+                        </span>
+                      </button>
+                    );
+                  }
+                  return (
+                    <span
+                      key={a}
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${ANOMALY_LABEL[a].classes}`}
+                      title={anomalyHint(a)}
+                    >
+                      {ANOMALY_LABEL[a].label}
+                    </span>
+                  );
+                })
               : null}
             {isAdmin && publicHolidayCount > 0 ? (
               <span

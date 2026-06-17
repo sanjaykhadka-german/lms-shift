@@ -31,6 +31,10 @@ export interface ModalAddContext {
   userName: string;
   /** ISO string like 2026-05-23 used to pre-fill the date portion. */
   dateIso: string;
+  /** Pre-selects the punch-type dropdown — e.g. opening straight to "out"
+   *  from a "No clock-out" anomaly, or "in" from a "No-show". Defaults to
+   *  "in" when unset. */
+  defaultEventType?: "in" | "out" | "break_start" | "break_end";
 }
 
 export type ModalContext = ModalEditContext | ModalAddContext;
@@ -188,7 +192,7 @@ function AddForm({
       <Field label="Punch type">
         <select
           name="eventType"
-          defaultValue="in"
+          defaultValue={ctx.defaultEventType ?? "in"}
           required
           className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
         >
