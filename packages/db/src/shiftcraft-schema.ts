@@ -450,6 +450,11 @@ export const scEmployees = pgTable(
     // sets per-tenant currency; Reports treats nulls as "rate not set").
     hourlyRate: numeric("hourly_rate", { precision: 10, scale: 2 }),
     isActive: boolean("is_active").notNull().default(true),
+    // Grants this (non-manager) employee read access to the team timesheets
+    // page, scoped like a Location Manager to their location(s). Managers and
+    // owners always see timesheets regardless; everyone else only sees their
+    // own. Default false. See app/app/timesheets/page.tsx.
+    canViewTimesheets: boolean("can_view_timesheets").notNull().default(false),
     notes: text("notes"),
     // Onboarding workflow status. New hires start at 'pending' (created but
     // not yet walked through the checklist), move to 'in_progress' the first

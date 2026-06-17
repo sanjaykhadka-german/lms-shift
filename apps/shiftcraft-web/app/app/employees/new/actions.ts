@@ -863,6 +863,45 @@ const roleSchema = z.object({
   role: z.enum(["owner", "admin", "location_manager", "member"]),
 });
 
+// Grant/revoke a non-manager employee's read access to the team timesheets
+// page (scoped to their location). Owner/Manager only.
+export async function setCanViewTimesheetsAction(
+  employeeId: string,
+  _prev: RoleFormState,
+  formData: FormData,
+): Promise<RoleFormState> {
+  const membership = await currentMembership();
+  if (!membership || !isWorkspaceAdmin(membership.role)) {
+    return { status: "error", message: "You don't have permission to do that." };
+  }
+  const tenantId = membership.tenant.id;
+  const value = formData.get("canViewTimesheets") === "on";
+  await forTenant(tenantId).run((tx) =>
+    tx
+      .update(scEmployees)
+      .set({ canViewTimesheets: value })
+      .where(
+        and(
+          eq(scEmployees.id, employeeId),
+          eq(scEmployees.traceyTenantId, tenantId),
+        ),
+      ),
+  );
+  await logAuditEvent({
+    action: "shiftcraft.employee.timesheet_access_changed",
+    targetKind: "sc_employee",
+    targetId: employeeId,
+    details: { canViewTimesheets: value },
+  });
+  revalidatePath(`/app/employees/${employeeId}/edit`);
+  return {
+    status: "ok",
+    message: value
+      ? "Timesheet access granted."
+      : "Timesheet access removed.",
+  };
+}
+
 export async function setMemberRoleAction(
   targetAppUserId: string,
   _prev: RoleFormState,

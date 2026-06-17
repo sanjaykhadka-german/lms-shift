@@ -1,0 +1,1 @@
+ALTER TABLE "sc_employees" ADD COLUMN "can_view_timesheets" boolean DEFAULT false NOT NULL;

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { and, asc, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import {
   auditEvents,
   db,
@@ -23,6 +23,7 @@ import { currentMembership, currentUser } from "~/lib/auth/current";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
 import { isAtLeastManager } from "~/lib/roles";
+import { getManagedLocationIds, scopeArray } from "~/lib/manager-scope";
 import {
   addDays,
   fmtHours,
@@ -48,6 +49,7 @@ import { getTenantAwardProfile } from "~/lib/award-profile";
 import { TimesheetRow, type AnomalyFix } from "./_row";
 import { BulkSelectionForm } from "./_bulk_form";
 import { ApprovalButtons } from "./_approval_buttons";
+import { AddEntryForm } from "./_add_entry_form";
 import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "Timesheets · ShiftCraft" };
@@ -199,9 +201,45 @@ export default async function TimesheetsPage({
   const membership = await currentMembership();
   if (!membership) redirect("/app");
 
-  const isAdmin =
-    membership.role === "owner" || membership.role === "admin";
+  const role = membership.role;
   const tenantId = membership.tenant.id;
+
+  // `isAdmin` here means "manager — can manage timesheets" (approve, edit
+  // punches, Xero, anomalies). Owners, admins, and Location Managers all
+  // qualify. Location Managers are then narrowed to their own location(s)
+  // via viewScope below.
+  const isAdmin = isAtLeastManager(role);
+
+  // Who can VIEW the team's timesheets (read-only is enough). On top of
+  // managers, a non-manager employee may be granted can_view_timesheets,
+  // which shows their own location's team in read-only mode.
+  const [viewerEmp] = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({
+        locationId: scEmployees.locationId,
+        canViewTimesheets: scEmployees.canViewTimesheets,
+      })
+      .from(scEmployees)
+      .where(
+        and(
+          eq(scEmployees.traceyTenantId, tenantId),
+          eq(scEmployees.appUserId, user.id),
+        ),
+      )
+      .limit(1),
+  );
+  const grantedView = !isAdmin && (viewerEmp?.canViewTimesheets ?? false);
+  const canViewTeam = isAdmin || grantedView;
+
+  // Location filter for scoped viewers (null = all locations). Owners/admins
+  // see everyone; a Location Manager is bounded to their assigned sites; a
+  // granted viewer to their own home location.
+  let viewScope: string[] | null = null;
+  if (role === "location_manager") {
+    viewScope = scopeArray(await getManagedLocationIds(tenantId, user.id, role));
+  } else if (grantedView) {
+    viewScope = viewerEmp?.locationId ? [viewerEmp.locationId] : [];
+  }
 
   const { week, dept, status: statusRaw } = await searchParams;
   const deptFilter = dept ?? "";
@@ -233,31 +271,62 @@ export default async function TimesheetsPage({
     return qs ? `?${qs}` : "";
   };
 
-  // Resolve which users to show. Admins: everyone in the tenant. Non-admins:
-  // just themselves.
-  const allMemberRows = isAdmin
-    ? await db
-        .select({
-          userId: users.id,
-          name: users.name,
-          email: users.email,
-        })
-        .from(members)
-        .innerJoin(users, eq(users.id, members.userId))
-        .where(eq(members.tenantId, tenantId))
-    : [
-        {
-          userId: user.id,
-          name: user.name,
-          email: user.email,
-        },
-      ];
+  // Resolve which users to show. Team viewers (managers + granted viewers):
+  // everyone in the tenant, narrowed to viewScope's locations when scoped.
+  // Everyone else: just themselves.
+  let allMemberRows: Array<{
+    userId: string;
+    name: string | null;
+    email: string;
+  }>;
+  if (canViewTeam) {
+    const rows = await db
+      .select({
+        userId: users.id,
+        name: users.name,
+        email: users.email,
+      })
+      .from(members)
+      .innerJoin(users, eq(users.id, members.userId))
+      .where(eq(members.tenantId, tenantId));
+    if (viewScope === null) {
+      allMemberRows = rows;
+    } else {
+      // Narrow to employees whose home location is in scope. An empty scope
+      // (e.g. a Location Manager with no sites yet) shows nobody.
+      const inScopeRows =
+        viewScope.length === 0
+          ? []
+          : await forTenant(tenantId).run((tx) =>
+              tx
+                .select({ appUserId: scEmployees.appUserId })
+                .from(scEmployees)
+                .where(
+                  and(
+                    eq(scEmployees.traceyTenantId, tenantId),
+                    isNotNull(scEmployees.appUserId),
+                    inArray(scEmployees.locationId, viewScope!),
+                  ),
+                ),
+            );
+      const allowed = new Set(inScopeRows.map((r) => r.appUserId));
+      allMemberRows = rows.filter((r) => allowed.has(r.userId));
+    }
+  } else {
+    allMemberRows = [
+      {
+        userId: user.id,
+        name: user.name,
+        email: user.email,
+      },
+    ];
+  }
 
   // Pull the auth-user → department mapping from the per-tenant sc_employees
   // table. Used both for the filter and for rendering the department name
   // alongside each row when a filter is active. Only admins ever need it.
   // Departments list is loaded for the dropdown options.
-  const [scLinks, departments] = isAdmin
+  const [scLinks, departments] = canViewTeam
     ? await forTenant(tenantId).run((tx) =>
         Promise.all([
           tx
@@ -394,7 +463,7 @@ export default async function TimesheetsPage({
 
   // Fetch events: one query for admin (whole tenant), one for self.
   const userIdSet = new Set(memberRows.map((m) => m.userId));
-  const allEvents = isAdmin
+  const allEvents = canViewTeam
     ? await getEventsInRangeForTenant(tenantId, weekStart, weekEnd)
     : await getEventsInRangeForUser(tenantId, user.id, weekStart, weekEnd);
 
@@ -894,7 +963,7 @@ export default async function TimesheetsPage({
         return !hasActivity;
       case "all":
       default:
-        return hasActivity || isAdmin;
+        return hasActivity || canViewTeam;
     }
   }
   const statusCounts: Record<StatusFilter, number> = {
@@ -963,7 +1032,7 @@ export default async function TimesheetsPage({
             </InfoPopover>
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {isAdmin
+            {canViewTeam
               ? "Hours per employee for the selected week, auto-built from clock punches."
               : "Your hours for the selected week, auto-built from your clock punches."}
           </p>
@@ -985,6 +1054,13 @@ export default async function TimesheetsPage({
           <Button asChild size="sm">
             <a href={exportHref}>Export CSV</a>
           </Button>
+          {isAdmin && (
+            <AddEntryForm
+              employees={memberRows}
+              locations={locationRows}
+              defaultDate={weekStartIso}
+            />
+          )}
         </div>
       </div>
 

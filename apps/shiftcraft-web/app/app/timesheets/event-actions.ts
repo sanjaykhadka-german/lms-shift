@@ -219,6 +219,141 @@ export async function addClockEventAction(formData: FormData): Promise<void> {
   revalidatePath("/app/timesheets");
 }
 
+// Streamlined "add a whole timesheet entry" for onboarding staff who never
+// clocked in: an admin enters a date, start + finish, and an optional unpaid
+// break, and we emit the matching in / break_start / break_end / out punches
+// (all source='admin_edit') in chronological order, validating each against
+// the employee's stream and the approved-week lock. Sequential inserts so
+// each validateInsertion sees the previous punch we just added.
+const fullEntrySchema = z.object({
+  appUserId: z.string().uuid(),
+  date: z.string().min(1), // YYYY-MM-DD
+  clockIn: z.string().min(1), // HH:MM
+  clockOut: z.string().min(1), // HH:MM
+  breakStart: z.string().optional().or(z.literal("")),
+  breakEnd: z.string().optional().or(z.literal("")),
+  locationId: z.string().uuid().optional().or(z.literal("")),
+  reason: z.string().trim().min(1, "Add a note.").max(200),
+});
+
+export async function addTimesheetEntryAction(
+  formData: FormData,
+): Promise<void> {
+  const g = await gate();
+  if (!g.ok) {
+    console.warn("[addTimesheetEntryAction] refused:", g.message);
+    return;
+  }
+  const parsed = fullEntrySchema.safeParse({
+    appUserId: formData.get("appUserId"),
+    date: formData.get("date"),
+    clockIn: formData.get("clockIn"),
+    clockOut: formData.get("clockOut"),
+    breakStart: formData.get("breakStart") ?? "",
+    breakEnd: formData.get("breakEnd") ?? "",
+    locationId: formData.get("locationId") ?? "",
+    reason: formData.get("reason"),
+  });
+  if (!parsed.success) {
+    console.warn(
+      "[addTimesheetEntryAction] invalid:",
+      parsed.error.flatten().fieldErrors,
+    );
+    return;
+  }
+
+  const combine = (time: string): Date => new Date(`${parsed.data.date}T${time}`);
+  const inAt = combine(parsed.data.clockIn);
+  const outAt = combine(parsed.data.clockOut);
+  if (Number.isNaN(inAt.getTime()) || Number.isNaN(outAt.getTime())) {
+    console.warn("[addTimesheetEntryAction] bad date/time");
+    return;
+  }
+  if (outAt.getTime() <= inAt.getTime()) {
+    console.warn("[addTimesheetEntryAction] finish must be after start");
+    return;
+  }
+
+  // Build the punch sequence in chronological order.
+  const punches: Array<{ eventType: ScClockEventType; occurredAt: Date }> = [
+    { eventType: "in", occurredAt: inAt },
+  ];
+  const bs = emptyToNull(parsed.data.breakStart);
+  const be = emptyToNull(parsed.data.breakEnd);
+  if (bs && be) {
+    const bsAt = combine(bs);
+    const beAt = combine(be);
+    if (
+      Number.isNaN(bsAt.getTime()) ||
+      Number.isNaN(beAt.getTime()) ||
+      bsAt.getTime() <= inAt.getTime() ||
+      beAt.getTime() <= bsAt.getTime() ||
+      beAt.getTime() >= outAt.getTime()
+    ) {
+      console.warn("[addTimesheetEntryAction] break must sit inside the shift");
+      return;
+    }
+    punches.push({ eventType: "break_start", occurredAt: bsAt });
+    punches.push({ eventType: "break_end", occurredAt: beAt });
+  }
+  punches.push({ eventType: "out", occurredAt: outAt });
+
+  // The whole entry lands in one week; lock-check once up front.
+  const lockErr = await assertWeekUnlocked(g.tenantId, parsed.data.appUserId, inAt);
+  if (lockErr) {
+    console.warn("[addTimesheetEntryAction] locked:", lockErr);
+    return;
+  }
+
+  const locationId = emptyToNull(parsed.data.locationId);
+  const insertedIds: string[] = [];
+  for (const p of punches) {
+    const stateErr = await validateInsertion(
+      g.tenantId,
+      parsed.data.appUserId,
+      p.eventType,
+      p.occurredAt,
+    );
+    if (stateErr) {
+      console.warn("[addTimesheetEntryAction] state-machine reject:", stateErr);
+      return;
+    }
+    await forTenant(g.tenantId).run(async (tx) => {
+      const [inserted] = await tx
+        .insert(scClockEvents)
+        .values({
+          traceyTenantId: g.tenantId,
+          appUserId: parsed.data.appUserId,
+          eventType: p.eventType,
+          occurredAt: p.occurredAt,
+          locationId,
+          source: "admin_edit",
+          notes: parsed.data.reason,
+        })
+        .returning({ id: scClockEvents.id });
+      insertedIds.push(inserted!.id);
+    });
+  }
+
+  await logAuditEvent({
+    action: "shiftcraft.clock.entry_added",
+    targetKind: "sc_clock_event",
+    targetId: insertedIds[0],
+    details: {
+      appUserId: parsed.data.appUserId,
+      date: parsed.data.date,
+      clockIn: parsed.data.clockIn,
+      clockOut: parsed.data.clockOut,
+      breakStart: bs,
+      breakEnd: be,
+      punches: insertedIds.length,
+      reason: parsed.data.reason,
+    },
+  });
+
+  revalidatePath("/app/timesheets");
+}
+
 export async function editClockEventAction(formData: FormData): Promise<void> {
   const g = await gate();
   if (!g.ok) {

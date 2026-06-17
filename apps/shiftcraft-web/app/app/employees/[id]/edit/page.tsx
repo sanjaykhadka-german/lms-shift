@@ -16,6 +16,7 @@ import { isAtLeastManager, isWorkspaceAdmin } from "~/lib/roles";
 import { Button } from "~/components/ui/button";
 import { EmployeeForm } from "../../new/_form";
 import { deleteEmployeeAction } from "../../new/actions";
+import { TimesheetAccessCard } from "./_timesheet_access_card";
 import { SetPinCard } from "./_set_pin_card";
 import { ResetPasswordCard } from "./_reset_password_card";
 import { RoleCard } from "./_role_card";
@@ -52,6 +53,7 @@ export default async function EditEmployeePage({
         employmentType: scEmployees.employmentType,
         hourlyRate: scEmployees.hourlyRate,
         notes: scEmployees.notes,
+        canViewTimesheets: scEmployees.canViewTimesheets,
         availability: scEmployees.availability,
         createdAt: scEmployees.createdAt,
         preferredName: scEmployees.preferredName,
@@ -226,6 +228,13 @@ export default async function EditEmployeePage({
           currentRole={memberRow.role as Role}
           viewerRole={membership.role as Role}
           isSelf={viewer?.id === row.appUserId}
+        />
+      ) : null}
+
+      {isWorkspaceAdmin(membership.role) ? (
+        <TimesheetAccessCard
+          employeeId={row.id}
+          current={row.canViewTimesheets}
         />
       ) : null}
 

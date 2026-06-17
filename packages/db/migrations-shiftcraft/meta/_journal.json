@@ -288,6 +288,13 @@
       "when": 1781674090439,
       "tag": "0040_nifty_catseye",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1781674954373,
+      "tag": "0041_vengeful_maestro",
+      "breakpoints": true
     }
   ]
 }
