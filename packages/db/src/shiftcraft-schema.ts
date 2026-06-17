@@ -1312,6 +1312,10 @@ export const scTenantConfig = pgTable(
     requireScheduledShift: boolean("require_scheduled_shift")
       .notNull()
       .default(false),
+    // How shift notifications (scheduled / offered) reach staff: by email,
+    // by in-app notification (+ push), or both. Default both. See
+    // lib/notify-prefs.ts + the schedule actions.
+    notifyChannel: text("notify_channel").notNull().default("both"),
     updatedByUserId: uuid("updated_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
@@ -1326,6 +1330,10 @@ export const scTenantConfig = pgTable(
     check(
       "sc_tenant_config_holiday_region_chk",
       sql`${t.holidayRegion} in ('national','NSW','VIC','QLD','WA','SA','TAS','ACT','NT')`,
+    ),
+    check(
+      "sc_tenant_config_notify_channel_chk",
+      sql`${t.notifyChannel} in ('email','in_app','both')`,
     ),
   ],
 );

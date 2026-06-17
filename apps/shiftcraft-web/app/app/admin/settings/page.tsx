@@ -8,10 +8,12 @@ import {
 } from "~/lib/holidays";
 import { getTenantAwardProfile } from "~/lib/award-profile";
 import { getClockPolicy } from "~/lib/clock-policy";
+import { getNotifyChannel } from "~/lib/notify-prefs";
 import { HolidayRegionForm } from "./_form";
 import { InfoPopover } from "~/components/InfoPopover";
 import { AwardProfileForm } from "./_award_form";
 import { ClockPolicyForm } from "./_clock_form";
+import { NotifyChannelForm } from "./_notify_form";
 
 export const metadata = { title: "Workspace settings · ShiftCraft" };
 export const dynamic = "force-dynamic";
@@ -23,11 +25,13 @@ export default async function WorkspaceSettingsPage() {
   // to their site and can't change tenant-wide config.
   if (!isWorkspaceAdmin(membership.role)) redirect("/app");
 
-  const [currentRegion, awardProfile, clockPolicy] = await Promise.all([
-    getTenantHolidayRegion(membership.tenant.id),
-    getTenantAwardProfile(membership.tenant.id),
-    getClockPolicy(membership.tenant.id),
-  ]);
+  const [currentRegion, awardProfile, clockPolicy, notifyChannel] =
+    await Promise.all([
+      getTenantHolidayRegion(membership.tenant.id),
+      getTenantAwardProfile(membership.tenant.id),
+      getClockPolicy(membership.tenant.id),
+      getNotifyChannel(membership.tenant.id),
+    ]);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
@@ -64,6 +68,19 @@ export default async function WorkspaceSettingsPage() {
             regions={HOLIDAY_REGIONS}
             labels={HOLIDAY_REGION_LABELS}
           />
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
+        <h2 className="text-sm font-semibold">Shift notifications</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          How staff are told when they&rsquo;re scheduled or offered a shift.
+          In-app notifications also push to devices where the team member has
+          installed ShiftCraft and enabled notifications (under My profile →
+          settings).
+        </p>
+        <div className="mt-4">
+          <NotifyChannelForm current={notifyChannel} />
         </div>
       </section>
 

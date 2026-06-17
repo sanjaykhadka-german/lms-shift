@@ -1,0 +1,2 @@
+ALTER TABLE "sc_tenant_config" ADD COLUMN "notify_channel" text DEFAULT 'both' NOT NULL;--> statement-breakpoint
+ALTER TABLE "sc_tenant_config" ADD CONSTRAINT "sc_tenant_config_notify_channel_chk" CHECK ("sc_tenant_config"."notify_channel" in ('email','in_app','both'));

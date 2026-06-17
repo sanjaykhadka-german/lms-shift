@@ -322,3 +322,60 @@ export async function setClockPolicyAction(
   revalidatePath("/app/clock");
   return { status: "ok", message: "Clock-in policy saved." };
 }
+
+// ─── Notification channel ─────────────────────────────────────────────
+//
+// How shift notifications (scheduled / offered) reach staff: by email, by
+// in-app notification (+ push), or both. Stored on sc_tenant_config and read
+// by the schedule actions via lib/notify-prefs.ts.
+
+const notifyChannelSchema = z.object({
+  channel: z.enum(["email", "in_app", "both"]),
+});
+
+export async function setNotifyChannelAction(
+  _prev: SettingsFormState,
+  formData: FormData,
+): Promise<SettingsFormState> {
+  const me = await currentUser();
+  const membership = await currentMembership();
+  if (!me || !membership || !isWorkspaceAdmin(membership.role)) {
+    return {
+      status: "error",
+      message: "Only Managers and Admins can change workspace settings.",
+    };
+  }
+  const tenantId = membership.tenant.id;
+
+  const parsed = notifyChannelSchema.safeParse({
+    channel: formData.get("channel"),
+  });
+  if (!parsed.success) {
+    return { status: "error", message: "Pick a valid option." };
+  }
+  const channel = parsed.data.channel;
+
+  await forTenant(tenantId).run((tx) =>
+    tx
+      .insert(scTenantConfig)
+      .values({ traceyTenantId: tenantId, notifyChannel: channel, updatedByUserId: me.id })
+      .onConflictDoUpdate({
+        target: scTenantConfig.traceyTenantId,
+        set: {
+          notifyChannel: channel,
+          updatedByUserId: me.id,
+          updatedAt: new Date(),
+        },
+      }),
+  );
+
+  await logAuditEvent({
+    action: "shiftcraft.tenant.notify_channel_changed",
+    targetKind: "tenant",
+    targetId: tenantId,
+    details: { channel },
+  });
+
+  revalidatePath("/app/admin/settings");
+  return { status: "ok", message: "Notification settings saved." };
+}

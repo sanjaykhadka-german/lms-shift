@@ -178,6 +178,15 @@ vi.mock("@tracey/db", () => {
   };
 });
 
+// Pin the notification channel to email-only: the offer path keeps its
+// existing email behaviour and skips the in-app/getNotifyChannel DB read
+// (which would otherwise consume an extra ordered forTenant select here).
+vi.mock("~/lib/notify-prefs", () => ({
+  getNotifyChannel: async () => "email",
+  wantsEmail: () => true,
+  wantsInApp: () => false,
+}));
+
 vi.mock("~/lib/auth/current", () => ({
   currentMembership: () => currentMembershipMock(),
   currentUser: vi.fn(async () => ({

@@ -25,6 +25,8 @@ import {
   findUsersWithLeaveConflict,
 } from "~/lib/time-off-impact";
 import { checkAvailability } from "~/lib/availability-check";
+import { createNotifications, type NotificationInput } from "~/lib/notifications";
+import { getNotifyChannel, wantsEmail, wantsInApp } from "~/lib/notify-prefs";
 import { emitWebhook } from "~/lib/webhooks";
 import { isAtLeastManager } from "~/lib/roles";
 import {
@@ -991,11 +993,38 @@ export async function copyDayToDateAction(formData: FormData): Promise<void> {
 // Email the accepted assignees of the given shifts that they're scheduled.
 // Called when shifts are published — assignments made while a shift was still
 // a draft are intentionally silent until then (see assignEmployeeAction).
+// Build the in-app notification copy for a shift event.
+function shiftInAppNotice(
+  kind: "scheduled" | "offered",
+  shift: { role: string; startsAt: Date; locationName: string | null },
+): { title: string; body: string } {
+  const when = shift.startsAt.toLocaleString(undefined, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const where = shift.locationName ? ` at ${shift.locationName}` : "";
+  if (kind === "offered") {
+    return {
+      title: `New shift offer: ${shift.role}`,
+      body: `${when}${where} — open the app to accept or decline.`,
+    };
+  }
+  return {
+    title: `You're scheduled: ${shift.role}`,
+    body: `${when}${where}.`,
+  };
+}
+
 async function notifyAcceptedAssignees(tenantId: string, shiftIds: string[]) {
   if (shiftIds.length === 0) return;
+  const channel = await getNotifyChannel(tenantId);
   const rows = await forTenant(tenantId).run((tx) =>
     tx
       .select({
+        userId: scShiftAssignments.userId,
         email: users.email,
         name: users.name,
         role: scShifts.role,
@@ -1014,18 +1043,31 @@ async function notifyAcceptedAssignees(tenantId: string, shiftIds: string[]) {
         ),
       ),
   );
+  const inApp: NotificationInput[] = [];
   for (const r of rows) {
-    if (!r.email) continue;
-    await notifyShiftScheduled({
-      to: { email: r.email, name: r.name },
-      shift: {
-        startsAt: r.startsAt,
-        endsAt: r.endsAt,
-        role: r.role,
-        locationName: r.locationName,
-      },
-    });
+    if (wantsEmail(channel) && r.email) {
+      await notifyShiftScheduled({
+        to: { email: r.email, name: r.name },
+        shift: {
+          startsAt: r.startsAt,
+          endsAt: r.endsAt,
+          role: r.role,
+          locationName: r.locationName,
+        },
+      });
+    }
+    if (wantsInApp(channel)) {
+      const notice = shiftInAppNotice("scheduled", r);
+      inApp.push({
+        recipientUserId: r.userId,
+        kind: "shiftcraft_shift_scheduled",
+        title: notice.title,
+        body: notice.body,
+        actionUrl: "/app/my-shifts",
+      });
+    }
   }
+  if (inApp.length > 0) await createNotifications(tenantId, inApp);
 }
 
 async function setShiftStatus(
@@ -1437,13 +1479,28 @@ export async function assignEmployeeAction(
   // a draft (e.g. dragging onto an unpublished slot) shouldn't notify them
   // yet; the email goes out when the schedule is published.
   if (shiftRow.status === "published") {
-    const [recipientRow] = await db
-      .select({ email: users.email, name: users.name })
-      .from(users)
-      .where(eq(users.id, parsed.data.userId))
-      .limit(1);
-    if (recipientRow) {
-      await notifyShiftScheduled({ to: recipientRow, shift: shiftRow });
+    const channel = await getNotifyChannel(membership.tenant.id);
+    if (wantsEmail(channel)) {
+      const [recipientRow] = await db
+        .select({ email: users.email, name: users.name })
+        .from(users)
+        .where(eq(users.id, parsed.data.userId))
+        .limit(1);
+      if (recipientRow) {
+        await notifyShiftScheduled({ to: recipientRow, shift: shiftRow });
+      }
+    }
+    if (wantsInApp(channel)) {
+      const notice = shiftInAppNotice("scheduled", shiftRow);
+      await createNotifications(membership.tenant.id, [
+        {
+          recipientUserId: parsed.data.userId,
+          kind: "shiftcraft_shift_scheduled",
+          title: notice.title,
+          body: notice.body,
+          actionUrl: "/app/my-shifts",
+        },
+      ]);
     }
   }
 
@@ -1756,7 +1813,7 @@ export async function bulkOfferShiftAction(formData: FormData): Promise<void> {
 
   // Email the offer to anyone newly added who hasn't opted out.
   if (offered > 0) {
-    const unsubscribed = await getUnsubscribedUserIds(tenantId, "offers");
+    const channel = await getNotifyChannel(tenantId);
     const newlyOfferedIds = new Set<string>();
     // Re-derive newly-offered by another pass: we tracked count above
     // but not which ids. Pull them in one query.
@@ -1776,21 +1833,38 @@ export async function bulkOfferShiftAction(formData: FormData): Promise<void> {
     );
     for (const r of newly) newlyOfferedIds.add(r.userId);
 
-    const recipientRows = await db
-      .select({
-        id: users.id,
-        email: users.email,
-        name: users.name,
-      })
-      .from(users)
-      .where(sql`${users.id} = ANY(${Array.from(newlyOfferedIds)})`);
+    if (wantsEmail(channel)) {
+      const unsubscribed = await getUnsubscribedUserIds(tenantId, "offers");
+      const recipientRows = await db
+        .select({
+          id: users.id,
+          email: users.email,
+          name: users.name,
+        })
+        .from(users)
+        .where(sql`${users.id} = ANY(${Array.from(newlyOfferedIds)})`);
 
-    for (const r of recipientRows) {
-      if (unsubscribed.has(r.id)) continue;
-      await notifyShiftOffered({
-        to: { email: r.email, name: r.name },
-        shift,
-      });
+      for (const r of recipientRows) {
+        if (unsubscribed.has(r.id)) continue;
+        await notifyShiftOffered({
+          to: { email: r.email, name: r.name },
+          shift,
+        });
+      }
+    }
+
+    if (wantsInApp(channel) && newlyOfferedIds.size > 0) {
+      const notice = shiftInAppNotice("offered", shift);
+      await createNotifications(
+        tenantId,
+        Array.from(newlyOfferedIds).map((uid) => ({
+          recipientUserId: uid,
+          kind: "shiftcraft_shift_offered",
+          title: notice.title,
+          body: notice.body,
+          actionUrl: "/app/my-shifts",
+        })),
+      );
     }
   }
 
