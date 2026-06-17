@@ -1050,6 +1050,37 @@ export const scEmployeeOnboardingTasks = pgTable(
   ],
 );
 
+// ─── Onboarding checklist templates ───
+//
+// Per-tenant, customisable default checklist. When onboarding is started for
+// an employee, these rows are copied into sc_employee_onboarding_tasks (in
+// sort_order). A workspace with NO templates falls back to a hardcoded
+// canonical list (DEFAULT_TASKS in app/app/people/onboarding/_actions.ts), so
+// existing tenants keep the same five tasks until they customise.
+export const scOnboardingTaskTemplates = pgTable(
+  "sc_onboarding_task_templates",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    required: boolean("required").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("sc_onb_task_templates_tenant_idx").on(
+      t.traceyTenantId,
+      t.sortOrder,
+    ),
+  ],
+);
+
 // ─── Documents ───
 //
 // People-tab document storage. Two scopes:
@@ -1866,6 +1897,10 @@ export type NewScEmployeeOnboardingTask =
   typeof scEmployeeOnboardingTasks.$inferInsert;
 export type ScOnboardingStatus = "pending" | "in_progress" | "active";
 export type ScOnboardingTaskStatus = "pending" | "done";
+export type ScOnboardingTaskTemplate =
+  typeof scOnboardingTaskTemplates.$inferSelect;
+export type NewScOnboardingTaskTemplate =
+  typeof scOnboardingTaskTemplates.$inferInsert;
 export type ScDocument = typeof scDocuments.$inferSelect;
 export type NewScDocument = typeof scDocuments.$inferInsert;
 export type ScDocumentScope = "library" | "team";

@@ -282,13 +282,20 @@ export default async function OnboardingHubPage({
       {/* ─── Start onboarding (admin only) ─── */}
       {canManage ? (
         <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
-          <div className="border-b border-border px-5 py-3">
-            <h2 className="text-base font-semibold">Start onboarding</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Seeds a five-step default checklist for each selected employee —
-              tick one, several, or all (handy right after a bulk import).
-              They&rsquo;ll show up in the queue above.
-            </p>
+          <div className="flex flex-wrap items-start justify-between gap-2 border-b border-border px-5 py-3">
+            <div>
+              <h2 className="text-base font-semibold">Start onboarding</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Seeds your onboarding checklist for each selected employee —
+                tick one, several, or all (handy right after a bulk import).
+                They&rsquo;ll show up in the queue above.
+              </p>
+            </div>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/app/people/onboarding/checklist">
+                Customise checklist
+              </Link>
+            </Button>
           </div>
           {activeEmployees.length === 0 ? (
             <p className="px-5 py-6 text-sm text-muted-foreground">
