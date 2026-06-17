@@ -1063,6 +1063,75 @@ export async function copyShiftToDateAction(formData: FormData): Promise<void> {
   if (created) redirect(`/app/schedule/${created.id}/edit`);
 }
 
+// Duplicate a shift in place — same day, same time, as a draft (carrying
+// breaks + required skill, no assignments). Powers the "Copy" button on a
+// shift chip in the area grid: the copy lands right next to the original so the
+// manager can then drag it onto another day. Admin-only; scope-guarded. Returns
+// {ok} like moveShiftAction (its drag-and-drop sibling) rather than redirecting,
+// so the grid just refreshes in place.
+export async function copyShiftInPlaceAction(
+  shiftId: string,
+): Promise<{ ok: boolean; message?: string }> {
+  const membership = await requireAdminMembership();
+  const user = await currentUser();
+
+  const [source] = await forTenant(membership.tenant.id).run((tx) =>
+    tx
+      .select({
+        locationId: scShifts.locationId,
+        role: scShifts.role,
+        startsAt: scShifts.startsAt,
+        endsAt: scShifts.endsAt,
+        notes: scShifts.notes,
+        breaks: scShifts.breaks,
+        breakPaidMinutes: scShifts.breakPaidMinutes,
+        breakUnpaidMinutes: scShifts.breakUnpaidMinutes,
+        requiredSkillId: scShifts.requiredSkillId,
+      })
+      .from(scShifts)
+      .where(
+        and(
+          eq(scShifts.id, shiftId),
+          eq(scShifts.traceyTenantId, membership.tenant.id),
+        ),
+      )
+      .limit(1),
+  );
+  if (!source) return { ok: false, message: "Shift not found." };
+
+  // AUDIT.md #13 — a scoped manager may only copy shifts at their locations.
+  if (user) {
+    const scopeErr = await guardLocationScope(
+      membership.tenant.id,
+      user.id,
+      membership.role,
+      source.locationId,
+    );
+    if (scopeErr) return { ok: false, message: scopeErr.message };
+  }
+
+  await forTenant(membership.tenant.id).run((tx) =>
+    tx.insert(scShifts).values({
+      traceyTenantId: membership.tenant.id,
+      locationId: source.locationId,
+      role: source.role,
+      startsAt: source.startsAt,
+      endsAt: source.endsAt,
+      status: "draft",
+      notes: source.notes,
+      breaks: source.breaks,
+      breakPaidMinutes: source.breakPaidMinutes,
+      breakUnpaidMinutes: source.breakUnpaidMinutes,
+      requiredSkillId: source.requiredSkillId,
+      createdByUserId: user?.id ?? null,
+    }),
+  );
+
+  revalidatePath("/app/schedule");
+  revalidatePath("/app/my-shifts");
+  return { ok: true };
+}
+
 // ─── Assignments ───
 
 async function requireAdminMembership() {

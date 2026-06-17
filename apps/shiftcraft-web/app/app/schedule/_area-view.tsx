@@ -17,7 +17,11 @@ import {
 } from "@dnd-kit/core";
 import { Avatar } from "~/components/Avatar";
 import { fmtTime24 } from "~/lib/date-format";
-import { assignEmployeeViaDnd, moveShiftAction } from "./actions";
+import {
+  assignEmployeeViaDnd,
+  copyShiftInPlaceAction,
+  moveShiftAction,
+} from "./actions";
 
 // Date-bearing shape used by the (server-rendered) employee view.
 export interface AreaShift {
@@ -146,7 +150,15 @@ function DraggableEmployee({ emp }: { emp: AreaEmployee }) {
   );
 }
 
-function ShiftChip({ shift, dayIdx }: { shift: AreaShift; dayIdx: number }) {
+function ShiftChip({
+  shift,
+  dayIdx,
+  onCopy,
+}: {
+  shift: AreaShift;
+  dayIdx: number;
+  onCopy: (shiftId: string) => void;
+}) {
   // Draggable (move) + droppable (assign an employee onto it).
   const drag = useDraggable({
     id: shiftId(shift.id),
@@ -188,12 +200,25 @@ function ShiftChip({ shift, dayIdx }: { shift: AreaShift; dayIdx: number }) {
           {shift.assigneeName ?? "Unassigned"}
         </div>
       </div>
-      <Link
-        href={`/app/schedule/${shift.id}/edit`}
-        className="mt-0.5 inline-block font-mono text-[10px] uppercase tracking-[0.06em] text-ink-3 hover:text-ink"
-      >
-        Edit →
-      </Link>
+      <div className="mt-0.5 flex items-center gap-2">
+        <Link
+          href={`/app/schedule/${shift.id}/edit`}
+          className="inline-block font-mono text-[10px] uppercase tracking-[0.06em] text-ink-3 hover:text-ink"
+        >
+          Edit →
+        </Link>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onCopy(shift.id);
+          }}
+          title="Duplicate this shift here, then drag the copy to another day"
+          className="inline-block font-mono text-[10px] uppercase tracking-[0.06em] text-ink-3 hover:text-ink"
+        >
+          Copy
+        </button>
+      </div>
     </div>
   );
 }
@@ -348,6 +373,17 @@ export function AreaScheduleView({
     }
   }
 
+  // "Copy" button on a shift chip: duplicate it in place, then refresh so the
+  // copy appears next to the original — ready to drag onto another day.
+  function handleCopy(id: string) {
+    setError(null);
+    startTransition(async () => {
+      const res = await copyShiftInPlaceAction(id);
+      if (!res.ok) setError(res.message ?? "Couldn't copy that shift.");
+      router.refresh();
+    });
+  }
+
   return (
     <DndContext
       sensors={sensors}
@@ -413,7 +449,12 @@ export function AreaScheduleView({
                   {area.shiftsByDay.map((cell, idx) => (
                     <DayCell key={idx} areaKey={area.key} dayIdx={idx}>
                       {cell.map((s) => (
-                        <ShiftChip key={s.id} shift={s} dayIdx={idx} />
+                        <ShiftChip
+                          key={s.id}
+                          shift={s}
+                          dayIdx={idx}
+                          onCopy={handleCopy}
+                        />
                       ))}
                     </DayCell>
                   ))}
