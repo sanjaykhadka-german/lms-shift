@@ -129,6 +129,91 @@ export async function startOnboardingAction(formData: FormData): Promise<void> {
   redirect(`/app/people/onboarding/${employeeId}`);
 }
 
+const bulkStartSchema = z.object({
+  employeeIds: z.array(z.string().uuid()).min(1),
+});
+
+// Start onboarding for many employees at once — the batch companion to the
+// CSV importer (import 20 staff → start them all in one go). Same seeding as
+// startOnboardingAction (default checklist if none exists, status → pending),
+// run for each selected employee in a single tenant transaction. Skips ids
+// that don't belong to the tenant. Lands back on the hub with a count.
+export async function startOnboardingBulkAction(
+  formData: FormData,
+): Promise<void> {
+  const me = await currentUser();
+  const membership = await currentMembership();
+  if (!me || !membership || !isAtLeastManager(membership.role)) {
+    throw new Error("Forbidden");
+  }
+  const tenantId = membership.tenant.id;
+
+  const parsed = bulkStartSchema.safeParse({
+    employeeIds: formData.getAll("employeeIds").map(String),
+  });
+  if (!parsed.success) {
+    // Nothing valid selected — the submit button guards against this, so
+    // just bounce back without changes.
+    redirect("/app/people/onboarding");
+  }
+  const employeeIds = Array.from(new Set(parsed.data.employeeIds));
+
+  let started = 0;
+  await forTenant(tenantId).run(async (tx) => {
+    // Restrict to employees that actually belong to this tenant (RLS also
+    // enforces this; the explicit set keeps the count honest).
+    const rows = await tx
+      .select({ id: scEmployees.id })
+      .from(scEmployees)
+      .where(inArray(scEmployees.id, employeeIds));
+    const valid = new Set(rows.map((r) => r.id));
+
+    for (const employeeId of employeeIds) {
+      if (!valid.has(employeeId)) continue;
+
+      const existing = await tx
+        .select({ id: scEmployeeOnboardingTasks.id })
+        .from(scEmployeeOnboardingTasks)
+        .where(eq(scEmployeeOnboardingTasks.employeeId, employeeId))
+        .limit(1);
+      if (existing.length === 0) {
+        await tx.insert(scEmployeeOnboardingTasks).values(
+          DEFAULT_TASKS.map((t, idx) => ({
+            traceyTenantId: tenantId,
+            employeeId,
+            title: t.title,
+            description: t.description ?? null,
+            sortOrder: idx,
+            required: t.required,
+            status: "pending" as const,
+          })),
+        );
+      }
+
+      await tx
+        .update(scEmployees)
+        .set({
+          onboardingStatus: "pending",
+          onboardingStartedAt: new Date(),
+          onboardingCompletedAt: null,
+        })
+        .where(eq(scEmployees.id, employeeId));
+      started += 1;
+    }
+  });
+
+  await logAuditEvent({
+    action: "shiftcraft.onboarding.started_bulk",
+    targetKind: "sc_employee",
+    targetId: null,
+    details: { started, requested: employeeIds.length },
+  });
+
+  revalidatePath("/app/people/onboarding");
+  revalidatePath("/app/people/team");
+  redirect(`/app/people/onboarding?started=${started}`);
+}
+
 export async function markOnboardingTaskAction(formData: FormData): Promise<void> {
   const me = await currentUser();
   const membership = await currentMembership();

@@ -12,7 +12,7 @@ import { currentMembership } from "~/lib/auth/current";
 import { isAtLeastManager } from "~/lib/roles";
 import { Avatar } from "~/components/Avatar";
 import { Button } from "~/components/ui/button";
-import { startOnboardingAction } from "./_actions";
+import { BulkStartForm } from "./_bulk-start-form";
 import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "New hire onboarding · ShiftCraft" };
@@ -35,11 +35,19 @@ function startOfThisMonth(): Date {
   return new Date(d.getFullYear(), d.getMonth(), 1);
 }
 
-export default async function OnboardingHubPage() {
+export default async function OnboardingHubPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ started?: string }>;
+}) {
   const membership = await currentMembership();
   if (!membership) redirect("/app");
   const tenantId = membership.tenant.id;
   const canManage = isAtLeastManager(membership.role);
+
+  const { started } = await searchParams;
+  const startedCount = Number.parseInt(started ?? "", 10);
+  const showStartedFlash = Number.isFinite(startedCount) && started !== undefined;
 
   // Counters (small enough to issue three trivial queries).
   const monthStart = startOfThisMonth();
@@ -160,6 +168,14 @@ export default async function OnboardingHubPage() {
         </p>
       </div>
 
+      {showStartedFlash ? (
+        <div className="rounded-lg border border-[color-mix(in_srgb,var(--live)_45%,transparent)] bg-[color-mix(in_srgb,var(--live)_10%,transparent)] px-4 py-2 text-sm font-medium text-ink">
+          {startedCount > 0
+            ? `Started onboarding for ${startedCount} employee${startedCount === 1 ? "" : "s"} — they're in the queue below.`
+            : "No onboarding was started."}
+        </div>
+      ) : null}
+
       {/* ─── Counters ─── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Stat
@@ -269,8 +285,9 @@ export default async function OnboardingHubPage() {
           <div className="border-b border-border px-5 py-3">
             <h2 className="text-base font-semibold">Start onboarding</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Seeds a five-step default checklist for the selected employee.
-              They'll show up in the queue above.
+              Seeds a five-step default checklist for each selected employee —
+              tick one, several, or all (handy right after a bulk import).
+              They&rsquo;ll show up in the queue above.
             </p>
           </div>
           {activeEmployees.length === 0 ? (
@@ -285,37 +302,7 @@ export default async function OnboardingHubPage() {
               </Link>
             </p>
           ) : (
-            <form
-              action={startOnboardingAction}
-              className="flex flex-wrap items-end gap-3 px-5 py-4"
-            >
-              <div className="flex-1 space-y-1.5">
-                <label
-                  htmlFor="onb-employee"
-                  className="block text-xs font-medium text-muted-foreground"
-                >
-                  Employee
-                </label>
-                <select
-                  id="onb-employee"
-                  name="employeeId"
-                  required
-                  defaultValue=""
-                  className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                >
-                  <option value="" disabled>
-                    Choose an employee…
-                  </option>
-                  {activeEmployees.map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.fullName}
-                      {e.email ? ` · ${e.email}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <Button type="submit">Start onboarding</Button>
-            </form>
+            <BulkStartForm employees={activeEmployees} />
           )}
         </section>
       ) : null}
