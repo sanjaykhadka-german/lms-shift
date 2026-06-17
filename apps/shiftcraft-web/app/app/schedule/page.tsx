@@ -26,7 +26,7 @@ import { EmployeeScheduleView, type EmployeeRow } from "./_employee-view";
 import {
   bulkPublishWeekAction,
   copyDayToDateAction,
-  duplicateWeekAction,
+  repeatWeekAction,
 } from "./actions";
 import { InfoPopover } from "~/components/InfoPopover";
 
@@ -485,19 +485,40 @@ export default async function SchedulePage({
             </details>
           )}
           {isAdmin && shifts.length > 0 && (
-            <form action={duplicateWeekAction}>
-              <input
-                type="hidden"
-                name="weekStart"
-                value={weekStart.toISOString()}
-              />
-              {locationFilter && (
-                <input type="hidden" name="location" value={locationFilter} />
-              )}
-              <Button type="submit" variant="outline" size="sm">
-                Copy to next week
-              </Button>
-            </form>
+            <details className="relative">
+              <summary className="inline-flex h-8 cursor-pointer list-none items-center rounded-[var(--r-sm)] border border-[color:var(--input)] px-3 text-sm font-medium hover:bg-[color-mix(in_srgb,var(--ink)_5%,transparent)]">
+                Copy week
+              </summary>
+              <form
+                action={repeatWeekAction}
+                className="absolute right-0 z-10 mt-1 flex flex-wrap items-end gap-2 rounded-[var(--r-sm)] border border-border bg-card p-3 shadow-lg"
+              >
+                <input
+                  type="hidden"
+                  name="weekStart"
+                  value={weekStart.toISOString()}
+                />
+                {locationFilter && (
+                  <input type="hidden" name="location" value={locationFilter} />
+                )}
+                <label className="flex flex-col gap-1 whitespace-nowrap text-xs text-ink-2">
+                  Repeat this week for the next
+                  <select
+                    name="weeks"
+                    defaultValue="4"
+                    className="h-9 rounded-md border border-[color:var(--input)] bg-transparent px-2 text-sm text-ink shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+                  >
+                    <option value="1">1 week</option>
+                    <option value="2">2 weeks</option>
+                    <option value="4">4 weeks</option>
+                    <option value="8">8 weeks</option>
+                  </select>
+                </label>
+                <Button type="submit" variant="outline" size="sm">
+                  Copy
+                </Button>
+              </form>
+            </details>
           )}
           {isAdmin && shifts.length > 0 && (
             <details className="relative">
@@ -561,8 +582,8 @@ export default async function SchedulePage({
         <div className="rounded-[var(--r-sm)] border border-[color-mix(in_srgb,var(--live)_45%,transparent)] bg-[color-mix(in_srgb,var(--live)_10%,transparent)] px-4 py-2 text-sm font-medium text-ink">
           {copiedCount > 0 ? (
             <>
-              Copied {copiedCount} shift{copiedCount === 1 ? "" : "s"} into
-              this week as drafts.
+              Copied {copiedCount} shift{copiedCount === 1 ? "" : "s"} as
+              drafts.
               {skippedCount > 0 && (
                 <span className="text-ink-2">
                   {" "}
@@ -573,8 +594,7 @@ export default async function SchedulePage({
             </>
           ) : (
             <>
-              No new shifts to copy — this week already has every slot that
-              last week did
+              No new shifts to copy — every slot was already filled
               {skippedCount > 0 ? ` (${skippedCount} duplicates skipped)` : ""}.
             </>
           )}

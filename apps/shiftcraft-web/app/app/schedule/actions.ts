@@ -513,6 +513,150 @@ export async function duplicateWeekAction(formData: FormData): Promise<void> {
   redirect(`/app/schedule?${search.toString()}`);
 }
 
+// Repeat the current week forward into the next N weeks in one go (the "Copy
+// week" control). Generalizes duplicateWeekAction (which only did +1 week):
+// every shift in [weekStart, weekStart+7d) is copied onto each of the next N
+// weeks as a draft — carrying breaks + required skill — skipping any
+// destination slot that already has a shift at the same (location, role,
+// time-of-day). Assignments are not copied. Respects the active location
+// filter. Fixed 7-day-ms offsets keep time-of-day exact, matching
+// duplicateWeekAction.
+export async function repeatWeekAction(formData: FormData): Promise<void> {
+  const weekStartRaw = String(formData.get("weekStart") ?? "");
+  if (!weekStartRaw) return;
+  const locationId = String(formData.get("location") ?? "");
+  // Clamp to 1..12 so a stray value can't spawn a year of drafts.
+  const weeksRaw = Number(formData.get("weeks") ?? 1);
+  const weeks = Number.isFinite(weeksRaw)
+    ? Math.min(12, Math.max(1, Math.trunc(weeksRaw)))
+    : 1;
+
+  const membership = await currentMembership();
+  if (!membership) throw new Error("You must belong to a workspace.");
+  if (membership.role !== "admin" && membership.role !== "owner") {
+    throw new Error("Only admins can copy a week.");
+  }
+  const tenantId = membership.tenant.id;
+  const me = await currentUser();
+
+  const sourceStart = new Date(weekStartRaw);
+  if (Number.isNaN(sourceStart.getTime())) return;
+  const sourceEnd = new Date(sourceStart);
+  sourceEnd.setDate(sourceEnd.getDate() + 7);
+  // Destination span: the N weeks immediately after the source week. Pulled in
+  // one query so collisions across all target weeks are deduped in code.
+  const destRangeStart = new Date(sourceEnd);
+  const destRangeEnd = new Date(sourceStart);
+  destRangeEnd.setDate(destRangeEnd.getDate() + 7 * (weeks + 1));
+
+  const sourceShifts = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({
+        locationId: scShifts.locationId,
+        role: scShifts.role,
+        startsAt: scShifts.startsAt,
+        endsAt: scShifts.endsAt,
+        notes: scShifts.notes,
+        breaks: scShifts.breaks,
+        breakPaidMinutes: scShifts.breakPaidMinutes,
+        breakUnpaidMinutes: scShifts.breakUnpaidMinutes,
+        requiredSkillId: scShifts.requiredSkillId,
+      })
+      .from(scShifts)
+      .where(
+        and(
+          eq(scShifts.traceyTenantId, tenantId),
+          sql`${scShifts.startsAt} >= ${sourceStart.toISOString()}::timestamptz`,
+          sql`${scShifts.startsAt} < ${sourceEnd.toISOString()}::timestamptz`,
+          locationId ? eq(scShifts.locationId, locationId) : undefined,
+        ),
+      ),
+  );
+
+  const destShifts = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({
+        locationId: scShifts.locationId,
+        role: scShifts.role,
+        startsAt: scShifts.startsAt,
+      })
+      .from(scShifts)
+      .where(
+        and(
+          eq(scShifts.traceyTenantId, tenantId),
+          sql`${scShifts.startsAt} >= ${destRangeStart.toISOString()}::timestamptz`,
+          sql`${scShifts.startsAt} < ${destRangeEnd.toISOString()}::timestamptz`,
+        ),
+      ),
+  );
+
+  const destKeys = new Set<string>();
+  for (const d of destShifts) {
+    destKeys.add(`${d.locationId}|${d.role}|${d.startsAt.getTime()}`);
+  }
+
+  const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+  let copied = 0;
+  let skipped = 0;
+  const toInsert: Array<typeof scShifts.$inferInsert> = [];
+  for (let k = 1; k <= weeks; k++) {
+    const offsetMs = k * WEEK_MS;
+    for (const s of sourceShifts) {
+      const newStart = new Date(s.startsAt.getTime() + offsetMs);
+      const newEnd = new Date(s.endsAt.getTime() + offsetMs);
+      const key = `${s.locationId}|${s.role}|${newStart.getTime()}`;
+      if (destKeys.has(key)) {
+        skipped += 1;
+        continue;
+      }
+      toInsert.push({
+        traceyTenantId: tenantId,
+        locationId: s.locationId,
+        role: s.role,
+        startsAt: newStart,
+        endsAt: newEnd,
+        status: "draft",
+        notes: s.notes,
+        breaks: s.breaks,
+        breakPaidMinutes: s.breakPaidMinutes,
+        breakUnpaidMinutes: s.breakUnpaidMinutes,
+        requiredSkillId: s.requiredSkillId,
+        createdByUserId: me?.id ?? null,
+      });
+      destKeys.add(key);
+      copied += 1;
+    }
+  }
+
+  if (toInsert.length > 0) {
+    await forTenant(tenantId).run((tx) => tx.insert(scShifts).values(toInsert));
+  }
+
+  await logAuditEvent({
+    action: "shiftcraft.schedule.week_repeated",
+    targetKind: "sc_schedule_week",
+    details: {
+      from: sourceStart.toISOString().slice(0, 10),
+      weeks,
+      copied,
+      skipped,
+      locationFilter: locationId || null,
+    },
+  });
+
+  revalidatePath("/app/schedule");
+  revalidatePath("/app/coverage-gaps");
+  // Land on the first copied week so the manager immediately sees the new
+  // drafts, with totals across all N weeks in the flash.
+  const search = new URLSearchParams({
+    week: destRangeStart.toISOString().slice(0, 10),
+    copied: String(copied),
+    skipped: String(skipped),
+  });
+  if (locationId) search.set("location", locationId);
+  redirect(`/app/schedule?${search.toString()}`);
+}
+
 // Copy every shift on one calendar day onto another day ("use Monday's roster
 // for Tuesday"). Batch sibling of copyShiftToDateAction, modeled on
 // duplicateWeekAction: copies land as drafts with no assignments, carry breaks
