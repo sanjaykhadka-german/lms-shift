@@ -7,6 +7,7 @@ import { z } from "zod";
 import {
   forTenant,
   scEmployees,
+  scTimesheetApprovals,
   scXeroEarningsMapping,
   scXeroEmployeeLinks,
   scXeroPayRuns,
@@ -329,6 +330,119 @@ export async function exportToXeroAction(
     status: "ok",
     message: `Pushed ${timesheets.length} timesheet${timesheets.length === 1 ? "" : "s"} to Xero.${skippedNote}`,
   };
+}
+
+// ─── Approve the week's timesheets + export, in one click (Slice 3) ──
+//
+// Convenience combo for "I've reviewed this week — sign it off and push it".
+// Approves every employee with clock activity that week whose timesheet is
+// still PENDING (rows already 'disputed' are left alone so a deliberate
+// dispute isn't steamrolled), then delegates to exportToXeroAction for the
+// actual push. Approval is independent of export here — the export pushes
+// hours either way — but doing both in one action keeps the payroll close.
+export async function approveWeekAndExportAction(
+  prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  if (!isXeroConfigured()) {
+    return { status: "error", message: "Xero is not configured." };
+  }
+  const parsed = exportSchema.safeParse({
+    weekStart: formData.get("weekStart"),
+  });
+  if (!parsed.success) {
+    return { status: "error", message: "Pick a valid week." };
+  }
+  const membership = await requireManager();
+  const user = await requireUser();
+  const tenantId = membership.tenant.id;
+
+  const weekStartParsed = parseIsoDate(parsed.data.weekStart);
+  if (!weekStartParsed) {
+    return { status: "error", message: "Pick a valid week." };
+  }
+  const weekStart = startOfWeek(weekStartParsed);
+  const weekEnd = addDays(weekStart, 7);
+  const weekStartIso = fmtIsoDate(weekStart);
+
+  // Who has clock activity this week → the set worth approving.
+  const events = await getEventsInRangeForTenant(tenantId, weekStart, weekEnd);
+  const activeUserIds = [...new Set(events.map((e) => e.appUserId))];
+
+  let approved = 0;
+  if (activeUserIds.length > 0) {
+    const existing = await forTenant(tenantId).run((tx) =>
+      tx
+        .select({
+          employeeUserId: scTimesheetApprovals.employeeUserId,
+          status: scTimesheetApprovals.status,
+        })
+        .from(scTimesheetApprovals)
+        .where(
+          and(
+            eq(scTimesheetApprovals.traceyTenantId, tenantId),
+            eq(scTimesheetApprovals.weekStart, weekStartIso),
+          ),
+        ),
+    );
+    const statusByUser = new Map(
+      existing.map((a) => [a.employeeUserId, a.status]),
+    );
+    for (const uid of activeUserIds) {
+      const st = statusByUser.get(uid);
+      // Skip already-approved (no-op) and disputed (respect the dispute).
+      if (st === "approved" || st === "disputed") continue;
+      await forTenant(tenantId).run((tx) =>
+        tx
+          .insert(scTimesheetApprovals)
+          .values({
+            traceyTenantId: tenantId,
+            employeeUserId: uid,
+            weekStart: weekStartIso,
+            status: "approved",
+            approvedByUserId: user.id,
+            notes: null,
+          })
+          .onConflictDoUpdate({
+            target: [
+              scTimesheetApprovals.traceyTenantId,
+              scTimesheetApprovals.employeeUserId,
+              scTimesheetApprovals.weekStart,
+            ],
+            set: {
+              status: "approved",
+              approvedByUserId: user.id,
+              approvedAt: new Date(),
+              notes: null,
+              updatedAt: new Date(),
+            },
+          }),
+      );
+      approved += 1;
+    }
+  }
+
+  await logAuditEvent({
+    action: "shiftcraft.timesheet.week_approved_bulk",
+    targetKind: "sc_timesheet_approval",
+    details: { weekStart: weekStartIso, approved },
+  });
+
+  // Delegate the push to the canonical export action, then fold the
+  // approval count into the message.
+  const result = await exportToXeroAction(prev, formData);
+  const approvedNote = `Approved ${approved} timesheet${approved === 1 ? "" : "s"}. `;
+  if (result.status === "error") {
+    // Approvals already committed; surface them alongside the export error.
+    return {
+      status: "error",
+      message: `${approvedNote}${result.message}`,
+    };
+  }
+  if (result.status === "ok") {
+    return { status: "ok", message: `${approvedNote}${result.message}` };
+  }
+  return result;
 }
 
 // ─── Read-back of a finalised Xero pay run ──────────────────────────

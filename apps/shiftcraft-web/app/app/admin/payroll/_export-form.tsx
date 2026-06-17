@@ -5,6 +5,7 @@ import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import {
+  approveWeekAndExportAction,
   exportToXeroAction,
   readbackPayRunAction,
   type FormState,
@@ -29,7 +30,12 @@ function lastMonday(): string {
 
 export function ExportToXeroForm() {
   const [state, formAction, pending] = useActionState(exportToXeroAction, initial);
+  const [comboState, comboAction, comboPending] = useActionState(
+    approveWeekAndExportAction,
+    initial,
+  );
   const defaultWeek = lastMonday();
+  const busy = pending || comboPending;
   return (
     <form action={formAction} className="space-y-3">
       <div className="space-y-1.5">
@@ -42,14 +48,39 @@ export function ExportToXeroForm() {
           required
         />
       </div>
-      <Button type="submit" disabled={pending}>
-        {pending ? "Pushing…" : "Send timesheets to Xero"}
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" disabled={busy}>
+          {pending ? "Pushing…" : "Send timesheets to Xero"}
+        </Button>
+        {/* Same form fields; formAction overrides to the combo action so
+            "approve the week, then export" is one click. */}
+        <Button
+          type="submit"
+          formAction={comboAction}
+          variant="outline"
+          disabled={busy}
+        >
+          {comboPending ? "Approving & pushing…" : "Approve week & send"}
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        “Approve week &amp; send” signs off every employee with activity that
+        week (leaving disputed ones untouched), then exports — for when
+        you&rsquo;ve already reviewed the week.
+      </p>
       {state.status === "ok" && (
         <p className="text-xs text-[var(--live)]">{state.message}</p>
       )}
       {state.status === "error" && (
         <p className="text-xs text-[color:var(--destructive)]">{state.message}</p>
+      )}
+      {comboState.status === "ok" && (
+        <p className="text-xs text-[var(--live)]">{comboState.message}</p>
+      )}
+      {comboState.status === "error" && (
+        <p className="text-xs text-[color:var(--destructive)]">
+          {comboState.message}
+        </p>
       )}
     </form>
   );
