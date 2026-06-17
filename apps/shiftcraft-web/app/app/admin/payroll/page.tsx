@@ -105,10 +105,39 @@ export default async function PayrollAdminPage({
         listAvailableOrgs(tenantId),
       ]);
     } catch (err) {
-      listError =
-        err instanceof Error
-          ? err.message
-          : "Failed to read from Xero. Reconnect if the token is invalid.";
+      // Surface the real Xero error — the xero-node SDK throws non-Error
+      // objects (HTTP error shapes), so the old `instanceof Error` check fell
+      // through to a useless generic message. Log the raw error to the server
+      // and extract status + body for the operator-facing banner.
+      console.error("[payroll] Xero read failed:", err);
+      const e = err as {
+        statusCode?: number;
+        response?: { statusCode?: number; body?: unknown };
+        body?: unknown;
+        message?: string;
+      };
+      const status = e.statusCode ?? e.response?.statusCode;
+      const bodyRaw = e.response?.body ?? e.body;
+      let bodyStr = "";
+      try {
+        bodyStr =
+          typeof bodyRaw === "string"
+            ? bodyRaw
+            : bodyRaw
+              ? JSON.stringify(bodyRaw)
+              : "";
+      } catch {
+        bodyStr = "";
+      }
+      const detail =
+        [
+          status ? `HTTP ${status}` : null,
+          bodyStr || e.message || (err instanceof Error ? err.message : ""),
+        ]
+          .filter(Boolean)
+          .join(" — ")
+          .slice(0, 400) || "unknown error";
+      listError = `Failed to read from Xero: ${detail}`;
     }
   }
 
