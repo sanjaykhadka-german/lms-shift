@@ -8,6 +8,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import {
   forTenant,
+  scEmployees,
   scXeroEarningsMapping,
   scXeroEmployeeLinks,
   type ScPayrollCategory,
@@ -20,6 +21,8 @@ import {
   deleteConnection,
   isXeroConfigured,
   listAvailableOrgs,
+  listEarningsRates,
+  listXeroEmployees,
   setActiveOrg,
 } from "~/lib/payroll/xero";
 import { PAYROLL_CATEGORIES } from "~/lib/payroll/categories";
@@ -268,4 +271,196 @@ export async function linkEmployeeAction(formData: FormData): Promise<void> {
     },
   });
   revalidatePath("/app/admin/payroll");
+}
+
+// ─── Auto-matching (Deputy-style) ───────────────────────────────────
+//
+// Two one-click passes that fill in the obvious mappings/links and leave
+// only the exceptions for the human:
+//   - earnings: match each unmapped award category to a Xero earnings rate
+//     by name, but ONLY when the match is unambiguous (exactly one rate fits
+//     the category's keyword shape) so payroll never silently mis-maps.
+//   - employees: link each unlinked employee to the Xero employee with the
+//     same email (the only reliable cross-system key).
+
+function norm(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+// True when a Xero earnings-rate name fits the given payroll category. Kept
+// deliberately strict: OT categories require an "overtime" token, the base
+// (non-OT) variants exclude it, so e.g. "Saturday" and "Saturday Overtime"
+// don't both grab penalty_sat.
+function rateFitsCategory(category: ScPayrollCategory, rateName: string): boolean {
+  const n = norm(rateName);
+  const ot = n.includes("overtime") || n.includes("over time");
+  const sat = n.includes("saturday");
+  const sun = n.includes("sunday");
+  const ph = n.includes("public holiday") || n.includes("holiday");
+  const night = n.includes("night");
+  switch (category) {
+    case "ordinary":
+      return n.includes("ordinary") && !ot;
+    case "overtime":
+      return ot && !sat && !sun && !ph && !night;
+    case "penalty_sat":
+      return sat && !ot;
+    case "penalty_sat_ot":
+      return sat && ot;
+    case "penalty_sun":
+      return sun && !ot;
+    case "penalty_sun_ot":
+      return sun && ot;
+    case "penalty_ph":
+      return ph && !ot;
+    case "penalty_ph_ot":
+      return ph && ot;
+    case "penalty_night":
+      return night;
+    case "allowance":
+      return n.includes("allowance");
+    default:
+      return false;
+  }
+}
+
+export async function autoMapEarningsAction(): Promise<void> {
+  const membership = await requireOwner();
+  const tenantId = membership.tenant.id;
+
+  const rates = await listEarningsRates(tenantId);
+  const existing = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({ category: scXeroEarningsMapping.category })
+      .from(scXeroEarningsMapping)
+      .where(eq(scXeroEarningsMapping.traceyTenantId, tenantId)),
+  );
+  const alreadyMapped = new Set(existing.map((e) => e.category));
+
+  let mapped = 0;
+  let ambiguous = 0;
+  for (const category of PAYROLL_CATEGORIES) {
+    if (alreadyMapped.has(category)) continue;
+    const fits = rates.filter((r) => rateFitsCategory(category, r.name));
+    if (fits.length === 0) continue;
+    if (fits.length > 1) {
+      // More than one plausible rate — don't guess; leave for the human.
+      ambiguous += 1;
+      continue;
+    }
+    const rate = fits[0]!;
+    await forTenant(tenantId).run((tx) =>
+      tx
+        .insert(scXeroEarningsMapping)
+        .values({
+          traceyTenantId: tenantId,
+          category,
+          xeroEarningsRateId: rate.id,
+          xeroEarningsRateName: rate.name,
+        })
+        .onConflictDoUpdate({
+          target: [
+            scXeroEarningsMapping.traceyTenantId,
+            scXeroEarningsMapping.category,
+          ],
+          set: {
+            xeroEarningsRateId: rate.id,
+            xeroEarningsRateName: rate.name,
+            updatedAt: new Date(),
+          },
+        }),
+    );
+    mapped += 1;
+  }
+
+  await logAuditEvent({
+    action: "shiftcraft.xero.earnings_auto_mapped",
+    targetKind: "sc_xero_earnings_mapping",
+    details: { mapped, ambiguous },
+  });
+  revalidatePath("/app/admin/payroll");
+  redirect(`/app/admin/payroll?automapped=${mapped}&ambiguous=${ambiguous}`);
+}
+
+export async function autoLinkEmployeesAction(): Promise<void> {
+  const membership = await requireOwner();
+  const tenantId = membership.tenant.id;
+
+  const [xeroEmps, scEmps, existing] = await Promise.all([
+    listXeroEmployees(tenantId),
+    forTenant(tenantId).run((tx) =>
+      tx
+        .select({ id: scEmployees.id, email: scEmployees.email })
+        .from(scEmployees)
+        .where(
+          and(
+            eq(scEmployees.traceyTenantId, tenantId),
+            eq(scEmployees.isActive, true),
+          ),
+        ),
+    ),
+    forTenant(tenantId).run((tx) =>
+      tx
+        .select({ scEmployeeId: scXeroEmployeeLinks.scEmployeeId })
+        .from(scXeroEmployeeLinks)
+        .where(eq(scXeroEmployeeLinks.traceyTenantId, tenantId)),
+    ),
+  ]);
+
+  const alreadyLinked = new Set(existing.map((e) => e.scEmployeeId));
+  const xeroByEmail = new Map<string, (typeof xeroEmps)[number]>();
+  for (const x of xeroEmps) {
+    if (x.email) xeroByEmail.set(x.email.toLowerCase(), x);
+  }
+
+  let linked = 0;
+  let noMatch = 0;
+  for (const e of scEmps) {
+    if (alreadyLinked.has(e.id)) continue;
+    if (!e.email) continue;
+    const x = xeroByEmail.get(e.email.toLowerCase());
+    if (!x) {
+      noMatch += 1;
+      continue;
+    }
+    const name = `${x.firstName} ${x.lastName}`.trim() || null;
+    try {
+      await forTenant(tenantId).run((tx) =>
+        tx
+          .insert(scXeroEmployeeLinks)
+          .values({
+            traceyTenantId: tenantId,
+            scEmployeeId: e.id,
+            xeroEmployeeId: x.id,
+            xeroEmployeeName: name,
+          })
+          .onConflictDoUpdate({
+            target: [
+              scXeroEmployeeLinks.traceyTenantId,
+              scXeroEmployeeLinks.scEmployeeId,
+            ],
+            set: { xeroEmployeeId: x.id, xeroEmployeeName: name },
+          }),
+      );
+      linked += 1;
+    } catch (err) {
+      // Same Xero employee already linked to another sc employee — skip,
+      // matching linkEmployeeAction's unique-constraint handling.
+      if (
+        err instanceof Error &&
+        err.message.includes("sc_xero_employee_links_xero_uq")
+      ) {
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  await logAuditEvent({
+    action: "shiftcraft.xero.employees_auto_linked",
+    targetKind: "sc_xero_employee_link",
+    details: { linked, noMatch },
+  });
+  revalidatePath("/app/admin/payroll");
+  redirect(`/app/admin/payroll?autolinked=${linked}&nomatch=${noMatch}`);
 }

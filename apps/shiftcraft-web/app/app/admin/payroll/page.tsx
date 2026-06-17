@@ -21,6 +21,8 @@ import {
   PAYROLL_CATEGORY_LABEL,
 } from "~/lib/payroll/categories";
 import {
+  autoLinkEmployeesAction,
+  autoMapEarningsAction,
   disconnectAction,
   linkEmployeeAction,
   saveMappingAction,
@@ -36,13 +38,27 @@ export const dynamic = "force-dynamic";
 export default async function PayrollAdminPage({
   searchParams,
 }: {
-  searchParams: Promise<{ connected?: string; xero_error?: string }>;
+  searchParams: Promise<{
+    connected?: string;
+    xero_error?: string;
+    automapped?: string;
+    ambiguous?: string;
+    autolinked?: string;
+    nomatch?: string;
+  }>;
 }) {
   const membership = await currentMembership();
   if (!membership) redirect("/app");
   if (!isOwnerLevel(membership.role)) redirect("/app");
   const tenantId = membership.tenant.id;
-  const { connected, xero_error: xeroError } = await searchParams;
+  const {
+    connected,
+    xero_error: xeroError,
+    automapped,
+    ambiguous,
+    autolinked,
+    nomatch,
+  } = await searchParams;
 
   if (!isXeroConfigured()) {
     return (
@@ -309,12 +325,35 @@ export default async function PayrollAdminPage({
       {connection && (
         <section className="rounded-lg border border-border bg-card shadow-sm">
           <div className="border-b border-border px-5 py-3">
-            <h2 className="text-sm font-semibold">Earnings code mapping</h2>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <h2 className="text-sm font-semibold">Earnings code mapping</h2>
+              {earningsRates.length > 0 && (
+                <form action={autoMapEarningsAction}>
+                  <Button type="submit" variant="outline" size="sm">
+                    Auto-map by name
+                  </Button>
+                </form>
+              )}
+            </div>
+            {automapped !== undefined && (
+              <p className="mt-2 rounded-md border border-[color-mix(in_srgb,var(--live)_45%,transparent)] bg-[color-mix(in_srgb,var(--live)_10%,transparent)] px-3 py-1.5 text-xs font-medium text-ink">
+                Auto-mapped {automapped} categor
+                {automapped === "1" ? "y" : "ies"} by name.
+                {ambiguous && ambiguous !== "0"
+                  ? ` ${ambiguous} had more than one possible rate — set those manually below.`
+                  : ""}
+              </p>
+            )}
             <p className="mt-1 text-xs text-muted-foreground">
               Pick the Xero earnings rate each ShiftCraft category should
               feed into. The rate&rsquo;s multiplier (1.0, 1.5, 2.0, etc.)
               is configured in Xero — we send raw hours per category and
               Xero applies the multiplier.
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              <strong>Auto-map by name</strong> fills in the obvious matches
+              (e.g. a Xero rate named &ldquo;Ordinary Hours&rdquo;) and skips
+              anything ambiguous — review the rest below.
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
               The <strong>overtime</strong> rows (Saturday / Sunday /
@@ -398,11 +437,31 @@ export default async function PayrollAdminPage({
       {connection && employees.length > 0 && (
         <section className="rounded-lg border border-border bg-card shadow-sm">
           <div className="border-b border-border px-5 py-3">
-            <h2 className="text-sm font-semibold">Employee linking</h2>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <h2 className="text-sm font-semibold">Employee linking</h2>
+              {xeroEmployees.length > 0 && (
+                <form action={autoLinkEmployeesAction}>
+                  <Button type="submit" variant="outline" size="sm">
+                    Auto-link by email
+                  </Button>
+                </form>
+              )}
+            </div>
+            {autolinked !== undefined && (
+              <p className="mt-2 rounded-md border border-[color-mix(in_srgb,var(--live)_45%,transparent)] bg-[color-mix(in_srgb,var(--live)_10%,transparent)] px-3 py-1.5 text-xs font-medium text-ink">
+                Auto-linked {autolinked} employee
+                {autolinked === "1" ? "" : "s"} by matching email.
+                {nomatch && nomatch !== "0"
+                  ? ` ${nomatch} had no Xero email match — link those manually below.`
+                  : ""}
+              </p>
+            )}
             <p className="mt-1 text-xs text-muted-foreground">
               Match each ShiftCraft employee to the corresponding Xero
-              employee. Unlinked rows are skipped on export with a
-              warning so a misconfigured row never blocks the rest.
+              employee. <strong>Auto-link by email</strong> matches anyone
+              whose email is identical in both systems; link the rest by hand.
+              Unlinked rows are skipped on export with a warning so a
+              misconfigured row never blocks the rest.
             </p>
           </div>
           <ul className="divide-y divide-border">
