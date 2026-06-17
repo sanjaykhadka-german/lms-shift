@@ -9,6 +9,8 @@ const {
   friendlyRoleLabel,
   isAdmin,
   isAtLeastManager,
+  isWorkspaceAdmin,
+  isLocationManager,
   roleRank,
   ROLE_DESCRIPTIONS,
 } = await import("../lib/roles");
@@ -19,6 +21,9 @@ describe("friendlyRoleLabel", () => {
   });
   it("maps admin → Manager", () => {
     expect(friendlyRoleLabel("admin")).toBe("Manager");
+  });
+  it("maps location_manager → Location Manager", () => {
+    expect(friendlyRoleLabel("location_manager")).toBe("Location Manager");
   });
   it("maps member → Employee", () => {
     expect(friendlyRoleLabel("member")).toBe("Employee");
@@ -56,9 +61,30 @@ describe("isAdmin / isAtLeastManager", () => {
   });
 });
 
+describe("location_manager tier", () => {
+  it("ranks at the Manager tier (1)", () => {
+    expect(roleRank("location_manager")).toBe(1);
+  });
+  it("is at-least-manager (passes operational gates) but not owner-tier", () => {
+    expect(isAtLeastManager("location_manager")).toBe(true);
+    expect(isAdmin("location_manager")).toBe(false);
+  });
+  it("is NOT a workspace admin (blocked from billing / workspace settings)", () => {
+    expect(isWorkspaceAdmin("location_manager")).toBe(false);
+    expect(isWorkspaceAdmin("owner")).toBe(true);
+    expect(isWorkspaceAdmin("admin")).toBe(true);
+    expect(isWorkspaceAdmin("member")).toBe(false);
+  });
+  it("isLocationManager identifies only the new tier", () => {
+    expect(isLocationManager("location_manager")).toBe(true);
+    expect(isLocationManager("admin")).toBe(false);
+    expect(isLocationManager("owner")).toBe(false);
+  });
+});
+
 describe("ROLE_DESCRIPTIONS", () => {
   it("has an entry per Tracey role with matching friendly label", () => {
-    for (const role of ["owner", "admin", "member"] as const) {
+    for (const role of ["owner", "admin", "location_manager", "member"] as const) {
       const d = ROLE_DESCRIPTIONS[role];
       expect(d.underlying).toBe(role);
       expect(d.label).toBe(friendlyRoleLabel(role));

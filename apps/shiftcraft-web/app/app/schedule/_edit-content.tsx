@@ -13,6 +13,7 @@ import {
   users,
 } from "@tracey/db";
 import { currentMembership, currentUser } from "~/lib/auth/current";
+import { isAtLeastManager } from "~/lib/roles";
 import { checkAvailability } from "~/lib/availability-check";
 import { findConflictedUserIds } from "~/lib/shift-conflicts";
 import {
@@ -83,7 +84,7 @@ export async function EditShiftContent({
   const me = await currentUser();
   if (!me) redirect("/sign-in");
 
-  const isAdmin = membership.role === "admin" || membership.role === "owner";
+  const isAdmin = isAtLeastManager(membership.role);
 
   const ctx = forTenant(membership.tenant.id);
   const [shiftRow] = await ctx.run((tx) =>

@@ -14,6 +14,7 @@ import {
   scTimesheetApprovals,
 } from "@tracey/db";
 import { currentMembership, currentUser } from "~/lib/auth/current";
+import { isAtLeastManager } from "~/lib/roles";
 import { deriveClockState, getTodayEventsForUser } from "~/lib/clock";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
@@ -99,7 +100,7 @@ export default async function DashboardPage({
     redirect("/onboarding");
   }
 
-  const isAdmin = membership.role === "admin" || membership.role === "owner";
+  const isAdmin = isAtLeastManager(membership.role);
   const tenantId = membership.tenant.id;
 
   // AUDIT.md #2 polish — worker-side onboarding redirect. If the

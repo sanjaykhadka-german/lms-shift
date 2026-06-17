@@ -13,6 +13,7 @@ import {
   users as appUsers,
 } from "@tracey/db";
 import { currentMembership } from "~/lib/auth/current";
+import { isAtLeastManager } from "~/lib/roles";
 import { Button } from "~/components/ui/button";
 import {
   addDays,
@@ -96,7 +97,7 @@ export default async function ReportsPage({
 }) {
   const membership = await currentMembership();
   if (!membership) redirect("/app");
-  if (membership.role !== "owner" && membership.role !== "admin") {
+  if (!isAtLeastManager(membership.role)) {
     redirect("/app");
   }
   const tenantId = membership.tenant.id;

@@ -25,6 +25,7 @@ import {
   findUsersWithLeaveConflict,
 } from "~/lib/time-off-impact";
 import { emitWebhook } from "~/lib/webhooks";
+import { isAtLeastManager } from "~/lib/roles";
 import {
   getManagedLocationIds,
   isLocationInScope,
@@ -290,7 +291,7 @@ export async function bulkPublishWeekAction(formData: FormData): Promise<void> {
   // Admin-only: surface the same error message as single-shift publish.
   const membership = await currentMembership();
   if (!membership) throw new Error("You must belong to a workspace.");
-  if (membership.role !== "admin" && membership.role !== "owner") {
+  if (!isAtLeastManager(membership.role)) {
     throw new Error("Only admins can publish shifts.");
   }
 
@@ -369,7 +370,7 @@ export async function duplicateWeekAction(formData: FormData): Promise<void> {
 
   const membership = await currentMembership();
   if (!membership) throw new Error("You must belong to a workspace.");
-  if (membership.role !== "admin" && membership.role !== "owner") {
+  if (!isAtLeastManager(membership.role)) {
     throw new Error("Only admins can duplicate a week.");
   }
   const tenantId = membership.tenant.id;
@@ -533,7 +534,7 @@ export async function repeatWeekAction(formData: FormData): Promise<void> {
 
   const membership = await currentMembership();
   if (!membership) throw new Error("You must belong to a workspace.");
-  if (membership.role !== "admin" && membership.role !== "owner") {
+  if (!isAtLeastManager(membership.role)) {
     throw new Error("Only admins can copy a week.");
   }
   const tenantId = membership.tenant.id;
@@ -674,7 +675,7 @@ export async function copyDayToDateAction(formData: FormData): Promise<void> {
 
   const membership = await currentMembership();
   if (!membership) throw new Error("You must belong to a workspace.");
-  if (membership.role !== "admin" && membership.role !== "owner") {
+  if (!isAtLeastManager(membership.role)) {
     throw new Error("Only admins can copy a day.");
   }
   const tenantId = membership.tenant.id;
@@ -1137,7 +1138,7 @@ export async function copyShiftInPlaceAction(
 async function requireAdminMembership() {
   const m = await currentMembership();
   if (!m) throw new Error("You must belong to a workspace.");
-  if (m.role !== "admin" && m.role !== "owner") {
+  if (!isAtLeastManager(m.role)) {
     throw new Error("Only admins can assign shifts.");
   }
   return m;

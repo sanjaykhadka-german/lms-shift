@@ -40,7 +40,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "~/lib/utils";
-import { friendlyRoleLabel } from "~/lib/roles";
+import { friendlyRoleLabel, isAtLeastManager, isWorkspaceAdmin } from "~/lib/roles";
 import { Avatar } from "./Avatar";
 import { Logo } from "./Logo";
 import { ThemeToggle } from "./ThemeToggle";
@@ -50,6 +50,10 @@ type NavItem = {
   href: string;
   label: string;
   icon: typeof LayoutDashboard;
+  // Hidden from Location Managers — owner/Manager-only surfaces (billing,
+  // workspace-wide config, integrations). Location Managers see the rest of
+  // the Admin section, scoped to their location(s).
+  ownerOnly?: boolean;
 };
 
 type NavSection = {
@@ -112,12 +116,12 @@ const SECTIONS: NavSection[] = [
       { href: "/app/admin/kiosks", label: "Kiosks", icon: Tablet },
       { href: "/app/admin/visitors", label: "Visitors", icon: DoorOpen },
       { href: "/app/admin/leave-types", label: "Leave types", icon: Tag },
-      { href: "/app/admin/manager-scopes", label: "Manager scopes", icon: ShieldCheck },
-      { href: "/app/admin/payroll", label: "Payroll (Xero)", icon: Receipt },
+      { href: "/app/admin/manager-scopes", label: "Manager scopes", icon: ShieldCheck, ownerOnly: true },
+      { href: "/app/admin/payroll", label: "Payroll (Xero)", icon: Receipt, ownerOnly: true },
       { href: "/app/admin/skills", label: "Skills", icon: Sparkles },
-      { href: "/app/admin/webhooks", label: "Webhooks", icon: Webhook },
-      { href: "/app/admin/settings", label: "Workspace settings", icon: Sliders },
-      { href: "/app/billing", label: "Billing", icon: CreditCard },
+      { href: "/app/admin/webhooks", label: "Webhooks", icon: Webhook, ownerOnly: true },
+      { href: "/app/admin/settings", label: "Workspace settings", icon: Sliders, ownerOnly: true },
+      { href: "/app/billing", label: "Billing", icon: CreditCard, ownerOnly: true },
       { href: "/app/audit", label: "Audit log", icon: History },
     ],
   },
@@ -137,8 +141,14 @@ export function Sidebar({
   showPlatformLink?: boolean;
 }) {
   const pathname = usePathname();
-  const isAdmin = role === "admin" || role === "owner";
-  const sections = SECTIONS.filter((s) => !s.adminOnly || isAdmin);
+  // Location Managers see the Admin section too, but owner/Manager-only items
+  // inside it (billing, workspace settings, integrations) are filtered out.
+  const canSeeAdmin = isAtLeastManager(role);
+  const fullAdmin = isWorkspaceAdmin(role);
+  const sections = SECTIONS.filter((s) => !s.adminOnly || canSeeAdmin).map((s) => ({
+    ...s,
+    items: s.items.filter((item) => !item.ownerOnly || fullAdmin),
+  }));
 
   // Mobile drawer state. Closes automatically on route change so the user
   // doesn't see the drawer linger across navigation. Esc closes it too.

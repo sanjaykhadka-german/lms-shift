@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import {
   db,
   forTenant,
@@ -28,18 +28,26 @@ export default async function ManagerScopesPage() {
   if (!isOwnerLevel(membership.role)) redirect("/app");
   const tenantId = membership.tenant.id;
 
-  // List of tenant admins (role=admin in app.members). Owners are
-  // intentionally excluded — they always see everything, no scope
-  // rows would apply.
+  // Tenant admins (role=admin) plus Location Managers (role=location_manager)
+  // in app.members. Owners are intentionally excluded — they always see
+  // everything, so no scope rows apply. The two differ on the empty case: an
+  // admin with no rows keeps full access; a Location Manager with no rows has
+  // NO access until granted (see lib/manager-scope.ts).
   const admins = await db
     .select({
       userId: members.userId,
+      role: members.role,
       name: users.name,
       email: users.email,
     })
     .from(members)
     .innerJoin(users, eq(users.id, members.userId))
-    .where(and(eq(members.tenantId, tenantId), eq(members.role, "admin")))
+    .where(
+      and(
+        eq(members.tenantId, tenantId),
+        inArray(members.role, ["admin", "location_manager"]),
+      ),
+    )
     .orderBy(asc(users.name), asc(users.email));
 
   const [locations, scopes] = await Promise.all([
@@ -106,6 +114,7 @@ export default async function ManagerScopesPage() {
           {admins.map((a) => {
             const userScope = scopesByUser.get(a.userId) ?? new Set<string>();
             const isUnscoped = userScope.size === 0;
+            const isLocMgr = a.role === "location_manager";
             return (
               <li
                 key={a.userId}
@@ -115,23 +124,34 @@ export default async function ManagerScopesPage() {
                   <div>
                     <div className="text-sm font-semibold">
                       {a.name ?? a.email}
+                      <span className="ml-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                        {isLocMgr ? "Location Manager" : "Manager"}
+                      </span>
                     </div>
                     <div className="text-xs text-muted-foreground">
                       {a.email}
                     </div>
                   </div>
                   {isUnscoped ? (
-                    <span className="inline-flex items-center rounded-full bg-[var(--accent-deep)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--accent-ink)]">
-                      Full access
+                    // A Location Manager with no locations sees nothing; an
+                    // admin with none keeps full cross-location access.
+                    <span
+                      className={
+                        isLocMgr
+                          ? "inline-flex items-center rounded-full bg-[color:var(--destructive)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white"
+                          : "inline-flex items-center rounded-full bg-[var(--accent-deep)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--accent-ink)]"
+                      }
+                    >
+                      {isLocMgr ? "No locations yet" : "Full access"}
                     </span>
-                  ) : (
+                  ) : !isLocMgr ? (
                     <form action={clearScopeAction}>
                       <input type="hidden" name="appUserId" value={a.userId} />
                       <Button type="submit" size="sm" variant="outline">
                         Grant full access
                       </Button>
                     </form>
-                  )}
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {locations.map((loc) => {

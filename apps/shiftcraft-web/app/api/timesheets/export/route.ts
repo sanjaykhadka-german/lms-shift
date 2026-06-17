@@ -9,6 +9,7 @@ import {
   type ScTimesheetApprovalStatus,
 } from "@tracey/db";
 import { currentMembership, currentUser } from "~/lib/auth/current";
+import { isAtLeastManager } from "~/lib/roles";
 import {
   addDays,
   deriveSegments,
@@ -41,8 +42,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "No workspace" }, { status: 401 });
   }
 
-  const isAdmin =
-    membership.role === "owner" || membership.role === "admin";
+  const isAdmin = isAtLeastManager(membership.role);
   const tenantId = membership.tenant.id;
 
   const url = new URL(req.url);

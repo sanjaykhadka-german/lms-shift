@@ -9,6 +9,7 @@ import {
   users as appUsers,
 } from "@tracey/db";
 import { currentMembership, currentUser } from "~/lib/auth/current";
+import { isAtLeastManager } from "~/lib/roles";
 import {
   addDays,
   deriveSegments,
@@ -47,8 +48,7 @@ export async function GET(req: NextRequest) {
   if (!membership) {
     return NextResponse.json({ error: "No workspace" }, { status: 401 });
   }
-  const isAdmin =
-    membership.role === "owner" || membership.role === "admin";
+  const isAdmin = isAtLeastManager(membership.role);
   if (!isAdmin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

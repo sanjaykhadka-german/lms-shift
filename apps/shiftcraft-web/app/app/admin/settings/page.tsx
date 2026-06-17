@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { currentMembership } from "~/lib/auth/current";
-import { isAtLeastManager } from "~/lib/roles";
+import { isWorkspaceAdmin } from "~/lib/roles";
 import {
   getTenantHolidayRegion,
   HOLIDAY_REGIONS,
@@ -17,7 +17,9 @@ export const dynamic = "force-dynamic";
 export default async function WorkspaceSettingsPage() {
   const membership = await currentMembership();
   if (!membership) redirect("/app");
-  if (!isAtLeastManager(membership.role)) redirect("/app");
+  // Workspace settings are owner/Manager only — Location Managers are scoped
+  // to their site and can't change tenant-wide config.
+  if (!isWorkspaceAdmin(membership.role)) redirect("/app");
 
   const [currentRegion, awardProfile] = await Promise.all([
     getTenantHolidayRegion(membership.tenant.id),

@@ -9,6 +9,7 @@ import {
   users,
 } from "@tracey/db";
 import { currentMembership, requireUser } from "~/lib/auth/current";
+import { isAtLeastManager } from "~/lib/roles";
 import { findAffectedShiftsForRequests } from "~/lib/time-off-impact";
 import { getHolidaysForTenant, type HolidayRow } from "~/lib/holidays";
 import { listActiveLeaveTypes } from "~/lib/leave-types";
@@ -84,7 +85,7 @@ export default async function TimeOffPage({
     ? (rawStatus as Filter)
     : "pending";
 
-  const isAdmin = membership.role === "admin" || membership.role === "owner";
+  const isAdmin = isAtLeastManager(membership.role);
 
   const [rows, leaveTypes] = await Promise.all([
     forTenant(membership.tenant.id).run((tx) =>

@@ -23,7 +23,7 @@ import { hashPassword, verifyPassword } from "~/lib/auth/passwords";
 import { generateToken, tokenExpiry } from "~/lib/auth/tokens";
 import { logAuditEvent } from "~/lib/audit";
 import { notifyTenantAdmins } from "~/lib/notifications";
-import { isAtLeastManager } from "~/lib/roles";
+import { isAtLeastManager, isWorkspaceAdmin } from "~/lib/roles";
 import { emitWebhook } from "~/lib/webhooks";
 
 type TenantTx = Parameters<
@@ -860,7 +860,7 @@ export type RoleFormState =
   | { status: "error"; message: string };
 
 const roleSchema = z.object({
-  role: z.enum(["owner", "admin", "member"]),
+  role: z.enum(["owner", "admin", "location_manager", "member"]),
 });
 
 export async function setMemberRoleAction(
@@ -869,7 +869,9 @@ export async function setMemberRoleAction(
   formData: FormData,
 ): Promise<RoleFormState> {
   const membership = await currentMembership();
-  if (!membership || !isAtLeastManager(membership.role)) {
+  // Membership management is owner/Manager only — Location Managers run their
+  // site but can't promote/demote teammates.
+  if (!membership || !isWorkspaceAdmin(membership.role)) {
     return {
       status: "error",
       message: "You don't have permission to change roles.",

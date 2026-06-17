@@ -12,7 +12,7 @@ import {
   type Role,
 } from "@tracey/db";
 import { currentMembership, currentUser } from "~/lib/auth/current";
-import { isAtLeastManager } from "~/lib/roles";
+import { isAtLeastManager, isWorkspaceAdmin } from "~/lib/roles";
 import { Button } from "~/components/ui/button";
 import { EmployeeForm } from "../../new/_form";
 import { deleteEmployeeAction } from "../../new/actions";
@@ -220,7 +220,7 @@ export default async function EditEmployeePage({
         <ResetPasswordCard appUserId={row.appUserId} />
       ) : null}
 
-      {row.appUserId && memberRow && isAtLeastManager(membership.role) ? (
+      {row.appUserId && memberRow && isWorkspaceAdmin(membership.role) ? (
         <RoleCard
           appUserId={row.appUserId}
           currentRole={memberRow.role as Role}

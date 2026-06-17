@@ -8,7 +8,7 @@ import {
 } from "../../new/actions";
 import { Button } from "~/components/ui/button";
 
-type Role = "owner" | "admin" | "member";
+type Role = "owner" | "admin" | "location_manager" | "member";
 
 interface RoleCardProps {
   appUserId: string;
@@ -29,6 +29,11 @@ const OPTIONS: Array<{ value: Role; label: string; desc: string }> = [
     desc: "Full access including billing, member management, and everything a Manager can do.",
   },
   {
+    value: "location_manager",
+    label: "Location Manager",
+    desc: "A Manager scoped to their assigned location(s) — runs the roster, timesheets, and people for those sites only. No billing, workspace settings, or other locations. Assign their locations under Manager scopes.",
+  },
+  {
     value: "admin",
     label: "Manager",
     desc: "Day-to-day workspace management — schedule, employees, approvals, reports. No billing access.",
@@ -40,7 +45,12 @@ const OPTIONS: Array<{ value: Role; label: string; desc: string }> = [
   },
 ];
 
-const RANK: Record<Role, number> = { owner: 2, admin: 1, member: 0 };
+const RANK: Record<Role, number> = {
+  owner: 2,
+  admin: 1,
+  location_manager: 1,
+  member: 0,
+};
 
 export function RoleCard({
   appUserId,

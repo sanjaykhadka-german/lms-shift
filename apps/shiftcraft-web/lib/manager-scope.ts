@@ -8,15 +8,19 @@ import { forTenant, scManagerLocations } from "@tracey/db";
 // across, OR `null` to mean "no restriction" (the existing UI behavior).
 //
 // Resolution rules:
-//   - role === "owner"          → null (always full access)
-//   - role === "admin", 0 rows  → null (backwards-compat: admins keep
-//                                  full access until an owner
-//                                  explicitly scopes them)
-//   - role === "admin", N rows  → Set<locationId>
-//   - role === "member"         → null (members are gated by
-//                                  assignment ownership at a finer
-//                                  grain; the manager-scope filter
-//                                  doesn't apply)
+//   - role === "owner"                    → null (always full access)
+//   - role === "admin", 0 rows            → null (backwards-compat: admins
+//                                            keep full access until an owner
+//                                            explicitly scopes them)
+//   - role === "admin", N rows            → Set<locationId>
+//   - role === "location_manager", 0 rows → empty Set (NO access — a location
+//                                            manager with no sites assigned
+//                                            sees nothing, never everything)
+//   - role === "location_manager", N rows → Set<locationId>
+//   - role === "member"                   → null (members are gated by
+//                                            assignment ownership at a finer
+//                                            grain; the manager-scope filter
+//                                            doesn't apply)
 //
 // Callers branch on the null vs Set return:
 //
@@ -33,7 +37,7 @@ export async function getManagedLocationIds(
   role: string,
 ): Promise<ManagerScope> {
   if (role === "owner") return null;
-  if (role !== "admin") return null;
+  if (role !== "admin" && role !== "location_manager") return null;
   const rows = await forTenant(tenantId).run((tx) =>
     tx
       .select({ locationId: scManagerLocations.locationId })
@@ -45,7 +49,9 @@ export async function getManagedLocationIds(
         ),
       ),
   );
-  if (rows.length === 0) return null;
+  // A location_manager with zero grants is locked to nothing (empty Set), not
+  // everything. An admin with zero grants keeps full access (back-compat).
+  if (rows.length === 0) return role === "location_manager" ? new Set<string>() : null;
   return new Set(rows.map((r) => r.locationId));
 }
 

@@ -179,7 +179,10 @@ export const members = appSchema.table(
   },
   (t) => [
     uniqueIndex("members_tenant_user_uq").on(t.tenantId, t.userId),
-    check("members_role_chk", sql`${t.role} in ('owner','admin','member')`),
+    check(
+      "members_role_chk",
+      sql`${t.role} in ('owner','admin','location_manager','member')`,
+    ),
   ],
 );
 
@@ -201,7 +204,10 @@ export const invitations = appSchema.table(
   },
   (t) => [
     uniqueIndex("invitations_token_uq").on(t.token),
-    check("invitations_role_chk", sql`${t.role} in ('owner','admin','member')`),
+    check(
+      "invitations_role_chk",
+      sql`${t.role} in ('owner','admin','location_manager','member')`,
+    ),
   ],
 );
 
@@ -317,7 +323,7 @@ export type NewInvitation = typeof invitations.$inferInsert;
 export type ProcessedStripeEvent = typeof processedStripeEvents.$inferSelect;
 export type AuditEvent = typeof auditEvents.$inferSelect;
 export type NewAuditEvent = typeof auditEvents.$inferInsert;
-export type Role = "owner" | "admin" | "member";
+export type Role = "owner" | "admin" | "location_manager" | "member";
 export type AiStudioSession = typeof aiStudioSessions.$inferSelect;
 export type NewAiStudioSession = typeof aiStudioSessions.$inferInsert;
 export type Notification = typeof notifications.$inferSelect;

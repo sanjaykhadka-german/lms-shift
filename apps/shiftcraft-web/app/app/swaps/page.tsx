@@ -10,6 +10,7 @@ import {
   users,
 } from "@tracey/db";
 import { currentMembership } from "~/lib/auth/current";
+import { isAtLeastManager } from "~/lib/roles";
 import { InfoPopover } from "~/components/InfoPopover";
 import { Badge, type BadgeProps } from "~/components/ui/badge";
 
@@ -49,7 +50,7 @@ export default async function SwapsAuditPage({
 }) {
   const membership = await currentMembership();
   if (!membership) redirect("/app");
-  if (membership.role !== "admin" && membership.role !== "owner") {
+  if (!isAtLeastManager(membership.role)) {
     redirect("/app");
   }
 

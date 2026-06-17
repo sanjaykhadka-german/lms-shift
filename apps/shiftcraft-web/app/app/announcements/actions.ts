@@ -12,6 +12,7 @@ import {
   users as appUsers,
 } from "@tracey/db";
 import { currentMembership, currentUser } from "~/lib/auth/current";
+import { isAtLeastManager } from "~/lib/roles";
 import { logAuditEvent } from "~/lib/audit";
 import { notifyAnnouncementPosted } from "~/lib/email";
 import { getUnsubscribedUserIds } from "~/lib/email-prefs";
@@ -30,7 +31,7 @@ const announcementSchema = z.object({
 });
 
 function requireAdmin(role: string): true | string {
-  if (role === "owner" || role === "admin") return true;
+  if (isAtLeastManager(role)) return true;
   return "Only admins can manage announcements.";
 }
 

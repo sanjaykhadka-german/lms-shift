@@ -5,14 +5,14 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, invitations, members, users } from "@tracey/db";
 import { currentMembership, currentUser } from "~/lib/auth/current";
-import { isAtLeastManager } from "~/lib/roles";
+import { isWorkspaceAdmin } from "~/lib/roles";
 import { sendInvitationEmail } from "~/lib/auth/email";
 import { generateToken, tokenExpiry } from "~/lib/auth/tokens";
 import { logAuditEvent } from "~/lib/audit";
 
 const inviteSchema = z.object({
   email: z.string().trim().toLowerCase().email("Enter a valid email address."),
-  role: z.enum(["admin", "member"]),
+  role: z.enum(["admin", "location_manager", "member"]),
 });
 
 export type InviteState =
@@ -26,7 +26,7 @@ export async function createInvitationAction(
 ): Promise<InviteState> {
   const me = await currentUser();
   const membership = await currentMembership();
-  if (!me || !membership || !isAtLeastManager(membership.role)) {
+  if (!me || !membership || !isWorkspaceAdmin(membership.role)) {
     return {
       status: "error",
       message: "Only Managers and Admins can invite teammates.",
@@ -121,7 +121,7 @@ const revokeSchema = z.object({
 export async function revokeInvitationAction(formData: FormData): Promise<void> {
   const me = await currentUser();
   const membership = await currentMembership();
-  if (!me || !membership || !isAtLeastManager(membership.role)) {
+  if (!me || !membership || !isWorkspaceAdmin(membership.role)) {
     throw new Error("Forbidden");
   }
   const tenantId = membership.tenant.id;

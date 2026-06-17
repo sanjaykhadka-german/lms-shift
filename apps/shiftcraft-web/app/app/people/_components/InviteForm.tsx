@@ -52,6 +52,7 @@ export function InviteForm() {
           className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
         >
           <option value="member">Employee</option>
+          <option value="location_manager">Location Manager</option>
           <option value="admin">Manager</option>
         </select>
       </div>

@@ -11,6 +11,7 @@ import {
   scTimeOffRequests,
 } from "@tracey/db";
 import { currentMembership, requireUser } from "~/lib/auth/current";
+import { isAtLeastManager } from "~/lib/roles";
 import { logAuditEvent } from "~/lib/audit";
 import { createNotifications } from "~/lib/notifications";
 import { findAffectedShifts } from "~/lib/time-off-impact";
@@ -35,7 +36,7 @@ const submitSchema = z
 async function requireAdminMembership() {
   const m = await currentMembership();
   if (!m) throw new Error("You must belong to a workspace.");
-  if (m.role !== "admin" && m.role !== "owner") {
+  if (!isAtLeastManager(m.role)) {
     throw new Error("Only admins can review time-off requests.");
   }
   return m;

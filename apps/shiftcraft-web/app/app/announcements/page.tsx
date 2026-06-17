@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { desc, eq } from "drizzle-orm";
 import { db, forTenant, scAnnouncements, users as appUsers } from "@tracey/db";
 import { currentMembership } from "~/lib/auth/current";
+import { isAtLeastManager } from "~/lib/roles";
 import { Button } from "~/components/ui/button";
 import { AnnouncementForm } from "./_form";
 import { InfoPopover } from "~/components/InfoPopover";
@@ -31,8 +32,7 @@ export default async function AnnouncementsPage({
   if (!membership) redirect("/app");
   const { added } = await searchParams;
   const tenantId = membership.tenant.id;
-  const isAdmin =
-    membership.role === "owner" || membership.role === "admin";
+  const isAdmin = isAtLeastManager(membership.role);
 
   const rows = await forTenant(tenantId).run((tx) =>
     tx

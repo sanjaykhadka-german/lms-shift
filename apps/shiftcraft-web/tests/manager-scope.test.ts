@@ -71,6 +71,22 @@ describe("getManagedLocationIds", () => {
     expect(scope?.has("loc-2")).toBe(true);
   });
 
+  it("returns an EMPTY Set for a location_manager with no rows (no access, not full)", async () => {
+    state.rows = [];
+    const scope = await getManagedLocationIds("tenant-A", "user-1", "location_manager");
+    expect(scope).toBeInstanceOf(Set);
+    expect(scope?.size).toBe(0);
+    // Empty scope denies every location.
+    expect(isLocationInScope(scope, "loc-1")).toBe(false);
+  });
+
+  it("returns a Set of location IDs for a location_manager with rows", async () => {
+    state.rows = [{ locationId: "loc-1" }];
+    const scope = await getManagedLocationIds("tenant-A", "user-1", "location_manager");
+    expect(scope).toBeInstanceOf(Set);
+    expect(scope?.has("loc-1")).toBe(true);
+  });
+
   it("dedupes identical location IDs (defensive)", async () => {
     state.rows = [
       { locationId: "loc-1" },

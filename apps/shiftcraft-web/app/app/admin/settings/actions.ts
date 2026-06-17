@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { forTenant, scTenantConfig, type ScHolidayRegion } from "@tracey/db";
 import { currentMembership, currentUser } from "~/lib/auth/current";
-import { isAtLeastManager } from "~/lib/roles";
+import { isWorkspaceAdmin } from "~/lib/roles";
 import { logAuditEvent } from "~/lib/audit";
 import { HOLIDAY_REGIONS } from "~/lib/holidays";
 import { _parseAwardProfile } from "~/lib/timesheet-classifier";
@@ -25,7 +25,7 @@ export async function setHolidayRegionAction(
 ): Promise<SettingsFormState> {
   const me = await currentUser();
   const membership = await currentMembership();
-  if (!me || !membership || !isAtLeastManager(membership.role)) {
+  if (!me || !membership || !isWorkspaceAdmin(membership.role)) {
     return {
       status: "error",
       message: "Only Managers and Admins can change workspace settings.",
@@ -126,7 +126,7 @@ export async function setAwardProfileAction(
 ): Promise<SettingsFormState> {
   const me = await currentUser();
   const membership = await currentMembership();
-  if (!me || !membership || !isAtLeastManager(membership.role)) {
+  if (!me || !membership || !isWorkspaceAdmin(membership.role)) {
     return {
       status: "error",
       message: "Only Managers and Admins can change workspace settings.",

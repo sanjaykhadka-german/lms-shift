@@ -18,7 +18,7 @@ import {
   type ScOnboardingStatus,
 } from "@tracey/db";
 import { currentMembership } from "~/lib/auth/current";
-import { isAtLeastManager, friendlyRoleLabel } from "~/lib/roles";
+import { isAtLeastManager, isWorkspaceAdmin, friendlyRoleLabel } from "~/lib/roles";
 import { Avatar } from "~/components/Avatar";
 import { Button } from "~/components/ui/button";
 import { Badge, type BadgeProps } from "~/components/ui/badge";
@@ -218,6 +218,8 @@ export default async function PeopleTeamPage({
   if (!membership) redirect("/app");
   const tenantId = membership.tenant.id;
   const canManage = isAtLeastManager(membership.role);
+  // Inviting / membership management is owner/Manager only (not Location Managers).
+  const canInvite = isWorkspaceAdmin(membership.role);
 
   const { q: rawQ, added } = await searchParams;
   const q = (rawQ ?? "").trim().toLowerCase();
@@ -491,8 +493,8 @@ export default async function PeopleTeamPage({
         ) : null}
       </form>
 
-      {/* ─── Invite teammate (admin only, collapsed by default) ─── */}
-      {canManage ? (
+      {/* ─── Invite teammate (owner/Manager only, collapsed by default) ─── */}
+      {canInvite ? (
         <details className="rounded-lg border border-border bg-card shadow-sm">
           <summary className="flex cursor-pointer items-center justify-between px-5 py-3 text-sm font-medium hover:bg-muted/30">
             <span>Invite a teammate</span>
