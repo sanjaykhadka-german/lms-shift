@@ -108,6 +108,104 @@ services:
       - key: PER_TENANT_SCHEMA_ENABLED
         value: "true"
 
+  # ─── ShiftCraft (added 2026-06-17) ───
+  # Codified from the previously dashboard-only service so deploys are
+  # reproducible. Deploys from the long-lived `shiftcraft/...` branch (NOT
+  # main — see the branch-isolation rule). autoDeploy stays off: ShiftCraft
+  # ships per-slice and is deployed manually.
+  #
+  # buildCommand WARMS pnpm via `corepack prepare ... --activate` so the
+  # startCommand uses the cached binary instead of re-downloading pnpm at
+  # boot — that runtime download is what crash-looped the 2026-06-17 deploy
+  # (`UND_ERR_SOCKET: other side closed`). COREPACK_INTEGRITY_KEYS=0 below
+  # additionally skips the signature check that broke the very first deploy.
+  #
+  # ⚠️ BEFORE pointing Render at this Blueprint: reconcile the envVars below
+  # against the live dashboard. Secrets are `sync: false` ON PURPOSE so the
+  # Blueprint NEVER regenerates them — regenerating AUTH_SECRET logs every
+  # user out, and regenerating TRACEY_PII_ENC_KEY makes all stored payroll
+  # PII undecryptable. Copy the existing dashboard values in; don't let them
+  # generate. Verify the list is complete (per-seat Stripe price IDs etc.).
+  - type: web
+    name: shiftcraft-web
+    runtime: node
+    plan: free
+    branch: shiftcraft/session-2026-05-13
+    autoDeploy: false
+    buildCommand: corepack enable && corepack prepare pnpm@9.15.0 --activate && pnpm install --frozen-lockfile && pnpm --filter shiftcraft-web build
+    startCommand: pnpm --filter shiftcraft-web start
+    envVars:
+      - key: TZ
+        value: Australia/Sydney
+      - key: NODE_VERSION
+        value: "22.13.0"
+      # Belt-and-braces against the Node 22.13.0 corepack signature failure.
+      - key: COREPACK_INTEGRITY_KEYS
+        value: "0"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lms-db
+          property: connectionString
+      # ── Auth.js — DO NOT regenerate. Copy existing dashboard values. ──
+      - key: AUTH_SECRET
+        sync: false
+      - key: AUTH_URL
+        sync: false
+      - key: AUTH_TRUST_HOST
+        value: "true"
+      # ── Per-tenant PII encryption — DO NOT regenerate (would orphan all
+      #    encrypted TFN/BSB/account/super data). Copy existing value. ──
+      - key: TRACEY_PII_ENC_KEY
+        sync: false
+      # ── Mail (Resend) ──
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        value: onboarding@resend.dev
+      - key: MAIL_FROM_NAME
+        value: ShiftCraft
+      # ── App URLs. NEXT_PUBLIC_* are inlined at BUILD time; SHIFTCRAFT_URL
+      #    is read at RUNTIME for email links. Kept sync:false so the
+      #    Blueprint doesn't clobber the dashboard's prod URLs. ──
+      - key: SHIFTCRAFT_URL
+        sync: false
+      - key: NEXT_PUBLIC_SHIFTCRAFT_URL
+        sync: false
+      - key: NEXT_PUBLIC_LMS_URL
+        sync: false
+      - key: NEXT_PUBLIC_HUB_URL
+        sync: false
+      # ── Platform super-admin allowlist (comma-separated emails) ──
+      - key: PLATFORM_ADMIN_EMAILS
+        sync: false
+      # ── Per-tenant schema provisioning on signup (same as lms-web) ──
+      - key: PER_TENANT_SCHEMA_ENABLED
+        value: "true"
+      # ── Stripe (per-seat). Add any STRIPE_PRICE_* the dashboard has. ──
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      # ── Per-app billing gate. Dormant ("false") per the baseline. ──
+      - key: SHIFTCRAFT_BILLING_ENFORCED
+        value: "false"
+      # ── Xero payroll export ──
+      - key: XERO_CLIENT_ID
+        sync: false
+      - key: XERO_CLIENT_SECRET
+        sync: false
+      - key: XERO_REDIRECT_URI
+        sync: false
+      - key: XERO_SCOPES
+        sync: false
+      # ── Web push (kiosk/shift notifications) ──
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false
+
   - type: cron
     name: lms-stripe-reconcile
     runtime: node
