@@ -1,10 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { and, asc, count, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, count, eq, gte, lte, sql } from "drizzle-orm";
+import { CalendarCheck, CalendarDays, Clock, Plane } from "lucide-react";
 import {
-  db,
   forTenant,
-  members,
   scClockEvents,
   scEmployees,
   scLocations,
@@ -13,23 +12,22 @@ import {
   scShiftSwapRequests,
   scTimeOffRequests,
   scTimesheetApprovals,
-  users as appUsers,
 } from "@tracey/db";
 import { currentMembership, currentUser } from "~/lib/auth/current";
-import { Avatar } from "~/components/Avatar";
+import { deriveClockState, getTodayEventsForUser } from "~/lib/clock";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
 import { Eyebrow } from "~/components/ui/card";
 import { InfoPopover } from "~/components/InfoPopover";
+import { ShiftHero } from "~/components/ShiftHero";
+import { StatTile } from "~/components/StatTile";
 
-// Dashboard ("/app") — Deputy-style "Me" view.
+// Dashboard ("/app") — Deputy-style "Me" view, "command center" layout.
 //
-// Left rail: profile + today's shift status + Start-unscheduled-shift CTA.
-// Three cards: Needs Attention / Needs Approval (admin) / What's happening?
-// Calendar strip: current user's week of shifts with day-card grid.
-//
-// All queries are scoped per-tenant via forTenant. Admin-only sections
-// are skipped at fetch time for members (zero wasted round-trips).
+// Live shift hero (driven by the actual open clock-in) + 2×2 quick actions,
+// a 4-across stat row, and a horizontal week strip. All queries are scoped
+// per-tenant via forTenant. Admin-only sections are skipped at fetch time for
+// members (zero wasted round-trips).
 
 function startOfWeek(d: Date): Date {
   const dow = (d.getDay() + 6) % 7;
@@ -68,13 +66,6 @@ function fmtDuration(ms: number): string {
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
   return `${h}h ${m}m`;
-}
-
-function fmtDateRange(start: Date, end: Date): string {
-  const s = start.toLocaleDateString(undefined, { day: "numeric", month: "short" });
-  const e = end.toLocaleDateString(undefined, { day: "numeric", month: "short" });
-  if (s === e) return s;
-  return `${s} → ${e}`;
 }
 
 const STATUS_VARIANT: Record<string, "live" | "warn" | "neutral" | "open" | "danger"> = {
@@ -176,10 +167,23 @@ export default async function DashboardPage({
       .orderBy(asc(scShifts.startsAt)),
   );
 
-  // ─── Profile rail: today's shift status ───
+  // ─── Today's shift (feeds the hero) ───
   const myShiftsToday = myWeekShifts.filter(
     (s) => s.startsAt >= today && s.startsAt < tomorrow,
   );
+
+  // ─── Live shift hero source: the user's actual open clock-in. Reuse the
+  //     clock state machine — the latest 'in' event opens the current session
+  //     (breaks don't re-emit 'in'), so it is the session start. ───
+  const todayEvents = await getTodayEventsForUser(tenantId, user.id);
+  const clockState = deriveClockState(todayEvents);
+  const clockedInAtMs =
+    clockState.status !== "clocked_out"
+      ? (todayEvents
+          .filter((e) => e.eventType === "in")
+          .at(-1)
+          ?.occurredAt.getTime() ?? null)
+      : null;
 
   // ─── Needs Attention: upcoming approved time off (everyone sees their own;
   //     admin sees the whole tenant for next-7-day awareness). Also includes
@@ -289,7 +293,7 @@ export default async function DashboardPage({
     ).length;
   }
 
-  // ─── What's happening: people on leave today or in next 14 days ───
+  // ─── What's happening: people on leave today or in next 14 days (count) ───
   const peopleOnLeave = await ctx.run((tx) =>
     tx
       .select({
@@ -297,7 +301,6 @@ export default async function DashboardPage({
         userId: scTimeOffRequests.userId,
         startDate: scTimeOffRequests.startDate,
         endDate: scTimeOffRequests.endDate,
-        reason: scTimeOffRequests.reason,
       })
       .from(scTimeOffRequests)
       .where(
@@ -312,58 +315,11 @@ export default async function DashboardPage({
       .limit(8),
   );
 
-  // Resolve names for everyone surfaced across the cards (one round-trip).
-  const userIdsToResolve = Array.from(
-    new Set<string>([
-      ...upcomingTimeOff.map((t) => t.userId),
-      ...peopleOnLeave.map((t) => t.userId),
-    ]),
-  );
-  const profileRows = userIdsToResolve.length === 0
-    ? []
-    : await db
-        .select({
-          id: appUsers.id,
-          name: appUsers.name,
-          email: appUsers.email,
-          image: appUsers.image,
-        })
-        .from(appUsers)
-        .innerJoin(members, eq(members.userId, appUsers.id))
-        .where(
-          and(
-            eq(members.tenantId, tenantId),
-            inArray(appUsers.id, userIdsToResolve),
-          ),
-        );
-  const profileById = new Map(profileRows.map((p) => [p.id, p]));
-
-  // ─── Birthdays this week (uses the new sc_employees.date_of_birth) ───
-  const birthdaysThisWeek = await ctx.run((tx) =>
-    tx
-      .select({
-        id: scEmployees.id,
-        fullName: scEmployees.fullName,
-        dateOfBirth: scEmployees.dateOfBirth,
-        appUserId: scEmployees.appUserId,
-        email: scEmployees.email,
-      })
-      .from(scEmployees)
-      .where(
-        and(
-          eq(scEmployees.traceyTenantId, tenantId),
-          sql`${scEmployees.dateOfBirth} is not null`,
-          sql`to_char(${scEmployees.dateOfBirth}, 'MM-DD') between to_char(${weekStart.toISOString().slice(0, 10)}::date, 'MM-DD') and to_char(${addDays(weekStart, 6).toISOString().slice(0, 10)}::date, 'MM-DD')`,
-        ),
-      )
-      .limit(5),
-  );
-
   const prevWeek = addDays(weekStart, -7).toISOString().slice(0, 10);
   const nextWeek = addDays(weekStart, 7).toISOString().slice(0, 10);
   const isCurrentWeek = weekStart.getTime() === todayMidnight.getTime();
 
-  // Weekly totals for the calendar strip footer.
+  // Weekly totals for the strip + the member "This week" tile.
   const weekTotalMs = myWeekShifts
     .filter((s) => s.status === "accepted" || s.status === "offered")
     .reduce(
@@ -374,422 +330,279 @@ export default async function DashboardPage({
     (s) => s.status === "accepted",
   ).length;
 
+  // Per-day hours (Mon→Sun) — sparkline for the member "This week" tile.
+  // Derived from the already-fetched week shifts, no extra query.
+  const weekDayHours = Array.from({ length: 7 }, (_, i) => {
+    const day = addDays(weekStart, i);
+    const dayEnd = addDays(day, 1);
+    const ms = myWeekShifts
+      .filter((s) => s.startsAt >= day && s.startsAt < dayEnd)
+      .reduce((acc, s) => acc + (s.endsAt.getTime() - s.startsAt.getTime()), 0);
+    return Math.round((ms / 3_600_000) * 10) / 10;
+  });
+
+  const today0 = myShiftsToday[0];
+  const attentionCount = upcomingTimeOff.length + (isAdmin ? openSwapRequests[0]!.n : 0);
+
+  const QUICK_ACTIONS = [
+    { href: "/app/clock", label: "Time clock", Icon: Clock, primary: true },
+    { href: "/app/schedule", label: "Open roster", Icon: CalendarDays },
+    { href: "/app/time-off", label: "Request time off", Icon: Plane },
+    { href: "/app/availability", label: "My availability", Icon: CalendarCheck },
+  ];
+
   return (
-    <div className="mx-auto w-full max-w-7xl px-6 py-8">
-      <div className="grid gap-6 lg:grid-cols-[16rem_1fr]">
-        {/* ─── Left profile rail ─── */}
-        <aside className="space-y-4">
-          <div className="rounded-lg border border-border bg-card p-6 text-center shadow-sm">
-            <Avatar
-              name={user.name ?? user.email ?? "?"}
-              email={user.email ?? ""}
-              image={user.image ?? null}
-              sizeClass="h-24 w-24 mx-auto"
-              textClass="text-3xl"
-            />
-            <div className="mt-4 text-sm font-semibold">
-              {user.name ?? user.email}
-            </div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              {myShiftsToday.length === 0
-                ? "No scheduled shifts today"
-                : myShiftsToday.length === 1
-                  ? `Working ${fmtTimeRange(myShiftsToday[0]!.startsAt, myShiftsToday[0]!.endsAt)}`
-                  : `${myShiftsToday.length} shifts today`}
-            </div>
-            <Button asChild className="mt-4 w-full">
-              <Link href="/app/clock">
-                {myShiftsToday.length > 0
-                  ? "Open time clock"
-                  : "Start unscheduled shift"}
+    <div className="mx-auto w-full max-w-7xl space-y-6 px-6 py-8">
+      {/* ─── Header ─── */}
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <Eyebrow>
+            {today.toLocaleDateString(undefined, {
+              weekday: "long",
+              day: "numeric",
+              month: "long",
+            })}
+          </Eyebrow>
+          <h1 className="mt-1 flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
+            {(() => {
+              const h = new Date().getHours();
+              const part = h < 12 ? "morning" : h < 18 ? "afternoon" : "evening";
+              const first = user.name ? `, ${user.name.split(" ")[0]}` : "";
+              return `Good ${part}${first}.`;
+            })()}
+            <InfoPopover label="About the dashboard">
+              <p>
+                Your live command center: today&rsquo;s shift status, quick
+                actions, and (for managers) what needs attention + approval.
+                The tiles below pull live from the schedule, timesheets, and
+                clock activity.
+              </p>
+            </InfoPopover>
+          </h1>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button asChild variant="outline" size="sm">
+            <Link href="/app/schedule">Open roster</Link>
+          </Button>
+          <Button asChild size="sm">
+            <Link href="/app/clock">Time clock</Link>
+          </Button>
+        </div>
+      </header>
+
+      {/* ─── Hero + quick actions ─── */}
+      <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+        <ShiftHero
+          name={user.name ?? user.email ?? "You"}
+          email={user.email ?? ""}
+          image={user.image ?? null}
+          shiftStartMs={today0 ? today0.startsAt.getTime() : null}
+          shiftEndMs={today0 ? today0.endsAt.getTime() : null}
+          role={today0?.role ?? null}
+          locationName={today0?.locationName ?? null}
+          clockedInAtMs={clockedInAtMs}
+        />
+        <div className="grid grid-cols-2 gap-3">
+          {QUICK_ACTIONS.map((qa) => (
+            <Button
+              key={qa.href}
+              asChild
+              variant={qa.primary ? "default" : "outline"}
+              className="h-auto flex-col items-center justify-center gap-1.5 py-5 transition-transform hover:-translate-y-0.5"
+            >
+              <Link href={qa.href}>
+                <qa.Icon />
+                <span>{qa.label}</span>
               </Link>
             </Button>
-          </div>
-          <nav className="rounded-lg border border-border bg-card p-3 text-sm shadow-sm">
-            <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Jump to
-            </div>
-            <ul className="space-y-0.5">
-              <li>
-                <Link
-                  href="/app/my-shifts"
-                  className="block rounded-md px-2 py-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                >
-                  My shifts
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/app/time-off"
-                  className="block rounded-md px-2 py-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                >
-                  Request time off
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/app/availability"
-                  className="block rounded-md px-2 py-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                >
-                  My availability
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/app/open-shifts"
-                  className="block rounded-md px-2 py-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                >
-                  Open shifts
-                </Link>
-              </li>
-            </ul>
-          </nav>
-        </aside>
+          ))}
+        </div>
+      </div>
 
-        {/* ─── Main column ─── */}
-        <div className="space-y-6">
-          <header className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <Eyebrow>
-                {today.toLocaleDateString(undefined, {
-                  weekday: "long",
-                  day: "numeric",
-                  month: "long",
-                })}
-              </Eyebrow>
-              <h1 className="mt-1 flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
-                {(() => {
-                  const h = new Date().getHours();
-                  const part = h < 12 ? "morning" : h < 18 ? "afternoon" : "evening";
-                  const first = user.name ? `, ${user.name.split(" ")[0]}` : "";
-                  return `Good ${part}${first}.`;
-                })()}
-                <InfoPopover label="About the dashboard">
-                  <p>
-                    Daily roundup: today&rsquo;s shift status, recent
-                    announcements, and (for managers) what needs attention
-                    + approval. The cards below pull live from the schedule,
-                    timesheets, and notifications.
-                  </p>
-                </InfoPopover>
-              </h1>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button asChild variant="outline" size="sm">
-                <Link href="/app/schedule">Open roster</Link>
+      {/* ─── Stat tiles ─── */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {isAdmin ? (
+          <>
+            <StatTile
+              label="Needs attention"
+              value={attentionCount}
+              tone="live"
+              hint={attentionCount === 0 ? "All clear" : "Next 7 days"}
+            />
+            <StatTile
+              label="Leave requests"
+              value={pendingLeaveCount}
+              hint="Pending review"
+              href="/app/time-off"
+            />
+            <StatTile
+              label="Timesheets"
+              value={timesheetsNeedingApproval}
+              tone="warn"
+              hint="Awaiting sign-off"
+              href="/app/timesheets"
+            />
+            <StatTile
+              label="On leave (2 wks)"
+              value={peopleOnLeave.length}
+            />
+          </>
+        ) : (
+          <>
+            <StatTile
+              label="This week"
+              value={fmtDuration(weekTotalMs)}
+              trend={weekDayHours}
+            />
+            <StatTile label="Shifts this week" value={weekShiftCount} />
+            <StatTile
+              label="Today"
+              value={myShiftsToday.length}
+              hint={myShiftsToday.length === 1 ? "1 shift" : "shifts"}
+            />
+            <StatTile
+              label="Time off booked"
+              value={upcomingTimeOff.length}
+              tone="live"
+              hint={upcomingTimeOff.length === 0 ? "None upcoming" : "Next 7 days"}
+            />
+          </>
+        )}
+      </div>
+
+      {/* ─── This week strip ─── */}
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="font-display text-xl font-semibold tracking-tight text-ink">
+            This week
+          </h2>
+          <div className="flex items-center gap-2 text-sm">
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/app?week=${prevWeek}`}>←</Link>
+            </Button>
+            <span className="rounded-md border border-border bg-card px-3 py-1 text-sm font-medium">
+              {weekStart.toLocaleDateString(undefined, {
+                day: "numeric",
+                month: "short",
+              })}
+              {" – "}
+              {addDays(weekStart, 6).toLocaleDateString(undefined, {
+                day: "numeric",
+                month: "short",
+              })}
+            </span>
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/app?week=${nextWeek}`}>→</Link>
+            </Button>
+            {!isCurrentWeek ? (
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/app">Today</Link>
               </Button>
-              <Button asChild size="sm">
-                <Link href="/app/clock">Time clock</Link>
-              </Button>
-            </div>
-          </header>
-
-          {/* ─── Three cards ─── */}
-          <div className={`grid gap-4 ${isAdmin ? "lg:grid-cols-3" : "lg:grid-cols-2"}`}>
-            {/* Needs Attention */}
-            <section className="space-y-3">
-              <h2 className="text-sm font-semibold tracking-tight">
-                Needs Attention
-              </h2>
-              <div className="space-y-2 rounded-lg border border-border bg-card p-4 shadow-sm">
-                {upcomingTimeOff.length === 0 && (!isAdmin || openSwapRequests[0]!.n === 0) ? (
-                  <p className="text-xs text-muted-foreground">
-                    Nothing flagged for the next 7 days.
-                  </p>
-                ) : (
-                  <>
-                    {upcomingTimeOff.length > 0 ? (
-                      <div>
-                        <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                          Upcoming time off ({upcomingTimeOff.length})
-                        </div>
-                        <ul className="mt-1 space-y-1">
-                          {upcomingTimeOff.slice(0, 4).map((t) => {
-                            const p = profileById.get(t.userId);
-                            return (
-                              <li
-                                key={t.id}
-                                className="flex items-center gap-2 text-xs"
-                              >
-                                <Avatar
-                                  name={p?.name ?? p?.email ?? "?"}
-                                  email={p?.email ?? ""}
-                                  image={p?.image ?? null}
-                                  sizeClass="h-6 w-6"
-                                  textClass="text-[10px]"
-                                />
-                                <span className="truncate font-medium">
-                                  {p?.name ?? p?.email ?? "Unknown"}
-                                </span>
-                                <span className="text-muted-foreground">
-                                  {fmtDateRange(
-                                    new Date(t.startDate),
-                                    new Date(t.endDate),
-                                  )}
-                                </span>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      </div>
-                    ) : null}
-                    {isAdmin && openSwapRequests[0]!.n > 0 ? (
-                      <Link
-                        href="/app/swaps"
-                        className="block rounded-md border border-border bg-background px-3 py-2 text-xs hover:bg-muted"
-                      >
-                        <span className="font-semibold">
-                          {openSwapRequests[0]!.n}
-                        </span>{" "}
-                        open shift swap{openSwapRequests[0]!.n === 1 ? "" : "s"} →
-                      </Link>
-                    ) : null}
-                  </>
-                )}
-              </div>
-            </section>
-
-            {/* Needs Approval (admin only) */}
-            {isAdmin ? (
-              <section className="space-y-3">
-                <h2 className="text-sm font-semibold tracking-tight">
-                  Needs Approval
-                </h2>
-                <div className="space-y-2">
-                  <Link
-                    href="/app/time-off"
-                    className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card p-4 shadow-sm hover:bg-muted/40"
-                  >
-                    <div>
-                      <div className="text-sm font-semibold">
-                        {pendingLeaveCount === 0
-                          ? "No leave requests"
-                          : `${pendingLeaveCount} leave request${pendingLeaveCount === 1 ? "" : "s"}`}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        Pending review
-                      </div>
-                    </div>
-                    <span className="text-muted-foreground">→</span>
-                  </Link>
-                  <Link
-                    href="/app/timesheets"
-                    className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card p-4 shadow-sm hover:bg-muted/40"
-                  >
-                    <div>
-                      <div className="text-sm font-semibold">
-                        {timesheetsNeedingApproval === 0
-                          ? "All timesheets approved"
-                          : `${timesheetsNeedingApproval} timesheet${timesheetsNeedingApproval === 1 ? "" : "s"}`}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        Last 4 weeks awaiting sign-off
-                      </div>
-                    </div>
-                    <span className="text-muted-foreground">→</span>
-                  </Link>
-                </div>
-              </section>
             ) : null}
-
-            {/* What's happening */}
-            <section className="space-y-3">
-              <h2 className="text-sm font-semibold tracking-tight">
-                What's happening?
-              </h2>
-              <div className="space-y-2 rounded-lg border border-border bg-card p-4 shadow-sm">
-                {peopleOnLeave.length === 0 && birthdaysThisWeek.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">
-                    All quiet in the next two weeks.
-                  </p>
-                ) : null}
-                {peopleOnLeave.length > 0 ? (
-                  <div>
-                    <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      {peopleOnLeave.length}{" "}
-                      {peopleOnLeave.length === 1 ? "person" : "people"} on leave
-                    </div>
-                    <ul className="mt-1 space-y-1.5">
-                      {peopleOnLeave.map((t) => {
-                        const p = profileById.get(t.userId);
-                        return (
-                          <li
-                            key={t.id}
-                            className="flex items-center gap-2 text-xs"
-                          >
-                            <Avatar
-                              name={p?.name ?? p?.email ?? "?"}
-                              email={p?.email ?? ""}
-                              image={p?.image ?? null}
-                              sizeClass="h-6 w-6"
-                              textClass="text-[10px]"
-                            />
-                            <span className="truncate font-medium">
-                              {p?.name ?? p?.email ?? "Unknown"}
-                            </span>
-                            <span className="text-muted-foreground">
-                              {fmtDateRange(
-                                new Date(t.startDate),
-                                new Date(t.endDate),
-                              )}
-                            </span>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </div>
-                ) : null}
-                {birthdaysThisWeek.length > 0 ? (
-                  <div className="pt-2">
-                    <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Birthdays this week
-                    </div>
-                    <ul className="mt-1 space-y-0.5 text-xs">
-                      {birthdaysThisWeek.map((b) => (
-                        <li key={b.id}>
-                          🎂 <span className="font-medium">{b.fullName}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-              </div>
-            </section>
           </div>
+        </div>
 
-          {/* ─── Calendar strip ─── */}
-          <section className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-xl font-semibold tracking-tight">Calendar</h2>
-              <div className="flex items-center gap-2 text-sm">
-                <Button asChild variant="outline" size="sm">
-                  <Link href={`/app?week=${prevWeek}`}>←</Link>
-                </Button>
-                <span className="rounded-md border border-border bg-card px-3 py-1 text-sm font-medium">
-                  {weekStart.toLocaleDateString(undefined, {
-                    day: "numeric",
-                    month: "short",
-                  })}
-                  {" – "}
-                  {addDays(weekStart, 6).toLocaleDateString(undefined, {
-                    day: "numeric",
-                    month: "short",
-                  })}
-                </span>
-                <Button asChild variant="outline" size="sm">
-                  <Link href={`/app?week=${nextWeek}`}>→</Link>
-                </Button>
-                {!isCurrentWeek ? (
-                  <Button asChild variant="ghost" size="sm">
-                    <Link href="/app">Today</Link>
-                  </Button>
-                ) : null}
-              </div>
-            </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button asChild variant="outline" size="sm">
+            <Link href="/app/my-shifts">Upcoming shifts</Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/app/open-shifts">Available shifts</Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/app/time-off">Request time off</Link>
+          </Button>
+        </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <Button asChild variant="outline" size="sm">
-                <Link href="/app/my-shifts">Upcoming shifts</Link>
-              </Button>
-              <Button asChild variant="outline" size="sm">
-                <Link href="/app/open-shifts">Available shifts</Link>
-              </Button>
-              <Button asChild variant="outline" size="sm">
-                <Link href="/app/time-off">Request time off</Link>
-              </Button>
-            </div>
+        {weekShiftCount > 0 ? (
+          <p className="text-xs text-ink-3">
+            Weekly total: {weekShiftCount} shift{weekShiftCount === 1 ? "" : "s"}
+            {" · "}
+            {fmtDuration(weekTotalMs)}
+          </p>
+        ) : null}
 
-            {weekShiftCount > 0 ? (
-              <p className="text-xs text-muted-foreground">
-                Weekly total: {weekShiftCount} shift{weekShiftCount === 1 ? "" : "s"}
-                {" · "}
-                {fmtDuration(weekTotalMs)}
-              </p>
-            ) : null}
-
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
-              {Array.from({ length: 7 }).map((_, i) => {
-                const day = addDays(weekStart, i);
-                const dayEnd = addDays(day, 1);
-                const isToday = day.getTime() === today.getTime();
-                const label = fmtDayLabel(day);
-                const dayShifts = myWeekShifts.filter(
-                  (s) => s.startsAt >= day && s.startsAt < dayEnd,
-                );
-                return (
-                  <div
-                    key={i}
-                    className={`flex min-h-[10rem] flex-col rounded-lg border bg-card p-3 shadow-sm ${
-                      isToday ? "border-[var(--ink)] ring-1 ring-[var(--ink)]" : "border-border"
-                    }`}
-                  >
-                    <div
-                      className={`flex items-baseline gap-1 border-b pb-1 ${
-                        isToday ? "border-[var(--ink)]" : "border-border"
-                      }`}
-                    >
-                      <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-3">
-                        {label.weekday}
-                      </span>
-                      <span className="font-display text-base font-semibold text-ink">
-                        {label.day}
-                      </span>
-                      {isToday ? (
-                        <span className="ml-auto rounded-full bg-[var(--accent)] px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-[var(--accent-ink)]">
-                          Today
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="mt-2 flex flex-1 flex-col gap-1.5">
-                      {dayShifts.length === 0 ? (
-                        <span className="text-[10px] italic text-muted-foreground/60">
-                          —
-                        </span>
-                      ) : (
-                        dayShifts.map((s) => {
-                          const mins =
-                            (s.endsAt.getTime() - s.startsAt.getTime()) /
-                            60_000;
-                          const h = Math.floor(mins / 60);
-                          const m = Math.round(mins % 60);
+        <div className="overflow-x-auto">
+          <div className="grid min-w-[640px] grid-cols-7 gap-2">
+            {Array.from({ length: 7 }).map((_, i) => {
+              const day = addDays(weekStart, i);
+              const dayEnd = addDays(day, 1);
+              const isToday = day.getTime() === today.getTime();
+              const label = fmtDayLabel(day);
+              const dayShifts = myWeekShifts.filter(
+                (s) => s.startsAt >= day && s.startsAt < dayEnd,
+              );
+              return (
+                <div
+                  key={i}
+                  className={`flex min-h-[8.5rem] flex-col rounded-lg border bg-card p-2 shadow-sm ${
+                    isToday
+                      ? "border-[var(--ink)] ring-1 ring-[var(--ink)]"
+                      : "border-border"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-1 border-b border-line-soft pb-1.5">
+                    <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-3">
+                      {label.weekday} {label.day}
+                    </span>
+                    {isToday ? (
+                      <span
+                        aria-hidden
+                        className="h-1.5 w-1.5 animate-[sc-pulse_1.8s_infinite] rounded-full bg-[var(--live)]"
+                      />
+                    ) : null}
+                  </div>
+                  <div className="mt-2 flex flex-1 flex-col gap-1.5">
+                    {dayShifts.length === 0 ? (
+                      <span className="text-[10px] italic text-ink-3/60">—</span>
+                    ) : (
+                      dayShifts.map((s) => {
+                        const dur = s.endsAt.getTime() - s.startsAt.getTime();
+                        if (s.status === "accepted") {
                           return (
                             <div
                               key={s.id}
-                              className="space-y-0.5 rounded-md border border-border bg-background p-2 text-[11px]"
+                              className="space-y-0.5 rounded-md bg-[var(--live)] px-1.5 py-1 text-[10px] text-white"
                             >
                               <div className="font-mono font-semibold tabular-nums">
                                 {fmtTimeRange(s.startsAt, s.endsAt)}
                               </div>
                               {s.role ? (
-                                <div className="truncate text-muted-foreground">
+                                <div className="truncate opacity-90">
                                   {s.role}
                                 </div>
                               ) : null}
-                              {s.locationName ? (
-                                <div className="truncate text-muted-foreground">
-                                  {s.locationName}
-                                </div>
-                              ) : null}
-                              <div className="flex items-center justify-between pt-1">
-                                <span className="font-mono text-ink-3">
-                                  {h}h {m}m
-                                </span>
-                                <Badge variant={STATUS_VARIANT[s.status] ?? "neutral"} size="sm">
-                                  {STATUS_LABEL[s.status] ?? s.status}
-                                </Badge>
+                              <div className="font-mono opacity-80">
+                                {fmtDuration(dur)}
                               </div>
                             </div>
                           );
-                        })
-                      )}
-                    </div>
+                        }
+                        return (
+                          <div
+                            key={s.id}
+                            className="space-y-1 rounded-md border border-border bg-background px-1.5 py-1 text-[10px]"
+                          >
+                            <div className="font-mono tabular-nums text-ink">
+                              {fmtTimeRange(s.startsAt, s.endsAt)}
+                            </div>
+                            <Badge
+                              variant={STATUS_VARIANT[s.status] ?? "neutral"}
+                              size="sm"
+                            >
+                              {STATUS_LABEL[s.status] ?? s.status}
+                            </Badge>
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
-                );
-              })}
-            </div>
-          </section>
+                </div>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      </section>
     </div>
   );
 }
