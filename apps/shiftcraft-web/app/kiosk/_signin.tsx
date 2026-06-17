@@ -1,8 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { KioskNumpad } from "./_numpad";
 import { KioskDashboard } from "./_dashboard";
+import { LiveClock } from "~/components/LiveClock";
+import { fmtSince, initials, ringColor } from "~/lib/kiosk/avatar";
 import type { WhosHerePerson } from "~/lib/kiosk/whos-here";
 
 export interface KioskPerson {
@@ -11,11 +14,16 @@ export interface KioskPerson {
   image: string | null;
 }
 
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
-  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
+// A roster person merged with their live on-shift "since" time (null = not in).
+type RosterRow = KioskPerson & { since: string | null };
+
+const LETTERS = ["#", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("")];
+
+// First-letter bucket for the alphabetical jump rail; anything that isn't an
+// A–Z letter (digits, symbols) groups under "#".
+function bucketOf(name: string): string {
+  const c = name.trim()[0]?.toUpperCase() ?? "#";
+  return c >= "A" && c <= "Z" ? c : "#";
 }
 
 // Kiosk sign-in: pick your name from the roster, then enter your PIN. The PIN
@@ -39,11 +47,63 @@ export function KioskSignIn({
   const [started, setStarted] = useState(false);
   const [q, setQ] = useState("");
 
-  const filtered = useMemo(() => {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const groupRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // Weekday + date for the lime header band. Set in an effect so the server
+  // render (which has no stable locale clock) doesn't mismatch on hydration.
+  const [dateLabel, setDateLabel] = useState("");
+  useEffect(() => {
+    setDateLabel(
+      new Date().toLocaleDateString(undefined, {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+      }),
+    );
+  }, []);
+
+  const sinceById = useMemo(
+    () => new Map(whosHere.map((p) => [p.id, p.since])),
+    [whosHere],
+  );
+
+  // Search results: on-shift first, then alphabetical (mirrors the dashboard
+  // sort). Only used while the search box has content.
+  const searchRows = useMemo<RosterRow[]>(() => {
     const needle = q.trim().toLowerCase();
-    if (!needle) return people;
-    return people.filter((p) => p.name.toLowerCase().includes(needle));
-  }, [people, q]);
+    if (!needle) return [];
+    return people
+      .filter((p) => p.name.toLowerCase().includes(needle))
+      .map((p) => ({ ...p, since: sinceById.get(p.id) ?? null }))
+      .sort((a, b) => {
+        if (!!a.since !== !!b.since) return a.since ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+  }, [people, q, sinceById]);
+
+  // Idle (no search) view: the full roster grouped alphabetically. Groups stay
+  // purely alphabetical; status only colours the card, never the order.
+  const groups = useMemo(() => {
+    const byLetter = new Map<string, RosterRow[]>();
+    for (const p of people) {
+      const letter = bucketOf(p.name);
+      const row: RosterRow = { ...p, since: sinceById.get(p.id) ?? null };
+      const arr = byLetter.get(letter);
+      if (arr) arr.push(row);
+      else byLetter.set(letter, [row]);
+    }
+    for (const arr of byLetter.values())
+      arr.sort((a, b) => a.name.localeCompare(b.name));
+    return byLetter;
+  }, [people, sinceById]);
+
+  const jumpTo = (letter: string) => {
+    const el = groupRefs.current[letter];
+    if (el && scrollRef.current) {
+      scrollRef.current.scrollTo({ top: el.offsetTop, behavior: "smooth" });
+    }
+  };
 
   if (selected) {
     return (
@@ -79,69 +139,212 @@ export function KioskSignIn({
     );
   }
 
+  const searching = q.trim().length > 0;
+  const pick = (p: KioskPerson) => {
+    setSelected(p);
+    setQ("");
+  };
+
   return (
-    <div className="w-full max-w-2xl space-y-5">
-      <div className="flex items-center justify-between">
-        <button
-          type="button"
-          onClick={() => {
-            setStarted(false);
-            setQ("");
-          }}
-          className="rounded-md border border-[rgba(244,238,227,0.18)] px-3 py-1.5 text-xs text-[#a89c8c] hover:bg-[rgba(244,238,227,0.08)]"
-        >
-          ← Back
-        </button>
-        <p className="font-mono text-xs uppercase tracking-[0.2em] text-[#766b5e]">
-          Tap your name
-        </p>
-        <span className="w-[52px]" aria-hidden />
-      </div>
-      <input
-        type="search"
-        inputMode="search"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="Search your name…"
-        className="h-12 w-full rounded-xl border border-[rgba(244,238,227,0.18)] bg-[rgba(244,238,227,0.05)] px-4 text-base text-[#f4eee3] placeholder:text-[#766b5e] focus:outline-none focus:ring-2 focus:ring-[rgba(244,238,227,0.25)]"
-      />
-      {filtered.length === 0 ? (
-        <p className="py-6 text-center text-sm text-[#766b5e]">
-          No one matches “{q}”.
-        </p>
-      ) : (
-        <div className="grid max-h-[60vh] grid-cols-2 gap-3 overflow-y-auto sm:grid-cols-3">
-          {filtered.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => {
-                setSelected(p);
-                setQ("");
-              }}
-              className="flex flex-col items-center gap-2 rounded-xl border border-[rgba(244,238,227,0.13)] bg-[rgba(244,238,227,0.04)] p-4 text-center active:bg-[rgba(244,238,227,0.1)]"
-            >
-              {p.image ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={p.image}
-                  alt=""
-                  width={56}
-                  height={56}
-                  className="h-14 w-14 rounded-full object-cover"
-                />
-              ) : (
-                <span className="flex h-14 w-14 items-center justify-center rounded-full bg-[rgba(244,238,227,0.12)] text-lg font-semibold text-[#f4eee3]">
-                  {initials(p.name)}
-                </span>
-              )}
-              <span className="line-clamp-2 text-sm font-medium text-[#f4eee3]">
-                {p.name}
-              </span>
-            </button>
-          ))}
+    <div className="w-full max-w-5xl overflow-hidden rounded-2xl border border-line bg-[#1a1512] shadow-xl">
+      {/* Lime header band: tenant + location on the left, clock + date right. */}
+      <header className="flex items-start justify-between gap-4 bg-[var(--accent)] px-8 py-6 text-[var(--accent-ink)]">
+        <div className="min-w-0">
+          <div className="font-mono text-xs uppercase tracking-[0.22em] text-[var(--accent-ink)]/70">
+            {tenantName}
+          </div>
+          <h1 className="mt-1 truncate font-display text-3xl font-semibold tracking-tight sm:text-4xl">
+            {locationName}
+          </h1>
         </div>
-      )}
+        <div className="shrink-0 text-right">
+          {/* Dark inset chip — LiveClock renders light digits + lime seconds,
+              which would be illegible directly on the lime band. */}
+          <div className="inline-block rounded-xl bg-[#17130f] px-4 py-2">
+            <LiveClock variant="kiosk" className="text-3xl sm:text-4xl" />
+          </div>
+          <div className="mt-1.5 text-sm font-medium text-[var(--accent-ink)]/70">
+            {dateLabel || " "}
+          </div>
+        </div>
+      </header>
+
+      <div className="space-y-6 p-8">
+        {/* Toolbar: back, instruction, on-shift status. */}
+        <div className="flex items-center justify-between gap-4">
+          <button
+            type="button"
+            onClick={() => {
+              setStarted(false);
+              setQ("");
+            }}
+            className="inline-flex min-h-[44px] items-center rounded-full border border-line bg-[rgba(244,238,227,0.1)] px-4 py-2 text-sm font-medium text-[#f4eee3] transition hover:bg-[rgba(244,238,227,0.16)]"
+          >
+            ← Back
+          </button>
+          <p className="text-base font-semibold text-[#f4eee3]">
+            Tap your name to clock in / out
+          </p>
+          <span className="inline-flex items-center gap-2 rounded-full border border-line bg-[rgba(244,238,227,0.04)] px-3 py-1.5 font-mono text-sm text-[#a89c8c]">
+            <span
+              aria-hidden
+              className="h-2.5 w-2.5 animate-[sc-pulse_1.8s_infinite] rounded-full bg-[var(--live)] shadow-[0_0_0_4px_rgba(21,145,106,0.18)]"
+            />
+            {whosHere.length} on shift / {people.length}
+          </span>
+        </div>
+
+        {/* Search */}
+        <input
+          type="search"
+          inputMode="search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search your name…"
+          className="h-14 w-full rounded-xl border border-line bg-[rgba(244,238,227,0.05)] px-4 text-lg text-[#f4eee3] placeholder:text-[#766b5e] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+        />
+
+        {/* Roster */}
+        <div className="relative">
+          <div
+            ref={scrollRef}
+            className="relative max-h-[55vh] overflow-y-auto pr-10"
+          >
+            {searching ? (
+              searchRows.length === 0 ? (
+                <p className="py-8 text-center text-sm text-[#766b5e]">
+                  No one matches “{q}”.
+                </p>
+              ) : (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                  {searchRows.map((p) => (
+                    <NameCard key={p.id} person={p} onSelect={pick} />
+                  ))}
+                </div>
+              )
+            ) : (
+              LETTERS.map((letter) => {
+                const rows = groups.get(letter);
+                if (!rows || rows.length === 0) return null;
+                return (
+                  <div
+                    key={letter}
+                    ref={(el) => {
+                      groupRefs.current[letter] = el;
+                    }}
+                  >
+                    <h3 className="sticky top-0 z-10 bg-[#1a1512] py-2 font-mono text-sm font-semibold uppercase tracking-[0.18em] text-[var(--accent)]">
+                      {letter}
+                    </h3>
+                    <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                      {rows.map((p) => (
+                        <NameCard key={p.id} person={p} onSelect={pick} />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* A–Z jump rail — only meaningful in the grouped (idle) view. */}
+          {!searching ? (
+            <nav
+              aria-label="Jump to letter"
+              className="absolute right-0 top-0 flex flex-col items-center font-mono text-xs"
+            >
+              {LETTERS.map((letter) => {
+                const has = (groups.get(letter)?.length ?? 0) > 0;
+                return (
+                  <button
+                    key={letter}
+                    type="button"
+                    disabled={!has}
+                    onClick={() => jumpTo(letter)}
+                    className={
+                      has
+                        ? "flex h-[26px] w-7 items-center justify-center text-[#a89c8c] transition hover:text-[var(--accent)]"
+                        : "flex h-[26px] w-7 items-center justify-center text-[#766b5e]/40"
+                    }
+                  >
+                    {letter}
+                  </button>
+                );
+              })}
+            </nav>
+          ) : null}
+        </div>
+
+        {/* Footer */}
+        <div className="space-y-2 border-t border-line pt-5 text-center">
+          <p className="text-sm text-[#766b5e]">
+            Or scan your badge to clock in / out
+          </p>
+          {allowVisitors ? (
+            <Link
+              href="/kiosk/visitor"
+              className="text-sm font-medium text-[#a89c8c] underline-offset-4 hover:text-[#f4eee3] hover:underline"
+            >
+              Visitor? Sign in here
+            </Link>
+          ) : null}
+        </div>
+      </div>
     </div>
+  );
+}
+
+// Vertical name card: ring-coloured avatar (or photo) with an on-shift status
+// dot, the name, and a mono status line. Tapping it advances to the numpad.
+function NameCard({
+  person,
+  onSelect,
+}: {
+  person: RosterRow;
+  onSelect: (p: KioskPerson) => void;
+}) {
+  const onShift = !!person.since;
+  const c = ringColor(person.id);
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(person)}
+      className="flex min-h-[100px] flex-col items-center gap-2 rounded-xl border border-line bg-[rgba(244,238,227,0.04)] p-4 text-center transition hover:border-[var(--accent)] active:bg-[rgba(244,238,227,0.1)]"
+    >
+      <span
+        className={`relative flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-lg font-semibold text-white ${
+          onShift ? "" : "opacity-50"
+        }`}
+        style={{ backgroundColor: c }}
+      >
+        {person.image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={person.image}
+            alt=""
+            width={56}
+            height={56}
+            className="h-14 w-14 rounded-full object-cover"
+          />
+        ) : (
+          initials(person.name)
+        )}
+        <span
+          className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-[#1a1512] ${
+            onShift ? "bg-[var(--live)]" : "bg-[#6b6052]"
+          }`}
+        />
+      </span>
+      <span className="line-clamp-2 text-sm font-medium text-[#f4eee3]">
+        {person.name}
+      </span>
+      {onShift ? (
+        <span className="font-mono text-xs tabular-nums text-[color-mix(in_srgb,var(--live)_60%,white)]">
+          on shift · {fmtSince(person.since!)}
+        </span>
+      ) : (
+        <span className="font-mono text-xs text-[#766b5e]">not in</span>
+      )}
+    </button>
   );
 }
