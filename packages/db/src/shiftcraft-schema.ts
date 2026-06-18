@@ -525,6 +525,23 @@ export const scEmployees = pgTable(
     addressLine: text("address_line"),
     emergencyContactName: text("emergency_contact_name"),
     emergencyContactPhone: text("emergency_contact_phone"),
+    // Self-service onboarding fields (Deputy parity). All nullable so existing
+    // rows back-fill cleanly. Captured + validated by the employee onboarding
+    // form (app/app/people/onboarding) and persisted by
+    // submitEmployeeOnboardingAction.
+    // - emergency_contact_relationship : text, not a phone number (the form
+    //   rejects digit-only values).
+    // - bank_account_name              : account holder name (BSB + number
+    //   themselves are encrypted in bsb_enc / account_number_enc).
+    // - tfn_declaration                : { residency, payBasis,
+    //   claimTaxFreeThreshold, hasStudyLoan, declaredTrueAt } — the ATO TFN
+    //   declaration answers. The TFN itself stays encrypted in tfn_enc.
+    // - work_eligibility               : { workVisa, superEligible } — right-
+    //   to-work + super eligibility answers.
+    emergencyContactRelationship: text("emergency_contact_relationship"),
+    bankAccountName: text("bank_account_name"),
+    tfnDeclaration: jsonb("tfn_declaration"),
+    workEligibility: jsonb("work_eligibility"),
     // Per-employee award profile override (Phase 2 #3b.6). Same jsonb
     // shape as sc_tenant_config.award_profile — set only the fields that
     // differ from the tenant profile. Resolution chain: employee →
