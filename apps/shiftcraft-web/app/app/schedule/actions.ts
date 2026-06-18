@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   db,
@@ -469,6 +469,92 @@ export async function bulkPublishWeekAction(formData: FormData): Promise<void> {
 
   revalidatePath("/app/schedule");
   revalidatePath("/app/coverage-gaps");
+}
+
+// Publish the week's pending changes for a hand-picked set of areas
+// (location + role), chosen via checkboxes in the Publish menu. An empty
+// `areas` list publishes the whole week (the "Publish all" case). Same
+// publish core as bulkPublishWeekAction: flip status, stamp publishedAt,
+// fan out webhooks, notify accepted assignees.
+const publishAreasSchema = z.object({
+  weekStartIso: z.string().min(1),
+  weekEndIso: z.string().min(1),
+  areas: z
+    .array(
+      z.object({
+        locationId: z.string().uuid(),
+        role: z.string().trim().min(1).max(80),
+      }),
+    )
+    .max(500),
+});
+
+export async function bulkPublishSelectedAreasAction(input: {
+  weekStartIso: string;
+  weekEndIso: string;
+  areas: Array<{ locationId: string; role: string }>;
+}): Promise<{ ok: boolean; published: number; message?: string }> {
+  const parsed = publishAreasSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, published: 0, message: "Nothing to publish." };
+  }
+  const { weekStartIso, weekEndIso, areas } = parsed.data;
+
+  const membership = await currentMembership();
+  if (!membership) return { ok: false, published: 0, message: "Not signed in." };
+  if (!isAtLeastManager(membership.role)) {
+    return { ok: false, published: 0, message: "Only admins can publish shifts." };
+  }
+
+  const startsAtIso = new Date(weekStartIso).toISOString();
+  const endsAtIso = new Date(weekEndIso).toISOString();
+  const conditions = [
+    eq(scShifts.traceyTenantId, membership.tenant.id),
+    sql`(${scShifts.status} = 'draft' or (${scShifts.status} = 'published' and (${scShifts.publishedAt} is null or ${scShifts.updatedAt} > ${scShifts.publishedAt})))`,
+    sql`${scShifts.startsAt} >= ${startsAtIso}::timestamptz`,
+    sql`${scShifts.startsAt} < ${endsAtIso}::timestamptz`,
+  ];
+  if (areas.length > 0) {
+    const orCond = or(
+      ...areas.map((a) =>
+        and(eq(scShifts.locationId, a.locationId), eq(scShifts.role, a.role)),
+      ),
+    );
+    if (orCond) conditions.push(orCond);
+  }
+
+  const published = await forTenant(membership.tenant.id).run((tx) =>
+    tx
+      .update(scShifts)
+      .set({ status: "published", publishedAt: new Date(), updatedAt: new Date() })
+      .where(and(...conditions))
+      .returning({
+        id: scShifts.id,
+        locationId: scShifts.locationId,
+        role: scShifts.role,
+        startsAt: scShifts.startsAt,
+        endsAt: scShifts.endsAt,
+      }),
+  );
+
+  for (const s of published) {
+    await emitWebhook(membership.tenant.id, "shift.published", {
+      shiftId: s.id,
+      locationId: s.locationId,
+      role: s.role,
+      startsAt: s.startsAt.toISOString(),
+      endsAt: s.endsAt.toISOString(),
+      bulk: true,
+    });
+  }
+  await notifyAcceptedAssignees(
+    membership.tenant.id,
+    published.map((s) => s.id),
+  );
+
+  revalidatePath("/app/schedule");
+  revalidatePath("/app/coverage-gaps");
+  return { ok: true, published: published.length };
 }
 
 /**

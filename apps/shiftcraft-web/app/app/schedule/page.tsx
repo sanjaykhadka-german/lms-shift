@@ -25,11 +25,8 @@ import {
 } from "./_area-view";
 import { EmployeeScheduleView, type EmployeeRow } from "./_employee-view";
 import { PersistRange } from "./_persist-range";
-import {
-  bulkPublishWeekAction,
-  copyDayToDateAction,
-  repeatWeekAction,
-} from "./actions";
+import { PublishMenu } from "./_publish-menu";
+import { copyDayToDateAction, repeatWeekAction } from "./actions";
 import { InfoPopover } from "~/components/InfoPopover";
 
 type ScheduleView = "day" | "area" | "employee";
@@ -413,20 +410,15 @@ export default async function SchedulePage({
     ? locations.find((l) => l.id === locationFilter)
     : null;
 
-  // Per-location + per-area (location, role) "needs publish" counts for the
-  // Publish menu. Built from the already-fetched shifts so it costs no extra
-  // query; reflects the active location filter when one is set.
-  const needsByLocation = new Map<string, number>();
+  // Per-area (location, role) "needs publish" counts for the Publish menu.
+  // Built from the already-fetched shifts so it costs no extra query; reflects
+  // the active location filter when one is set.
   const needsByArea = new Map<string, number>(); // key: `${locationId}|${role}`
   for (const s of shifts) {
     if (!needsPublish(s) || !s.locationId) continue;
-    needsByLocation.set(s.locationId, (needsByLocation.get(s.locationId) ?? 0) + 1);
     const areaKey = `${s.locationId}|${s.role}`;
     needsByArea.set(areaKey, (needsByArea.get(areaKey) ?? 0) + 1);
   }
-  const publishableLocations = locations
-    .map((l) => ({ id: l.id, name: l.name, draftCount: needsByLocation.get(l.id) ?? 0 }))
-    .filter((l) => l.draftCount > 0);
   // Per-area publish targets: a "Location › Role" entry for each area with
   // pending changes, so a manager can publish just one department's roster.
   const locationNameById = new Map(locations.map((l) => [l.id, l.name] as const));
@@ -536,71 +528,12 @@ export default async function SchedulePage({
             </Button>
           )}
           {isAdmin && draftCount > 0 && (
-            <details className="group relative">
-              <summary className="inline-flex h-8 cursor-pointer list-none items-center gap-1.5 whitespace-nowrap rounded-[var(--r-sm)] bg-[var(--accent)] px-3 text-[13px] font-semibold text-[var(--accent-ink)] shadow-[0_8px_18px_-10px_var(--accent-deep)] transition-[filter] hover:brightness-[0.97] [&::-webkit-details-marker]:hidden">
-                Publish {draftCount} change{draftCount === 1 ? "" : "s"}
-                <span aria-hidden className="text-[10px] opacity-80 transition-transform group-open:rotate-180">▾</span>
-              </summary>
-              <div className="absolute right-0 z-30 mt-1.5 max-h-[70vh] w-64 overflow-y-auto rounded-[var(--r-md)] border border-line bg-[var(--paper)] p-1 shadow-[var(--shadow-md)]">
-                <form action={bulkPublishWeekAction}>
-                  <input type="hidden" name="weekStart" value={weekStart.toISOString()} />
-                  <input type="hidden" name="weekEnd" value={weekEnd.toISOString()} />
-                  <button
-                    type="submit"
-                    className="flex w-full items-center justify-between rounded-[var(--r-sm)] px-3 py-2 text-left text-sm font-medium text-ink hover:bg-[var(--paper-2)]"
-                  >
-                    <span>All locations</span>
-                    <span className="font-mono text-xs text-ink-2">{draftCount}</span>
-                  </button>
-                </form>
-                {publishableLocations.length > 1 && (
-                  <>
-                    <p className="px-3 pb-1 pt-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
-                      By location
-                    </p>
-                    {publishableLocations.map((loc) => (
-                      <form key={loc.id} action={bulkPublishWeekAction}>
-                        <input type="hidden" name="weekStart" value={weekStart.toISOString()} />
-                        <input type="hidden" name="weekEnd" value={weekEnd.toISOString()} />
-                        <input type="hidden" name="location" value={loc.id} />
-                        <button
-                          type="submit"
-                          className="flex w-full items-center justify-between rounded-[var(--r-sm)] px-3 py-2 text-left text-sm text-ink-2 hover:bg-[var(--paper-2)] hover:text-ink"
-                        >
-                          <span className="truncate">{loc.name}</span>
-                          <span className="font-mono text-xs text-ink-3">{loc.draftCount}</span>
-                        </button>
-                      </form>
-                    ))}
-                  </>
-                )}
-                {publishableAreas.length > 1 && (
-                  <>
-                    <p className="px-3 pb-1 pt-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
-                      By area
-                    </p>
-                    {publishableAreas.map((area) => (
-                      <form
-                        key={`${area.locationId}|${area.role}`}
-                        action={bulkPublishWeekAction}
-                      >
-                        <input type="hidden" name="weekStart" value={weekStart.toISOString()} />
-                        <input type="hidden" name="weekEnd" value={weekEnd.toISOString()} />
-                        <input type="hidden" name="location" value={area.locationId} />
-                        <input type="hidden" name="role" value={area.role} />
-                        <button
-                          type="submit"
-                          className="flex w-full items-center justify-between rounded-[var(--r-sm)] px-3 py-2 text-left text-sm text-ink-2 hover:bg-[var(--paper-2)] hover:text-ink"
-                        >
-                          <span className="truncate">{area.label}</span>
-                          <span className="font-mono text-xs text-ink-3">{area.count}</span>
-                        </button>
-                      </form>
-                    ))}
-                  </>
-                )}
-              </div>
-            </details>
+            <PublishMenu
+              weekStartIso={weekStart.toISOString()}
+              weekEndIso={weekEnd.toISOString()}
+              draftCount={draftCount}
+              areas={publishableAreas}
+            />
           )}
           {isAdmin && shifts.length > 0 && (
             <details className="relative">
