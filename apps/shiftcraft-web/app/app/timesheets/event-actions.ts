@@ -1,11 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, gte, isNull, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   forTenant,
   scClockEvents,
+  scShiftAssignments,
+  scShifts,
   scTimesheetApprovals,
   type ScClockEventType,
 } from "@tracey/db";
@@ -476,6 +478,169 @@ export async function editClockEventAction(formData: FormData): Promise<void> {
   });
 
   revalidatePath("/app/timesheets");
+}
+
+// Auto clock-out for forgotten punches. For every employee still clocked in
+// whose SCHEDULED shift started more than 24h ago, insert a closing `out`
+// event at that shift's scheduled end (the payroll-sane finish), source
+// 'admin_edit'. Only touches people who were actually scheduled — an open
+// punch with no matching accepted shift, or one whose shift started <24h ago,
+// is left alone. Locked (approved) weeks and invalid transitions are skipped.
+// Manual button on the timesheets page; manager-only.
+const STALE_CUTOFF_MS = 24 * 60 * 60 * 1000;
+const SHIFT_MATCH_WINDOW_MS = 12 * 60 * 60 * 1000;
+
+export async function closeStaleClockInsAction(): Promise<{
+  ok: boolean;
+  closed: number;
+  skipped: number;
+  message?: string;
+}> {
+  const g = await gate();
+  if (!g.ok) return { ok: false, closed: 0, skipped: 0, message: g.message };
+
+  const now = new Date();
+
+  // 1. Pull every active (non-voided) event, ordered by user then time, and
+  //    derive each user's current open clock-in (the `in` that started the
+  //    still-open work period) plus their latest event.
+  const events = await forTenant(g.tenantId).run((tx) =>
+    tx
+      .select({
+        appUserId: scClockEvents.appUserId,
+        eventType: scClockEvents.eventType,
+        occurredAt: scClockEvents.occurredAt,
+      })
+      .from(scClockEvents)
+      .where(isNull(scClockEvents.voidedAt))
+      .orderBy(asc(scClockEvents.appUserId), asc(scClockEvents.occurredAt)),
+  );
+
+  interface OpenUser {
+    appUserId: string;
+    inAt: Date;
+    lastEventAt: Date;
+  }
+  const open = new Map<string, { status: ClockStatusLite; inAt: Date | null; lastEventAt: Date }>();
+  type ClockStatusLite = "clocked_out" | "working" | "on_break";
+  for (const e of events) {
+    let s = open.get(e.appUserId);
+    if (!s) {
+      s = { status: "clocked_out", inAt: null, lastEventAt: e.occurredAt };
+      open.set(e.appUserId, s);
+    }
+    s.lastEventAt = e.occurredAt;
+    switch (e.eventType) {
+      case "in":
+        if (s.status === "clocked_out") {
+          s.status = "working";
+          s.inAt = e.occurredAt;
+        }
+        break;
+      case "break_start":
+        if (s.status === "working") s.status = "on_break";
+        break;
+      case "break_end":
+        if (s.status === "on_break") s.status = "working";
+        break;
+      case "out":
+        if (s.status !== "clocked_out") {
+          s.status = "clocked_out";
+          s.inAt = null;
+        }
+        break;
+      default:
+        break;
+    }
+  }
+  const openUsers: OpenUser[] = [...open.entries()]
+    .filter(([, s]) => s.status !== "clocked_out" && s.inAt !== null)
+    .map(([appUserId, s]) => ({ appUserId, inAt: s.inAt!, lastEventAt: s.lastEventAt }));
+
+  let closed = 0;
+  let skipped = 0;
+
+  for (const u of openUsers) {
+    // 2. Find the accepted scheduled shift this clock-in belongs to — the one
+    //    whose start sits within ±12h of the punch (nearest wins).
+    const candidates = await forTenant(g.tenantId).run((tx) =>
+      tx
+        .select({ startsAt: scShifts.startsAt, endsAt: scShifts.endsAt })
+        .from(scShiftAssignments)
+        .innerJoin(scShifts, eq(scShifts.id, scShiftAssignments.shiftId))
+        .where(
+          and(
+            eq(scShiftAssignments.status, "accepted"),
+            eq(scShiftAssignments.userId, u.appUserId),
+            eq(scShifts.traceyTenantId, g.tenantId),
+            gte(scShifts.startsAt, new Date(u.inAt.getTime() - SHIFT_MATCH_WINDOW_MS)),
+            lt(scShifts.startsAt, new Date(u.inAt.getTime() + SHIFT_MATCH_WINDOW_MS)),
+          ),
+        ),
+    );
+    if (candidates.length === 0) continue; // not scheduled → leave alone
+
+    const shift = candidates.reduce((best, c) =>
+      Math.abs(c.startsAt.getTime() - u.inAt.getTime()) <
+      Math.abs(best.startsAt.getTime() - u.inAt.getTime())
+        ? c
+        : best,
+    );
+
+    // 3. Only auto-close once 24h have elapsed since the scheduled start.
+    if (now.getTime() - shift.startsAt.getTime() <= STALE_CUTOFF_MS) continue;
+
+    const outAt = shift.endsAt;
+    // The closing punch must land after the last existing event, else the
+    // stream/transition would be invalid. (Edge: events after scheduled end.)
+    if (outAt.getTime() <= u.lastEventAt.getTime()) {
+      skipped++;
+      continue;
+    }
+
+    const lockErr = await assertWeekUnlocked(g.tenantId, u.appUserId, outAt);
+    if (lockErr) {
+      skipped++;
+      continue;
+    }
+    const stateErr = await validateInsertion(g.tenantId, u.appUserId, "out", outAt);
+    if (stateErr) {
+      skipped++;
+      continue;
+    }
+
+    let newEventId = "";
+    await forTenant(g.tenantId).run(async (tx) => {
+      const [inserted] = await tx
+        .insert(scClockEvents)
+        .values({
+          traceyTenantId: g.tenantId,
+          appUserId: u.appUserId,
+          eventType: "out",
+          occurredAt: outAt,
+          source: "admin_edit",
+          notes: "Auto clock-out: still clocked in 24h+ after scheduled start.",
+        })
+        .returning({ id: scClockEvents.id });
+      newEventId = inserted!.id;
+    });
+
+    await logAuditEvent({
+      action: "shiftcraft.clock.auto_closed",
+      targetKind: "sc_clock_event",
+      targetId: newEventId,
+      details: {
+        appUserId: u.appUserId,
+        clockInAt: u.inAt.toISOString(),
+        scheduledStart: shift.startsAt.toISOString(),
+        clockedOutAt: outAt.toISOString(),
+      },
+    });
+    closed++;
+  }
+
+  if (closed > 0) revalidatePath("/app/timesheets");
+  return { ok: true, closed, skipped };
 }
 
 export async function voidClockEventAction(formData: FormData): Promise<void> {

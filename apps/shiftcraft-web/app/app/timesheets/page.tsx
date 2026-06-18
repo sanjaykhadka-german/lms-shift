@@ -50,6 +50,7 @@ import { TimesheetRow, type AnomalyFix } from "./_row";
 import { BulkSelectionForm } from "./_bulk_form";
 import { ApprovalButtons } from "./_approval_buttons";
 import { AddEntryForm } from "./_add_entry_form";
+import { CloseStaleClockInsButton } from "./_close-stale-button";
 import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "Timesheets · ShiftCraft" };
@@ -1054,6 +1055,7 @@ export default async function TimesheetsPage({
           <Button asChild size="sm">
             <a href={exportHref}>Export CSV</a>
           </Button>
+          {isAdmin && <CloseStaleClockInsButton />}
           {isAdmin && (
             <AddEntryForm
               employees={memberRows}
