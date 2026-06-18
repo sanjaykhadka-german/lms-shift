@@ -486,25 +486,29 @@ export async function editClockEventAction(formData: FormData): Promise<void> {
 // 'admin_edit'. Only touches people who were actually scheduled — an open
 // punch with no matching accepted shift, or one whose shift started <24h ago,
 // is left alone. Locked (approved) weeks and invalid transitions are skipped.
-// Manual button on the timesheets page; manager-only.
+//
+// Two entry points: the manual "Close stale clock-ins" button
+// (closeStaleClockInsAction, manager-gated) and an automatic throttled sweep
+// (maybeSweepStaleClockIns) fired on page loads. Both share sweepStaleClockIns.
 const STALE_CUTOFF_MS = 24 * 60 * 60 * 1000;
 const SHIFT_MATCH_WINDOW_MS = 12 * 60 * 60 * 1000;
+// Auto-sweep at most once per hour per tenant per server instance. In-memory
+// (no migration); resets on deploy/restart, which is harmless because the
+// sweep is idempotent.
+const SWEEP_THROTTLE_MS = 60 * 60 * 1000;
+const lastSweepByTenant = new Map<string, number>();
 
-export async function closeStaleClockInsAction(): Promise<{
-  ok: boolean;
-  closed: number;
-  skipped: number;
-  message?: string;
-}> {
-  const g = await gate();
-  if (!g.ok) return { ok: false, closed: 0, skipped: 0, message: g.message };
-
+// Core sweep — tenant-scoped, NO auth gate and NO revalidate. Shared by the
+// manual action and the throttled auto-trigger; callers add what they need.
+async function sweepStaleClockIns(
+  tenantId: string,
+): Promise<{ closed: number; skipped: number }> {
   const now = new Date();
 
   // 1. Pull every active (non-voided) event, ordered by user then time, and
   //    derive each user's current open clock-in (the `in` that started the
   //    still-open work period) plus their latest event.
-  const events = await forTenant(g.tenantId).run((tx) =>
+  const events = await forTenant(tenantId).run((tx) =>
     tx
       .select({
         appUserId: scClockEvents.appUserId,
@@ -563,7 +567,7 @@ export async function closeStaleClockInsAction(): Promise<{
   for (const u of openUsers) {
     // 2. Find the accepted scheduled shift this clock-in belongs to — the one
     //    whose start sits within ±12h of the punch (nearest wins).
-    const candidates = await forTenant(g.tenantId).run((tx) =>
+    const candidates = await forTenant(tenantId).run((tx) =>
       tx
         .select({ startsAt: scShifts.startsAt, endsAt: scShifts.endsAt })
         .from(scShiftAssignments)
@@ -572,7 +576,7 @@ export async function closeStaleClockInsAction(): Promise<{
           and(
             eq(scShiftAssignments.status, "accepted"),
             eq(scShiftAssignments.userId, u.appUserId),
-            eq(scShifts.traceyTenantId, g.tenantId),
+            eq(scShifts.traceyTenantId, tenantId),
             gte(scShifts.startsAt, new Date(u.inAt.getTime() - SHIFT_MATCH_WINDOW_MS)),
             lt(scShifts.startsAt, new Date(u.inAt.getTime() + SHIFT_MATCH_WINDOW_MS)),
           ),
@@ -598,23 +602,23 @@ export async function closeStaleClockInsAction(): Promise<{
       continue;
     }
 
-    const lockErr = await assertWeekUnlocked(g.tenantId, u.appUserId, outAt);
+    const lockErr = await assertWeekUnlocked(tenantId, u.appUserId, outAt);
     if (lockErr) {
       skipped++;
       continue;
     }
-    const stateErr = await validateInsertion(g.tenantId, u.appUserId, "out", outAt);
+    const stateErr = await validateInsertion(tenantId, u.appUserId, "out", outAt);
     if (stateErr) {
       skipped++;
       continue;
     }
 
     let newEventId = "";
-    await forTenant(g.tenantId).run(async (tx) => {
+    await forTenant(tenantId).run(async (tx) => {
       const [inserted] = await tx
         .insert(scClockEvents)
         .values({
-          traceyTenantId: g.tenantId,
+          traceyTenantId: tenantId,
           appUserId: u.appUserId,
           eventType: "out",
           occurredAt: outAt,
@@ -639,8 +643,40 @@ export async function closeStaleClockInsAction(): Promise<{
     closed++;
   }
 
-  if (closed > 0) revalidatePath("/app/timesheets");
-  return { ok: true, closed, skipped };
+  return { closed, skipped };
+}
+
+// Manual trigger — the "Close stale clock-ins" button on the timesheets page.
+// Manager-gated; revalidates so the closed punches show immediately.
+export async function closeStaleClockInsAction(): Promise<{
+  ok: boolean;
+  closed: number;
+  skipped: number;
+  message?: string;
+}> {
+  const g = await gate();
+  if (!g.ok) return { ok: false, closed: 0, skipped: 0, message: g.message };
+  const r = await sweepStaleClockIns(g.tenantId);
+  if (r.closed > 0) revalidatePath("/app/timesheets");
+  return { ok: true, ...r };
+}
+
+// Automatic trigger — call from frequently-loaded server components (timesheets,
+// clock, kiosk) BEFORE their own data queries, so any auto-closes are read back
+// naturally without a revalidate. Throttled to once/hour per tenant and fully
+// best-effort: it never throws into the caller's render, and a transient
+// failure just means the next eligible page load tries again.
+export async function maybeSweepStaleClockIns(tenantId: string): Promise<void> {
+  const now = Date.now();
+  const last = lastSweepByTenant.get(tenantId) ?? 0;
+  if (now - last < SWEEP_THROTTLE_MS) return;
+  // Claim the slot before awaiting so concurrent requests don't double-run.
+  lastSweepByTenant.set(tenantId, now);
+  try {
+    await sweepStaleClockIns(tenantId);
+  } catch (err) {
+    console.warn("[maybeSweepStaleClockIns] sweep failed:", err);
+  }
 }
 
 export async function voidClockEventAction(formData: FormData): Promise<void> {

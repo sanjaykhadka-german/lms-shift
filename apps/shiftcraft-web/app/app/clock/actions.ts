@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { maybeSweepStaleClockIns } from "~/app/app/timesheets/event-actions";
 import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import {
   forTenant,
@@ -245,6 +246,10 @@ async function recordPunch(
       });
     }
   });
+
+  // Opportunistic auto clock-out for anyone forgotten on the clock 24h+ after
+  // their scheduled start. Throttled to once/hour per tenant; best-effort.
+  await maybeSweepStaleClockIns(tenantId);
 
   revalidatePath("/app/clock");
   revalidatePath("/app/timesheets");

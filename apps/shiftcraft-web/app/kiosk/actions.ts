@@ -14,6 +14,7 @@ import {
 } from "@tracey/db";
 import { verifyPassword } from "~/lib/auth/passwords";
 import { validateTransition } from "~/lib/clock";
+import { maybeSweepStaleClockIns } from "~/app/app/timesheets/event-actions";
 import {
   KIOSK_ACTOR_COOKIE,
   KIOSK_COOKIE_OPTS,
@@ -338,6 +339,11 @@ export async function kioskPunchAction(
       .set({ lastSeenAt: new Date() })
       .where(eq(scKioskDevices.id, deviceClaim.deviceId));
   });
+
+  // Opportunistic auto clock-out for anyone forgotten on the clock 24h+ after
+  // their scheduled start. Throttled to once/hour per tenant; best-effort.
+  // Must run before redirect() (which throws to unwind).
+  await maybeSweepStaleClockIns(tenantId);
 
   // Clear the actor cookie immediately. The 60-sec expiry is a hard cap;
   // we tighten that to "single use per punch" to keep the kiosk safe when

@@ -51,6 +51,7 @@ import { BulkSelectionForm } from "./_bulk_form";
 import { ApprovalButtons } from "./_approval_buttons";
 import { AddEntryForm } from "./_add_entry_form";
 import { CloseStaleClockInsButton } from "./_close-stale-button";
+import { maybeSweepStaleClockIns } from "./event-actions";
 import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "Timesheets · ShiftCraft" };
@@ -204,6 +205,12 @@ export default async function TimesheetsPage({
 
   const role = membership.role;
   const tenantId = membership.tenant.id;
+
+  // Auto clock-out anyone forgotten on the clock 24h+ after their scheduled
+  // start (closed at the shift's scheduled end). Runs before the timesheet
+  // queries below so any auto-closes show on this very render. Throttled to
+  // once/hour per tenant and best-effort, so it never blocks the page.
+  await maybeSweepStaleClockIns(tenantId);
 
   // `isAdmin` here means "manager — can manage timesheets" (approve, edit
   // punches, Xero, anomalies). Owners, admins, and Location Managers all
