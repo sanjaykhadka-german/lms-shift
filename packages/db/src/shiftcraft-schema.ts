@@ -1355,6 +1355,15 @@ export const scTenantConfig = pgTable(
     // defaults from @tracey/award. The validated shape lives in
     // lib/timesheet-classifier.ts (AwardProfileOverrides).
     awardProfile: jsonb("award_profile"),
+    // Named Modern Award the workspace operates under, e.g. "MA000059"
+    // (Meat Industry Award 2020). Drives the preset stamped into
+    // award_profile and the Fair Work (MAPD) fetch target. Null until an
+    // award is selected — the classifier still works on the general-rule
+    // defaults. See @tracey/award presets + lib/award/fairwork.
+    awardCode: text("award_code"),
+    // Effective date of the award rule-set currently applied (the preset
+    // version, or the FWC effective date once pulled live). Null until set.
+    awardEffectiveFrom: date("award_effective_from"),
     // ─── Clock-in policy (web punch controls) ───
     // Admins decide how staff may clock in from the web app (not the kiosk,
     // which is always allowed at a paired device). All default to the prior

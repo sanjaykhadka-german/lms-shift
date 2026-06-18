@@ -25,3 +25,30 @@ export async function getTenantAwardProfile(
   );
   return _parseAwardProfile(row?.awardProfile);
 }
+
+// Reads the named award + its effective date (Slice A). Kept separate from
+// getTenantAwardProfile so that helper's signature — relied on elsewhere —
+// stays unchanged. Returns nulls when no award has been selected.
+export interface TenantAwardMeta {
+  awardCode: string | null;
+  awardEffectiveFrom: string | null;
+}
+
+export async function getTenantAwardMeta(
+  tenantId: string,
+): Promise<TenantAwardMeta> {
+  const [row] = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({
+        awardCode: scTenantConfig.awardCode,
+        awardEffectiveFrom: scTenantConfig.awardEffectiveFrom,
+      })
+      .from(scTenantConfig)
+      .where(eq(scTenantConfig.traceyTenantId, tenantId))
+      .limit(1),
+  );
+  return {
+    awardCode: row?.awardCode ?? null,
+    awardEffectiveFrom: row?.awardEffectiveFrom ?? null,
+  };
+}

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { forTenant, scTenantConfig, type ScHolidayRegion } from "@tracey/db";
+import { getAwardPreset } from "@tracey/award";
 import { currentMembership, currentUser } from "~/lib/auth/current";
 import { isWorkspaceAdmin } from "~/lib/roles";
 import { logAuditEvent } from "~/lib/audit";
@@ -153,6 +154,55 @@ export async function setAwardProfileAction(
     });
     revalidatePath("/app/admin/settings");
     return { status: "ok", message: "Award profile reset to defaults." };
+  }
+
+  // "apply_preset": stamp a named award's rule structure (thresholds +
+  // multipliers) into award_profile and record the award code + effective
+  // date. The numeric fields stay editable afterwards. The legally-binding
+  // dollar rates are NOT set here — they come from the Fair Work pull.
+  if (intent === "apply_preset") {
+    const code = String(formData.get("awardCode") ?? "");
+    const preset = getAwardPreset(code);
+    if (!preset) {
+      return { status: "error", message: "Pick a valid award to apply." };
+    }
+    const profile = preset.profile as Record<string, unknown>;
+    await forTenant(tenantId).run((tx) =>
+      tx
+        .insert(scTenantConfig)
+        .values({
+          traceyTenantId: tenantId,
+          awardProfile: profile,
+          awardCode: preset.code,
+          awardEffectiveFrom: preset.effectiveFrom,
+          updatedByUserId: me.id,
+        })
+        .onConflictDoUpdate({
+          target: scTenantConfig.traceyTenantId,
+          set: {
+            awardProfile: profile,
+            awardCode: preset.code,
+            awardEffectiveFrom: preset.effectiveFrom,
+            updatedByUserId: me.id,
+            updatedAt: new Date(),
+          },
+        }),
+    );
+    await logAuditEvent({
+      action: "shiftcraft.tenant.award_profile_changed",
+      targetKind: "tenant",
+      targetId: tenantId,
+      details: {
+        awardCode: preset.code,
+        effectiveFrom: preset.effectiveFrom,
+        source: "preset",
+      },
+    });
+    revalidatePath("/app/admin/settings");
+    return {
+      status: "ok",
+      message: `Applied ${preset.name}. Verify rates via Fair Work before relying on them for pay.`,
+    };
   }
 
   const raw = {

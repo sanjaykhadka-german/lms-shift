@@ -6,7 +6,8 @@ import {
   HOLIDAY_REGIONS,
   HOLIDAY_REGION_LABELS,
 } from "~/lib/holidays";
-import { getTenantAwardProfile } from "~/lib/award-profile";
+import { getTenantAwardProfile, getTenantAwardMeta } from "~/lib/award-profile";
+import { listAwardPresets } from "@tracey/award";
 import { getClockPolicy } from "~/lib/clock-policy";
 import { getNotifyChannel } from "~/lib/notify-prefs";
 import { HolidayRegionForm } from "./_form";
@@ -25,13 +26,15 @@ export default async function WorkspaceSettingsPage() {
   // to their site and can't change tenant-wide config.
   if (!isWorkspaceAdmin(membership.role)) redirect("/app");
 
-  const [currentRegion, awardProfile, clockPolicy, notifyChannel] =
+  const [currentRegion, awardProfile, awardMeta, clockPolicy, notifyChannel] =
     await Promise.all([
       getTenantHolidayRegion(membership.tenant.id),
       getTenantAwardProfile(membership.tenant.id),
+      getTenantAwardMeta(membership.tenant.id),
       getClockPolicy(membership.tenant.id),
       getNotifyChannel(membership.tenant.id),
     ]);
+  const awardOptions = listAwardPresets();
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
@@ -105,7 +108,12 @@ export default async function WorkspaceSettingsPage() {
           placeholder. Changes apply to all future timesheet renders.
         </p>
         <div className="mt-4">
-          <AwardProfileForm currentProfile={awardProfile} />
+          <AwardProfileForm
+            currentProfile={awardProfile}
+            currentAwardCode={awardMeta.awardCode}
+            currentEffectiveFrom={awardMeta.awardEffectiveFrom}
+            awardOptions={awardOptions}
+          />
         </div>
       </section>
     </div>

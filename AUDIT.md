@@ -131,10 +131,11 @@ Legend: ✅ Implemented · 🟡 Partial · ❌ Missing.
 - Discrepancy view (scheduled vs actual) surfaced in `/app/timesheets`
 - Employee `hourly_rate` numeric on `sc_employees`
 - Audit log on approve / dispute via `lib/audit.ts`
+- ✅ **Rules engine** — `@tracey/award` (pure) classifies a week into ordinary / OT 1.5× / OT 2× via daily + weekly thresholds; `lib/timesheet-classifier.ts` adds the cost engine + tenant/employee profile resolver. Penalty categories (weekday/Sat/Sun/PH) applied.
+- ✅ **Named-award presets + industry selector** (Fair Work Slice A) — `@tracey/award` `AWARD_PRESETS` (first: MA000059 Meat Industry Award 2020); `sc_tenant_config.award_code` + `award_effective_from`; Workspace settings → Award profile stamps a preset's rule structure into `award_profile`. Preset carries the *rules*; dollar rates come from the FWC pull (Slice D). See `app/app/admin/awards/FEATURE.md`.
 
 **Missing — this is the biggest single gap**
-- **Rules engine** for ordinary vs overtime (daily + weekly thresholds)
-- **Penalty rates** (weekend / evening / public holiday)
+- **Penalty rates** (evening / late-night time-of-day windows — Sat/Sun/PH done; night needs sub-day splitting)
 - **Allowances** (per-shift, per-hour, flat)
 - **Paid vs unpaid breaks** logic
 - **AU public-holiday calendar** per region (no table, no seed)

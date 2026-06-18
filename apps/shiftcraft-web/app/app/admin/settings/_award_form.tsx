@@ -28,6 +28,9 @@ const INITIAL: SettingsFormState = { status: "idle" };
 
 interface Props {
   currentProfile: AwardProfileOverrides;
+  currentAwardCode: string | null;
+  currentEffectiveFrom: string | null;
+  awardOptions: Array<{ code: string; name: string }>;
 }
 
 function pms(profile: AwardProfileOverrides, key: keyof typeof DEFAULTS): string {
@@ -55,13 +58,63 @@ function pms(profile: AwardProfileOverrides, key: keyof typeof DEFAULTS): string
   }
 }
 
-export function AwardProfileForm({ currentProfile }: Props) {
+export function AwardProfileForm({
+  currentProfile,
+  currentAwardCode,
+  currentEffectiveFrom,
+  awardOptions,
+}: Props) {
   const [state, formAction] = useActionState(setAwardProfileAction, INITIAL);
   const currentPolicy = currentProfile.costPolicy ?? "max";
+  const activeAward = awardOptions.find((a) => a.code === currentAwardCode);
 
   return (
     <form action={formAction} className="space-y-5">
       <input type="hidden" name="intent" value="save" />
+
+      <fieldset className="space-y-2 rounded-md border border-border bg-muted/30 p-3">
+        <legend className="px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Industry / Award
+        </legend>
+        <p className="text-xs text-muted-foreground">
+          Pick your Modern Award to stamp its hours + penalty structure into the
+          fields below. <strong>Rates still need verifying against Fair Work</strong>{" "}
+          — applying a preset sets the rules, not the dollar amounts (those come
+          from the Fair Work pull).
+        </p>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="flex flex-col gap-1 text-xs">
+            <span className="font-medium text-muted-foreground">Award</span>
+            <select
+              name="awardCode"
+              defaultValue={currentAwardCode ?? ""}
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="">— Select an award —</option>
+              {awardOptions.map((a) => (
+                <option key={a.code} value={a.code}>
+                  {a.name} ({a.code})
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="submit"
+            name="intent"
+            value="apply_preset"
+            className="h-9 rounded-md border border-border bg-background px-3 text-xs font-medium hover:bg-muted disabled:opacity-50"
+            title="Stamp this award's rule structure into the fields below"
+          >
+            Apply / re-apply preset
+          </button>
+        </div>
+        {activeAward ? (
+          <p className="text-xs text-muted-foreground">
+            Active: <strong>{activeAward.name}</strong>
+            {currentEffectiveFrom ? ` · effective ${currentEffectiveFrom}` : ""}
+          </p>
+        ) : null}
+      </fieldset>
 
       <FieldGroup title="Thresholds (minutes)">
         <NumberField

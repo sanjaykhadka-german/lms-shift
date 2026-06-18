@@ -220,3 +220,6 @@ export function classifyWeek(
 
   return { days: dayBreakdowns, totals, thresholds };
 }
+
+// Award preset catalogue (named Modern Awards → rule structure).
+export * from "./presets";
