@@ -17,6 +17,11 @@ import {
   type ShiftBreak,
 } from "@tracey/db";
 import { currentMembership, currentUser, requireUser } from "~/lib/auth/current";
+import { startOfWeek } from "~/lib/clock";
+import {
+  resolveBulkCopyTarget,
+  type BulkCopyTarget,
+} from "./_bulk-copy";
 import { logAuditEvent } from "~/lib/audit";
 import { notifyShiftOffered, notifyShiftScheduled } from "~/lib/email";
 import { getUnsubscribedUserIds } from "~/lib/email-prefs";
@@ -1486,6 +1491,129 @@ export async function copyShiftByDeltaAction(
   revalidatePath("/app/schedule");
   revalidatePath("/app/my-shifts");
   return { ok: true };
+}
+
+// Bulk-copy hand-picked shifts (multi-select in the area grid) onto a target
+// day, week, "same time next week", or another area (location + role). Each
+// copy lands as an unassigned draft — same as copyShiftInPlaceAction — so it
+// shows in the unpublished/draft count. All inserts are batched.
+const bulkCopyTargetSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("date"), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
+  z.object({
+    kind: z.literal("week"),
+    weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  }),
+  z.object({ kind: z.literal("nextWeek") }),
+  z.object({
+    kind: z.literal("area"),
+    locationId: z.string().uuid(),
+    role: z.string().trim().min(1).max(80),
+  }),
+]);
+const bulkCopySchema = z.object({
+  shiftIds: z.array(z.string().uuid()).min(1).max(200),
+  target: bulkCopyTargetSchema,
+});
+
+export async function bulkCopyShiftsAction(input: {
+  shiftIds: string[];
+  target: BulkCopyTarget;
+}): Promise<{ ok: boolean; copied: number; message?: string }> {
+  const parsed = bulkCopySchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, copied: 0, message: "Nothing to copy." };
+  }
+  const { shiftIds, target } = parsed.data;
+
+  const membership = await requireAdminMembership();
+  const user = await currentUser();
+  const tenantId = membership.tenant.id;
+
+  const sources = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({
+        locationId: scShifts.locationId,
+        role: scShifts.role,
+        startsAt: scShifts.startsAt,
+        endsAt: scShifts.endsAt,
+        notes: scShifts.notes,
+        breaks: scShifts.breaks,
+        breakPaidMinutes: scShifts.breakPaidMinutes,
+        breakUnpaidMinutes: scShifts.breakUnpaidMinutes,
+        requiredSkillId: scShifts.requiredSkillId,
+      })
+      .from(scShifts)
+      .where(
+        and(
+          inArray(scShifts.id, shiftIds),
+          eq(scShifts.traceyTenantId, tenantId),
+        ),
+      ),
+  );
+  if (sources.length === 0) {
+    return { ok: false, copied: 0, message: "No shifts found." };
+  }
+
+  // AUDIT.md #13 — a scoped manager may only touch their locations. Guard each
+  // distinct source location, plus the destination when reassigning area.
+  if (user) {
+    const locationsToCheck = new Set<string | null>(
+      sources.map((s) => s.locationId),
+    );
+    if (target.kind === "area") locationsToCheck.add(target.locationId);
+    for (const loc of locationsToCheck) {
+      const scopeErr = await guardLocationScope(
+        tenantId,
+        user.id,
+        membership.role,
+        loc,
+      );
+      if (scopeErr) return { ok: false, copied: 0, message: scopeErr.message };
+    }
+  }
+
+  const toInsert: Array<typeof scShifts.$inferInsert> = [];
+  for (const s of sources) {
+    const weekStartMs = startOfWeek(s.startsAt).getTime();
+    const resolved = resolveBulkCopyTarget(s, target, weekStartMs);
+    // locationId is non-null on every shift (notNull column); guard narrows
+    // the helper's string|null type and defensively skips any malformed row.
+    if (!resolved || !resolved.locationId) continue;
+    toInsert.push({
+      traceyTenantId: tenantId,
+      locationId: resolved.locationId,
+      role: resolved.role,
+      startsAt: resolved.startsAt,
+      endsAt: resolved.endsAt,
+      status: "draft",
+      notes: s.notes,
+      breaks: s.breaks,
+      breakPaidMinutes: s.breakPaidMinutes,
+      breakUnpaidMinutes: s.breakUnpaidMinutes,
+      requiredSkillId: s.requiredSkillId,
+      createdByUserId: user?.id ?? null,
+    });
+  }
+
+  if (toInsert.length === 0) {
+    return { ok: false, copied: 0, message: "Nothing to copy." };
+  }
+
+  await forTenant(tenantId).run((tx) => tx.insert(scShifts).values(toInsert));
+
+  await logAuditEvent({
+    action: "shiftcraft.schedule.bulk_copied",
+    targetKind: "sc_schedule_bulk",
+    details: {
+      count: toInsert.length,
+      kind: target.kind,
+    },
+  });
+
+  revalidatePath("/app/schedule");
+  revalidatePath("/app/my-shifts");
+  revalidatePath("/app/coverage-gaps");
+  return { ok: true, copied: toInsert.length };
 }
 
 // ─── Assignments ───

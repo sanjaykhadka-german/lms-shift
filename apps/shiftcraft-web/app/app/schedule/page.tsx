@@ -418,7 +418,13 @@ export default async function SchedulePage({
   );
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 px-6 py-10">
+    // The 2-week view needs the whole screen so all 14 columns fit without
+    // cramping; the 1-week view stays comfortably capped.
+    <div
+      className={`mx-auto space-y-6 px-6 py-10 ${
+        range === "2w" ? "max-w-none" : "max-w-6xl"
+      }`}
+    >
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">

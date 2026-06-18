@@ -23,8 +23,10 @@ import {
 } from "@dnd-kit/core";
 import { Avatar } from "~/components/Avatar";
 import { fmtTime24 } from "~/lib/date-format";
+import type { BulkCopyTarget } from "./_bulk-copy";
 import {
   assignEmployeeViaDnd,
+  bulkCopyShiftsAction,
   copyShiftByDeltaAction,
   copyShiftInPlaceAction,
   moveShiftAction,
@@ -81,6 +83,21 @@ function addDays(d: Date, days: number): Date {
   const r = new Date(d);
   r.setDate(r.getDate() + days);
   return r;
+}
+
+// Mon-start week + ISO date. Defined locally (not imported from ~/lib/clock,
+// which is "server-only") so this client component stays out of the server
+// bundle. Mirrors the same logic.
+function startOfWeek(d: Date): Date {
+  const dow = (d.getDay() + 6) % 7; // Mon=0..Sun=6
+  const r = new Date(d);
+  r.setHours(0, 0, 0, 0);
+  r.setDate(r.getDate() - dow);
+  return r;
+}
+
+function fmtIsoDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 interface Area {
@@ -165,43 +182,147 @@ function ShiftChip({
   shift,
   dayIdx,
   nowMs,
+  dense,
+  selectMode,
+  selected,
   onCopy,
+  onToggleSelect,
 }: {
   shift: AreaShift;
   dayIdx: number;
   /** Mount-time clock (null until hydrated) so the "started" lock doesn't
    *  cause an SSR/client hydration mismatch. */
   nowMs: number | null;
+  /** 2-week view: render a compact pill (no time wrap, hover-revealed actions). */
+  dense: boolean;
+  /** Multi-select mode: chip becomes a checkbox toggle, drag + actions off. */
+  selectMode: boolean;
+  selected: boolean;
   onCopy: (shiftId: string) => void;
+  onToggleSelect: (shiftId: string) => void;
 }) {
   // A started shift can't be moved — disable the drag handle (the server
   // rejects the move too). Assigning staff onto it still works (the drop
   // target stays live).
   const started = nowMs != null && shift.startsAt.getTime() <= nowMs;
-  // Draggable (move) + droppable (assign an employee onto it).
+  // Draggable (move) + droppable (assign an employee onto it). Drag is
+  // suppressed while selecting so a click reliably toggles selection.
   const drag = useDraggable({
     id: shiftId(shift.id),
     data: { type: "shift", shiftId: shift.id, dayIdx },
-    disabled: started,
+    disabled: started || selectMode,
   });
   const drop = useDroppable({
     id: shiftId(shift.id),
     data: { type: "shift", shiftId: shift.id },
+    disabled: selectMode,
   });
+
+  const pad = dense ? "px-1.5 py-0.5" : "px-2 py-1";
+  // 2-week view shows a dept color bar on the left edge of the pill.
+  const deptBar =
+    dense && shift.locationColor
+      ? { borderLeftWidth: "3px", borderLeftColor: shift.locationColor }
+      : undefined;
+
+  const timeLabel = `${fmtTime24(shift.startsAt)}–${fmtTime24(shift.endsAt)}`;
+
+  // Dense (2-week): one tight monospace line, no inline badges (they wrap and
+  // overflow the ~5rem column). Status/edited/started detail lives in the 1-week
+  // view + edit page; the left dept bar + cancelled dimming carry here.
+  const timeRange = dense ? (
+    <div
+      className="truncate font-mono text-[10px] font-medium leading-tight tabular-nums"
+      title={timeLabel}
+    >
+      {timeLabel}
+    </div>
+  ) : (
+    <div className="flex items-center gap-1 font-medium tabular-nums">
+      <span
+        aria-hidden
+        className="h-1.5 w-1.5 flex-shrink-0 rounded-full"
+        style={{ backgroundColor: STATUS_DOT[shift.status] ?? "var(--ink-3)" }}
+      />
+      {timeLabel}
+      {shift.needsPublish && shift.status === "published" ? (
+        <span
+          className="ml-auto rounded-full bg-[color-mix(in_srgb,var(--warn)_18%,transparent)] px-1.5 font-mono text-[8px] uppercase tracking-[0.06em] text-[var(--warn)]"
+          title="Edited since it was published — re-publish to push the change to staff"
+        >
+          edited
+        </span>
+      ) : null}
+      {started ? (
+        <span
+          className={`font-mono text-[9px] uppercase tracking-[0.08em] text-ink-3 ${
+            shift.needsPublish && shift.status === "published" ? "ml-1" : "ml-auto"
+          }`}
+          title="Started — locked"
+        >
+          ⤿ started
+        </span>
+      ) : null}
+    </div>
+  );
+
+  const assignee = (
+    <div
+      className={`truncate ${dense ? "text-[10px] leading-tight" : ""} ${
+        shift.assigneeName ? "" : "text-muted-foreground"
+      }`}
+      title={shift.assigneeName ?? "Unassigned"}
+    >
+      {shift.assigneeName ?? "Unassigned"}
+    </div>
+  );
+
+  // ── Select mode: the whole chip is a checkbox toggle (no drag/edit/copy) ──
+  if (selectMode) {
+    return (
+      <button
+        type="button"
+        onClick={() => onToggleSelect(shift.id)}
+        aria-pressed={selected}
+        className={`flex w-full items-start gap-1.5 overflow-hidden rounded border text-left ${pad} text-[11px] leading-tight ${
+          selected
+            ? "border-[var(--accent-deep)] ring-2 ring-[var(--accent-deep)]"
+            : "border-[color-mix(in_srgb,var(--live)_45%,transparent)]"
+        } bg-[color-mix(in_srgb,var(--live)_12%,transparent)] cursor-pointer`}
+        style={shift.status === "cancelled" ? { opacity: 0.5, ...deptBar } : deptBar}
+      >
+        <span
+          aria-hidden
+          className={`mt-0.5 flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-sm border text-[9px] leading-none ${
+            selected
+              ? "border-[var(--accent-deep)] bg-[var(--accent-deep)] text-white"
+              : "border-current text-transparent"
+          }`}
+        >
+          ✓
+        </span>
+        <span className="min-w-0 flex-1">
+          {timeRange}
+          {assignee}
+        </span>
+      </button>
+    );
+  }
+
   return (
     <div
       ref={(el) => {
         drag.setNodeRef(el);
         drop.setNodeRef(el);
       }}
-      className={`rounded border px-2 py-1 text-[11px] leading-tight ${
+      className={`group overflow-hidden rounded border ${pad} text-[11px] leading-tight ${
         drop.isOver
           ? "border-[var(--accent-deep)] ring-2 ring-[var(--accent-deep)]"
           : "border-[color-mix(in_srgb,var(--live)_45%,transparent)]"
       } bg-[color-mix(in_srgb,var(--live)_12%,transparent)] ${
         drag.isDragging ? "opacity-40" : ""
       }`}
-      style={shift.status === "cancelled" ? { opacity: 0.5 } : undefined}
+      style={shift.status === "cancelled" ? { opacity: 0.5, ...deptBar } : deptBar}
     >
       <div
         {...(started ? {} : drag.listeners)}
@@ -209,37 +330,16 @@ function ShiftChip({
         className={started ? "cursor-default" : "cursor-grab active:cursor-grabbing"}
         title={started ? "This shift has already started — it can't be moved" : undefined}
       >
-        <div className="flex items-center gap-1 font-medium tabular-nums">
-          <span
-            aria-hidden
-            className="h-1.5 w-1.5 flex-shrink-0 rounded-full"
-            style={{ backgroundColor: STATUS_DOT[shift.status] ?? "var(--ink-3)" }}
-          />
-          {fmtTime24(shift.startsAt)} – {fmtTime24(shift.endsAt)}
-          {shift.needsPublish && shift.status === "published" ? (
-            <span
-              className="ml-auto rounded-full bg-[color-mix(in_srgb,var(--warn)_18%,transparent)] px-1.5 font-mono text-[8px] uppercase tracking-[0.06em] text-[var(--warn)]"
-              title="Edited since it was published — re-publish to push the change to staff"
-            >
-              edited
-            </span>
-          ) : null}
-          {started ? (
-            <span
-              className={`font-mono text-[9px] uppercase tracking-[0.08em] text-ink-3 ${
-                shift.needsPublish && shift.status === "published" ? "ml-1" : "ml-auto"
-              }`}
-              title="Started — locked"
-            >
-              ⤿ started
-            </span>
-          ) : null}
-        </div>
-        <div className="truncate text-muted-foreground">
-          {shift.assigneeName ?? "Unassigned"}
-        </div>
+        {timeRange}
+        {assignee}
       </div>
-      <div className="mt-0.5 flex items-center gap-2">
+      <div
+        className={`mt-0.5 items-center gap-2 ${
+          dense
+            ? "hidden group-hover:flex group-focus-within:flex"
+            : "flex"
+        }`}
+      >
         <Link
           href={`/app/schedule/${shift.id}/edit`}
           className="inline-block font-mono text-[10px] uppercase tracking-[0.06em] text-ink-3 hover:text-ink"
@@ -265,10 +365,13 @@ function ShiftChip({
 function DayCell({
   areaKey,
   dayIdx,
+  dense,
   children,
 }: {
   areaKey: string;
   dayIdx: number;
+  /** 2-week view: tighter cell so 4–5 dense pills fit without overflow. */
+  dense: boolean;
   children: ReactNode;
 }) {
   const { setNodeRef, isOver } = useDroppable({
@@ -278,13 +381,167 @@ function DayCell({
   return (
     <div
       ref={setNodeRef}
-      className={`min-h-[5rem] space-y-1 border-r border-border p-1.5 last:border-r-0 ${
+      className={`border-r border-border last:border-r-0 ${
+        dense ? "min-h-[3.5rem] space-y-0.5 p-1" : "min-h-[5rem] space-y-1 p-1.5"
+      } ${
         dayIdx === 7 ? "border-l-2 border-l-[var(--accent-deep)]" : ""
       } ${
         isOver ? "bg-[color-mix(in_srgb,var(--accent-deep)_10%,transparent)]" : ""
       }`}
     >
       {children}
+    </div>
+  );
+}
+
+// Floating action bar shown while ≥1 shift is selected. Owns the picker input
+// values for the "Copy to" menu; commits a BulkCopyTarget via onCopy.
+function BulkCopyBar({
+  count,
+  weekStartMs,
+  areaOptions,
+  open,
+  setOpen,
+  onCopy,
+  onClear,
+}: {
+  count: number;
+  weekStartMs: number;
+  areaOptions: Array<{
+    value: string;
+    label: string;
+    locationId: string;
+    role: string;
+  }>;
+  open: boolean;
+  setOpen: (v: boolean) => void;
+  onCopy: (target: BulkCopyTarget) => void;
+  onClear: () => void;
+}) {
+  // Sensible defaults: a day/week one week ahead of the week in view.
+  const nextWeekStart = startOfWeek(addDays(new Date(weekStartMs), 7));
+  const [dateVal, setDateVal] = useState(() => fmtIsoDate(addDays(new Date(weekStartMs), 7)));
+  const [weekVal, setWeekVal] = useState(() => fmtIsoDate(nextWeekStart));
+  const [areaVal, setAreaVal] = useState(areaOptions[0]?.value ?? "");
+
+  const inputCls =
+    "h-8 rounded-md border border-[color:var(--input)] bg-transparent px-2 text-xs text-ink shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]";
+  const goCls =
+    "inline-flex h-8 items-center rounded-md bg-[var(--accent-deep)] px-2.5 text-xs font-medium text-white hover:opacity-90";
+  const rowCls = "flex items-center justify-between gap-2 px-3 py-2";
+
+  return (
+    <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2">
+      {open && (
+        <div className="mb-2 w-72 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
+          <div className="border-b border-border px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Copy {count} shift{count === 1 ? "" : "s"} to…
+          </div>
+          {/* Same time next week */}
+          <button
+            type="button"
+            onClick={() => onCopy({ kind: "nextWeek" })}
+            className="flex w-full items-center px-3 py-2 text-left text-xs hover:bg-muted/40"
+          >
+            Same time next week (+7 days)
+          </button>
+          {/* A specific day */}
+          <div className={rowCls}>
+            <input
+              type="date"
+              value={dateVal}
+              onChange={(e) => setDateVal(e.target.value)}
+              aria-label="Target day"
+              className={`${inputCls} flex-1`}
+            />
+            <button
+              type="button"
+              disabled={!dateVal}
+              onClick={() => onCopy({ kind: "date", date: dateVal })}
+              className={goCls}
+            >
+              Day
+            </button>
+          </div>
+          {/* An entire week (Mon-start) */}
+          <div className={rowCls}>
+            <input
+              type="date"
+              value={weekVal}
+              onChange={(e) => setWeekVal(e.target.value)}
+              aria-label="Target week (any day; snaps to that week)"
+              className={`${inputCls} flex-1`}
+            />
+            <button
+              type="button"
+              disabled={!weekVal}
+              onClick={() =>
+                onCopy({
+                  kind: "week",
+                  weekStart: fmtIsoDate(
+                    startOfWeek(new Date(`${weekVal}T00:00:00`)),
+                  ),
+                })
+              }
+              className={goCls}
+            >
+              Week
+            </button>
+          </div>
+          {/* Another area (location + area name) */}
+          {areaOptions.length > 0 && (
+            <div className={rowCls}>
+              <select
+                value={areaVal}
+                onChange={(e) => setAreaVal(e.target.value)}
+                aria-label="Target area"
+                className={`${inputCls} flex-1`}
+              >
+                {areaOptions.map((a) => (
+                  <option key={a.value} value={a.value}>
+                    {a.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                disabled={!areaVal}
+                onClick={() => {
+                  const a = areaOptions.find((o) => o.value === areaVal);
+                  if (a)
+                    onCopy({
+                      kind: "area",
+                      locationId: a.locationId,
+                      role: a.role,
+                    });
+                }}
+                className={goCls}
+              >
+                Area
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      <div className="flex items-center gap-3 rounded-full border border-border bg-card px-4 py-2 shadow-lg">
+        <span className="text-sm font-medium">
+          {count} shift{count === 1 ? "" : "s"} selected
+        </span>
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className="inline-flex h-8 items-center gap-1 rounded-md bg-[var(--accent-deep)] px-3 text-sm font-medium text-white hover:opacity-90"
+        >
+          Copy to ▾
+        </button>
+        <button
+          type="button"
+          onClick={onClear}
+          className="text-sm text-muted-foreground hover:text-ink"
+        >
+          Clear
+        </button>
+      </div>
     </div>
   );
 }
@@ -330,6 +587,63 @@ export function AreaScheduleView({
     | null
   >(null);
 
+  // ── Multi-select + bulk copy (local UI state only) ──
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [menuOpen, setMenuOpen] = useState(false);
+  // Lightweight self-dismissing "toast" (no toast lib in this app).
+  const [flash, setFlash] = useState<string | null>(null);
+
+  const clearSelection = () => {
+    setSelected(new Set());
+    setMenuOpen(false);
+  };
+  const toggleSelect = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    clearSelection();
+  };
+
+  // Esc clears the current selection / closes the menu.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape" && (menuOpen || selected.size > 0)) {
+        clearSelection();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menuOpen, selected.size]);
+
+  // Auto-dismiss the toast.
+  useEffect(() => {
+    if (!flash) return;
+    const t = setTimeout(() => setFlash(null), 3000);
+    return () => clearTimeout(t);
+  }, [flash]);
+
+  function runBulkCopy(target: BulkCopyTarget) {
+    const shiftIds = Array.from(selected);
+    if (shiftIds.length === 0) return;
+    setError(null);
+    startTransition(async () => {
+      const res = await bulkCopyShiftsAction({ shiftIds, target });
+      if (!res.ok) {
+        setError(res.message ?? "Couldn't copy those shifts.");
+        return;
+      }
+      setFlash(`Copied ${res.copied} shift${res.copied === 1 ? "" : "s"}`);
+      clearSelection();
+      router.refresh();
+    });
+  }
+
   // Optimistic shift positions — moving a chip updates its date locally, then
   // the server confirms. Reconciles automatically when revalidated data lands.
   const [optimisticShifts, applyMove] = useOptimistic<AreaShift[], ShiftMove>(
@@ -351,6 +665,18 @@ export function AreaScheduleView({
   );
 
   const areas = buildAreas(optimisticShifts, weekStart, dayCount);
+  // 2-week view: render compact pills (Feature 2).
+  const dense = dayCount > 7;
+  // Area (= location + role) options for the "Another area…" bulk-copy target,
+  // derived from the areas already in the grid view.
+  const areaOptions = areas
+    .filter((a) => a.locationId)
+    .map((a) => ({
+      value: `${a.locationId}|${a.role}`,
+      label: `${a.role} · ${a.locationName ?? "No location"}`,
+      locationId: a.locationId as string,
+      role: a.role,
+    }));
   const dayHeaders = Array.from({ length: dayCount }, (_, i) =>
     addDays(weekStart, i),
   );
@@ -464,6 +790,35 @@ export function AreaScheduleView({
           {error}
         </p>
       )}
+
+      {/* Select toggle — turns the grid into a multi-select surface so shifts
+          can be bulk-copied (Feature 1). */}
+      <div className="mb-2 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+          aria-pressed={selectMode}
+          className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium shadow-sm transition-colors ${
+            selectMode
+              ? "border-[var(--accent-deep)] bg-[var(--accent-deep)] text-white"
+              : "border-[color:var(--input)] bg-transparent text-ink hover:bg-muted/40"
+          }`}
+        >
+          <span
+            aria-hidden
+            className={`h-3 w-3 rounded-sm border ${
+              selectMode ? "border-white bg-white/30" : "border-current"
+            }`}
+          />
+          {selectMode ? "Selecting…" : "Select"}
+        </button>
+        {selectMode && (
+          <span className="text-xs text-muted-foreground">
+            Click shifts to select, then “Copy to”. Esc to clear.
+          </span>
+        )}
+      </div>
+
       <div className="flex gap-3">
         {/* Left rail: employee roster — drag a name onto a shift to schedule */}
         <aside className="w-48 flex-shrink-0 rounded-lg border border-border bg-card shadow-sm">
@@ -516,14 +871,18 @@ export function AreaScheduleView({
                 </div>
                 <div className="grid" style={gridCols}>
                   {area.shiftsByDay.map((cell, idx) => (
-                    <DayCell key={idx} areaKey={area.key} dayIdx={idx}>
+                    <DayCell key={idx} areaKey={area.key} dayIdx={idx} dense={dense}>
                       {cell.map((s) => (
                         <ShiftChip
                           key={s.id}
                           shift={s}
                           dayIdx={idx}
                           nowMs={nowMs}
+                          dense={dense}
+                          selectMode={selectMode}
+                          selected={selected.has(s.id)}
                           onCopy={handleCopy}
+                          onToggleSelect={toggleSelect}
                         />
                       ))}
                     </DayCell>
@@ -534,6 +893,24 @@ export function AreaScheduleView({
           )}
         </div>
       </div>
+
+      {selectMode && selected.size > 0 && (
+        <BulkCopyBar
+          count={selected.size}
+          weekStartMs={weekStartMs}
+          areaOptions={areaOptions}
+          open={menuOpen}
+          setOpen={setMenuOpen}
+          onCopy={runBulkCopy}
+          onClear={clearSelection}
+        />
+      )}
+
+      {flash && (
+        <div className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-full border border-[color-mix(in_srgb,var(--live)_45%,transparent)] bg-[color-mix(in_srgb,var(--live)_12%,transparent)] px-4 py-1.5 text-sm font-medium text-[var(--live)] shadow-lg">
+          {flash}
+        </div>
+      )}
 
       <DragOverlay>
         {active ? (
