@@ -407,6 +407,7 @@ export function AreaScheduleView({
 
   return (
     <DndContext
+      id="schedule-area-dnd"
       sensors={sensors}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}

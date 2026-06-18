@@ -1,16 +1,15 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { Button } from "~/components/ui/button";
 import { deleteShiftAction } from "./actions";
 
 // Client delete button for the shift editor. Used in both the intercepted
-// @modal route and the standalone edit page. Navigates back to the schedule
-// list itself after deleting — a server-side redirect() from inside the modal
-// route lands on a 404, so the action just returns {ok} and we push here.
+// @modal route and the standalone edit page. After deleting, hard-navigate to
+// the schedule list: a soft router.push/refresh re-renders the (now-deleted)
+// edit route, whose notFound() throws the 404 page. A full navigation avoids
+// that stale re-render entirely; the action's revalidatePath keeps data fresh.
 export function DeleteShiftButton({ shiftId }: { shiftId: string }) {
-  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -23,8 +22,7 @@ export function DeleteShiftButton({ shiftId }: { shiftId: string }) {
         setError(res.message ?? "Couldn't delete that shift.");
         return;
       }
-      router.push("/app/schedule");
-      router.refresh();
+      window.location.assign("/app/schedule");
     });
   }
 
