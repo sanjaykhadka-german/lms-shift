@@ -227,6 +227,14 @@ function parseBreaks(raw: FormDataEntryValue | null): {
   return { breaks, paidTotal, unpaidTotal };
 }
 
+// A shift is "started" once its start time is in the past. Started shifts may
+// not be moved/retimed (drag, or editing the start time); their other fields
+// stay editable. Server-enforced here; the UI mirrors it by disabling the drag
+// handle and the start-time input.
+function hasStarted(startsAt: Date): boolean {
+  return startsAt.getTime() <= Date.now();
+}
+
 export async function createShiftAction(
   _prev: FormState,
   formData: FormData,
@@ -340,6 +348,26 @@ export async function updateShiftAction(
           : null);
       if (scopeErr) return scopeErr;
     }
+  }
+  // A started shift can't be retimed. Allow every other field through (end
+  // time, notes, breaks, role, location) but reject a changed start time.
+  const [existingShift] = await forTenant(tenant.id).run((tx) =>
+    tx
+      .select({ startsAt: scShifts.startsAt })
+      .from(scShifts)
+      .where(and(eq(scShifts.id, id), eq(scShifts.traceyTenantId, tenant.id)))
+      .limit(1),
+  );
+  if (
+    existingShift &&
+    hasStarted(existingShift.startsAt) &&
+    parsed.data.startsAt.getTime() !== existingShift.startsAt.getTime()
+  ) {
+    return {
+      status: "error",
+      message: "This shift has already started — its start time can't be changed.",
+      fieldErrors: { startsAt: ["Shift already started"] },
+    };
   }
   await forTenant(tenant.id).run((tx) =>
     tx
@@ -1636,6 +1664,14 @@ export async function moveShiftAction(
       .limit(1),
   );
   if (!shiftRow) return { ok: false, message: "Shift not found." };
+
+  // A shift that has already started can't be moved.
+  if (hasStarted(shiftRow.startsAt)) {
+    return {
+      ok: false,
+      message: "This shift has already started and can't be moved.",
+    };
+  }
 
   // AUDIT.md #13 — a scoped manager may only move shifts at their locations.
   if (user) {

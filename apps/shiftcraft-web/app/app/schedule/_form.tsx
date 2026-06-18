@@ -37,6 +37,9 @@ export interface ShiftTemplateSummary {
 interface Props {
   mode: "create" | "edit";
   shiftId?: string;
+  /** True when the shift has already started — the start time is locked
+   *  (read-only) and can't be retimed. Other fields stay editable. */
+  startLocked?: boolean;
   locations: Array<{ id: string; name: string }>;
   /** Skills catalogue for the optional required-skill dropdown. */
   skills?: Array<{ id: string; name: string }>;
@@ -67,6 +70,7 @@ function dateOnly(dt: string): string {
 export function ShiftForm({
   mode,
   shiftId,
+  startLocked = false,
   locations,
   skills = [],
   templates = [],
@@ -242,7 +246,15 @@ export function ShiftForm({
           type="datetime-local"
           defaultValue={defaultValues?.startsAt ?? ""}
           required
+          readOnly={startLocked}
+          aria-readonly={startLocked}
+          className={startLocked ? "cursor-not-allowed opacity-70" : undefined}
         />
+        {startLocked ? (
+          <p className="text-xs text-ink-3">
+            This shift has already started — its start time is locked.
+          </p>
+        ) : null}
         {state.status === "error" && state.fieldErrors?.startsAt && (
           <p className="text-xs text-[color:var(--destructive)]">
             {state.fieldErrors.startsAt[0]}

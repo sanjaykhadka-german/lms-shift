@@ -1,6 +1,12 @@
 "use client";
 
-import { type ReactNode, useOptimistic, useState, useTransition } from "react";
+import {
+  type ReactNode,
+  useEffect,
+  useOptimistic,
+  useState,
+  useTransition,
+} from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -154,16 +160,25 @@ function DraggableEmployee({ emp }: { emp: AreaEmployee }) {
 function ShiftChip({
   shift,
   dayIdx,
+  nowMs,
   onCopy,
 }: {
   shift: AreaShift;
   dayIdx: number;
+  /** Mount-time clock (null until hydrated) so the "started" lock doesn't
+   *  cause an SSR/client hydration mismatch. */
+  nowMs: number | null;
   onCopy: (shiftId: string) => void;
 }) {
+  // A started shift can't be moved — disable the drag handle (the server
+  // rejects the move too). Assigning staff onto it still works (the drop
+  // target stays live).
+  const started = nowMs != null && shift.startsAt.getTime() <= nowMs;
   // Draggable (move) + droppable (assign an employee onto it).
   const drag = useDraggable({
     id: shiftId(shift.id),
     data: { type: "shift", shiftId: shift.id, dayIdx },
+    disabled: started,
   });
   const drop = useDroppable({
     id: shiftId(shift.id),
@@ -185,9 +200,10 @@ function ShiftChip({
       style={shift.status === "cancelled" ? { opacity: 0.5 } : undefined}
     >
       <div
-        {...drag.listeners}
-        {...drag.attributes}
-        className="cursor-grab active:cursor-grabbing"
+        {...(started ? {} : drag.listeners)}
+        {...(started ? {} : drag.attributes)}
+        className={started ? "cursor-default" : "cursor-grab active:cursor-grabbing"}
+        title={started ? "This shift has already started — it can't be moved" : undefined}
       >
         <div className="flex items-center gap-1 font-medium tabular-nums">
           <span
@@ -196,6 +212,14 @@ function ShiftChip({
             style={{ backgroundColor: STATUS_DOT[shift.status] ?? "var(--ink-3)" }}
           />
           {fmtTime24(shift.startsAt)} – {fmtTime24(shift.endsAt)}
+          {started ? (
+            <span
+              className="ml-auto font-mono text-[9px] uppercase tracking-[0.08em] text-ink-3"
+              title="Started — locked"
+            >
+              ⤿ started
+            </span>
+          ) : null}
         </div>
         <div className="truncate text-muted-foreground">
           {shift.assigneeName ?? "Unassigned"}
@@ -277,6 +301,15 @@ export function AreaScheduleView({
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // Mount-time clock used to lock shifts that have started. Starts null so the
+  // first client render matches the server (no hydration mismatch), then ticks
+  // each minute so a shift locks as its start time passes.
+  const [nowMs, setNowMs] = useState<number | null>(null);
+  useEffect(() => {
+    setNowMs(Date.now());
+    const t = setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, []);
   const [active, setActive] = useState<
     | { type: "emp"; label: string }
     | { type: "shift"; label: string }
@@ -475,6 +508,7 @@ export function AreaScheduleView({
                           key={s.id}
                           shift={s}
                           dayIdx={idx}
+                          nowMs={nowMs}
                           onCopy={handleCopy}
                         />
                       ))}

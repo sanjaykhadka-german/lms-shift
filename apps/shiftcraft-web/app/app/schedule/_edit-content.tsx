@@ -255,6 +255,7 @@ export async function EditShiftContent({
         <ShiftForm
           mode="edit"
           shiftId={shiftRow.id}
+          startLocked={shiftRow.startsAt.getTime() <= Date.now()}
           locations={locations}
           skills={await listActiveSkills(membership.tenant.id)}
           defaultValues={{
