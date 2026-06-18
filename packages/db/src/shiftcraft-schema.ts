@@ -1470,6 +1470,83 @@ export const scAwardClassifications = pgTable(
   ],
 );
 
+// ─── Award allowances (AUDIT.md Feature 4 — Fair Work, Slice C) ───────
+//
+// Per-(award, key) allowances. `type` drives how the amount is applied:
+// flat (once/week), per_hour (× worked hours), per_shift (× shifts),
+// per_day (× distinct worked days). Computed by @tracey/award
+// computeAllowances and emitted into the `allowance` payroll category; the
+// Xero workstream maps it onward. Seeded by the FWC pull or by hand.
+
+export const scAwardAllowances = pgTable(
+  "sc_award_allowances",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    awardCode: text("award_code").notNull(),
+    key: text("key").notNull(),
+    label: text("label").notNull(),
+    type: text("type").notNull(),
+    amount: numeric("amount", { precision: 10, scale: 4 }).notNull(),
+    taxable: boolean("taxable").notNull().default(true),
+    effectiveFrom: date("effective_from").notNull(),
+    source: text("source").notNull().default("manual"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("sc_award_allowances_uq").on(
+      t.traceyTenantId,
+      t.awardCode,
+      t.key,
+      t.effectiveFrom,
+    ),
+    index("sc_award_allowances_tenant_award_idx").on(
+      t.traceyTenantId,
+      t.awardCode,
+    ),
+    check(
+      "sc_award_allowances_type_chk",
+      sql`${t.type} in ('flat','per_hour','per_shift','per_day')`,
+    ),
+    check(
+      "sc_award_allowances_source_chk",
+      sql`${t.source} in ('manual','fwc')`,
+    ),
+  ],
+);
+
+// Which allowances apply to which employee (employee-level for v1;
+// shift/role attach is a documented follow-on).
+export const scEmployeeAllowances = pgTable(
+  "sc_employee_allowances",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    employeeId: uuid("employee_id")
+      .notNull()
+      .references(() => scEmployees.id, { onDelete: "cascade" }),
+    allowanceId: uuid("allowance_id")
+      .notNull()
+      .references(() => scAwardAllowances.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("sc_employee_allowances_uq").on(
+      t.traceyTenantId,
+      t.employeeId,
+      t.allowanceId,
+    ),
+    index("sc_employee_allowances_emp_idx").on(t.traceyTenantId, t.employeeId),
+  ],
+);
+
 // ─── Daily sales (AUDIT.md Phase 2 #9) ─────────────────────────────
 //
 // One row per (location, business date). Manually entered by admins

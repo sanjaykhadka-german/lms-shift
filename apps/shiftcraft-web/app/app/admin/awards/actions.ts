@@ -5,7 +5,9 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import {
   forTenant,
+  scAwardAllowances,
   scAwardClassifications,
+  scEmployeeAllowances,
   scEmployees,
   scTenantConfig,
 } from "@tracey/db";
@@ -226,4 +228,163 @@ export async function setFloorBlockAction(
       ? "Under-minimum rates will now block."
       : "Under-minimum rates will warn only.",
   };
+}
+
+// ─── Allowances (Slice C) ─────────────────────────────────────────────
+
+const allowanceSchema = z.object({
+  awardCode: z.string().min(2),
+  key: z
+    .string()
+    .min(1)
+    .max(40)
+    .regex(/^[a-z][a-z0-9_]*$/, "Lowercase letters, digits, underscores."),
+  label: z.string().min(1).max(120),
+  type: z.enum(["flat", "per_hour", "per_shift", "per_day"]),
+  amount: z.number().positive(),
+  taxable: z.boolean().optional(),
+  effectiveFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
+export async function saveAllowanceAction(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const auth = await requireAdmin();
+  if (!auth) return DENIED;
+  const { tenantId } = auth;
+
+  const parsed = allowanceSchema.safeParse({
+    awardCode: formData.get("awardCode"),
+    key: String(formData.get("key") ?? "").trim(),
+    label: String(formData.get("label") ?? "").trim(),
+    type: formData.get("type"),
+    amount: num(formData.get("amount")),
+    taxable: formData.get("taxable") === "on",
+    effectiveFrom: formData.get("effectiveFrom"),
+  });
+  if (!parsed.success) {
+    return {
+      status: "error",
+      message: "Please fix the highlighted fields.",
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    };
+  }
+  const d = parsed.data;
+
+  await forTenant(tenantId).run((tx) =>
+    tx
+      .insert(scAwardAllowances)
+      .values({
+        traceyTenantId: tenantId,
+        awardCode: d.awardCode,
+        key: d.key,
+        label: d.label,
+        type: d.type,
+        amount: d.amount.toFixed(4),
+        taxable: d.taxable ?? true,
+        effectiveFrom: d.effectiveFrom,
+        source: "manual",
+      })
+      .onConflictDoUpdate({
+        target: [
+          scAwardAllowances.traceyTenantId,
+          scAwardAllowances.awardCode,
+          scAwardAllowances.key,
+          scAwardAllowances.effectiveFrom,
+        ],
+        set: {
+          label: d.label,
+          type: d.type,
+          amount: d.amount.toFixed(4),
+          taxable: d.taxable ?? true,
+          source: "manual",
+          updatedAt: new Date(),
+        },
+      }),
+  );
+
+  await logAuditEvent({
+    action: "shiftcraft.award.allowance_saved",
+    targetKind: "tenant",
+    targetId: tenantId,
+    details: { awardCode: d.awardCode, key: d.key, type: d.type },
+  });
+  revalidatePath("/app/admin/awards");
+  return { status: "ok", message: `Saved allowance ${d.key}.` };
+}
+
+export async function deleteAllowanceAction(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const auth = await requireAdmin();
+  if (!auth) return DENIED;
+  const { tenantId } = auth;
+  const id = String(formData.get("id") ?? "");
+  if (!id) return { status: "error", message: "Missing allowance id." };
+
+  await forTenant(tenantId).run((tx) =>
+    tx
+      .delete(scAwardAllowances)
+      .where(
+        and(
+          eq(scAwardAllowances.traceyTenantId, tenantId),
+          eq(scAwardAllowances.id, id),
+        ),
+      ),
+  );
+  await logAuditEvent({
+    action: "shiftcraft.award.allowance_deleted",
+    targetKind: "tenant",
+    targetId: tenantId,
+    details: { id },
+  });
+  revalidatePath("/app/admin/awards");
+  return { status: "ok", message: "Allowance removed." };
+}
+
+// Replace the full set of allowances assigned to one employee.
+export async function setEmployeeAllowancesAction(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const auth = await requireAdmin();
+  if (!auth) return DENIED;
+  const { tenantId } = auth;
+  const employeeId = String(formData.get("employeeId") ?? "");
+  if (!employeeId) return { status: "error", message: "Missing employee." };
+  const allowanceIds = formData
+    .getAll("allowanceId")
+    .map((v) => String(v))
+    .filter(Boolean);
+
+  await forTenant(tenantId).run(async (tx) => {
+    await tx
+      .delete(scEmployeeAllowances)
+      .where(
+        and(
+          eq(scEmployeeAllowances.traceyTenantId, tenantId),
+          eq(scEmployeeAllowances.employeeId, employeeId),
+        ),
+      );
+    if (allowanceIds.length > 0) {
+      await tx.insert(scEmployeeAllowances).values(
+        allowanceIds.map((allowanceId) => ({
+          traceyTenantId: tenantId,
+          employeeId,
+          allowanceId,
+        })),
+      );
+    }
+  });
+
+  await logAuditEvent({
+    action: "shiftcraft.award.employee_allowances_set",
+    targetKind: "sc_employee",
+    targetId: employeeId,
+    details: { count: allowanceIds.length },
+  });
+  revalidatePath("/app/admin/awards");
+  return { status: "ok", message: "Allowances updated." };
 }

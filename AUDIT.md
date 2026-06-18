@@ -135,6 +135,8 @@ Legend: ✅ Implemented · 🟡 Partial · ❌ Missing.
 - ✅ **Named-award presets + industry selector** (Fair Work Slice A) — `@tracey/award` `AWARD_PRESETS` (first: MA000059 Meat Industry Award 2020); `sc_tenant_config.award_code` + `award_effective_from`; Workspace settings → Award profile stamps a preset's rule structure into `award_profile`. Preset carries the *rules*; dollar rates come from the FWC pull (Slice D). See `app/app/admin/awards/FEATURE.md`.
 - ✅ **Classifications + minimum-rate floor** (Fair Work Slice B) — per-tenant `sc_award_classifications` (`(award, level)` → base rate + casual loading + effective date); `sc_employees.award_level_code`; pure `checkRateFloor` (casual = base × 1+loading); `/app/admin/awards` to manage classifications + assign levels + toggle warn/block (`sc_tenant_config.award_floor_block`). Reusable helper for the export approval gate.
 
+- ✅ **Allowances** (Fair Work Slice C) — per-tenant `sc_award_allowances` (flat / per_hour / per_shift / per_day) + `sc_employee_allowances`; pure `computeAllowances` emits the `allowance` payroll category; admin CRUD + per-employee assignment at `/app/admin/awards`. Stops at the category output — Xero mapping is the export workstream's job.
+
 **Missing — this is the biggest single gap**
 - **Penalty rates** (evening / late-night time-of-day windows — Sat/Sun/PH done; night needs sub-day splitting)
 - **Paid vs unpaid breaks** logic

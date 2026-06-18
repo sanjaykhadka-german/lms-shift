@@ -226,3 +226,6 @@ export * from "./presets";
 
 // Minimum-rate floor check against an award classification.
 export * from "./floor";
+
+// Allowance computation (emits the `allowance` payroll category).
+export * from "./allowances";

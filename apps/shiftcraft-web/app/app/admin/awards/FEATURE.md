@@ -51,4 +51,19 @@ counterpart to the Xero push (which sends the interpreted hours out).
 - Follow-on: surface the same `checkRateFloor` badge on the timesheets cost row
   and the employee edit page (thin wiring using the exposed helper).
 
-<!-- Slices C (allowances), D (FWC MAPD fetcher) extend this file as they ship. -->
+## Slice C — allowances (shipped)
+- Per-tenant `sc_award_allowances` ((award, key) → `type` (flat | per_hour |
+  per_shift | per_day) + `amount` + `taxable` + `effective_from` + `source`) and
+  `sc_employee_allowances` (employee ↔ allowance). Per-tenant migration `0061`
+  (FKs re-attached to the local tables), public template `0048`.
+- Pure `computeAllowances` in `@tracey/award`: per_hour × worked hours,
+  per_shift × shifts, per_day × distinct days, flat once/week. Emits the
+  `allowance` payroll-category lines + total. Test: `tests/award-allowances.test.ts`.
+- `/app/admin/awards`: manage allowances (add/update/delete) and tick which
+  allowances each team member receives.
+- **Boundary:** stops at the `allowance` category output. Flat/$ allowances are
+  dollars, not hours — reconciling that with the hours-based Xero `numberOfUnits`
+  is the Xero workstream's job (not wired here). Shift/role-level attach is a
+  documented follow-on (employee-level for v1).
+
+<!-- Slice D (FWC MAPD fetcher) extends this file as it ships. -->
