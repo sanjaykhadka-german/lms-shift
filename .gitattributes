@@ -1,0 +1,22 @@
+# Normalise line endings: text files commit as LF regardless of platform.
+# Without this, Windows checkouts churn every file to CRLF and pollute diffs.
+* text=auto eol=lf
+
+# Shell scripts must stay LF even on Windows checkouts.
+*.sh text eol=lf
+
+# Binary assets — never normalise or diff as text.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.svg  text eol=lf
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.eot   binary
+*.pdf  binary
+*.zip  binary
+*.gz   binary
