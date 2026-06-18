@@ -1,6 +1,5 @@
 "use server";
 
-import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { and, eq, isNotNull } from "drizzle-orm";
 import { z } from "zod";
@@ -36,10 +35,13 @@ import {
 import {
   fetchPayRunSummary,
   isXeroConfigured,
+  listPayCalendars,
+  listXeroEmployees,
   loadConnection,
   pushTimesheets,
   type XeroTimesheetInput,
 } from "~/lib/payroll/xero";
+import { deriveXeroIdempotencyKey } from "~/lib/payroll/idempotency";
 
 export type FormState =
   | { status: "idle" }
@@ -107,6 +109,26 @@ export async function exportToXeroAction(
     };
   }
 
+  // Pre-flight: the org must have at least one pay calendar. Without one no
+  // employee is payable and Xero rejects every timesheet, so fail fast with a
+  // single actionable message rather than pushing a doomed run.
+  let payCalendars: Awaited<ReturnType<typeof listPayCalendars>>;
+  try {
+    payCalendars = await listPayCalendars(tenantId);
+  } catch (err) {
+    return {
+      status: "error",
+      message: `Couldn't read Xero pay calendars: ${err instanceof Error ? err.message : "unknown error"}.`,
+    };
+  }
+  if (payCalendars.length === 0) {
+    return {
+      status: "error",
+      message:
+        "No pay calendar found in the connected Xero org. Create a pay calendar in Xero Payroll before exporting.",
+    };
+  }
+
   // Earnings-rate map (category → xero rate id) and employee links.
   const [mappingRows, linkRows, employeeRows] = await Promise.all([
     forTenant(tenantId).run((tx) =>
@@ -137,6 +159,13 @@ export async function exportToXeroAction(
         ),
     ),
   ]);
+  if (linkRows.length === 0) {
+    return {
+      status: "error",
+      message:
+        "No employees are linked to Xero yet. Link them at /app/admin/payroll first.",
+    };
+  }
   const mapping = new Map<ScPayrollCategory, string>(
     mappingRows.map((m) => [m.category as ScPayrollCategory, m.xeroEarningsRateId]),
   );
@@ -155,6 +184,22 @@ export async function exportToXeroAction(
       xeroEmployeeByAppUser.set(emp.appUserId, link.xeroEmployeeId);
     }
   }
+
+  // Pay calendar per linked Xero employee. A linked employee with no calendar
+  // in Xero can't receive a timesheet, so we skip them (with a reason) rather
+  // than letting Xero reject the whole batch.
+  let xeroEmployees: Awaited<ReturnType<typeof listXeroEmployees>>;
+  try {
+    xeroEmployees = await listXeroEmployees(tenantId);
+  } catch (err) {
+    return {
+      status: "error",
+      message: `Couldn't read Xero employees: ${err instanceof Error ? err.message : "unknown error"}.`,
+    };
+  }
+  const calendarByXeroEmp = new Map<string, string | null>(
+    xeroEmployees.map((e) => [e.id, e.payrollCalendarId]),
+  );
 
   // Pull every clock event in the window once and group per user.
   const events = await getEventsInRangeForTenant(tenantId, weekStart, weekEnd);
@@ -220,6 +265,14 @@ export async function exportToXeroAction(
       continue;
     }
 
+    // Pay-calendar check: Xero AU attaches the timesheet via the employee's
+    // pay calendar. No calendar on the Xero record → the push would be
+    // rejected, so skip with a clear reason.
+    if (!calendarByXeroEmp.get(xeroEmpId)) {
+      skipped.push(`${emp.fullName} (no pay calendar in Xero)`);
+      continue;
+    }
+
     const lines = [];
     for (const [cat, unitsByDay] of categoryUnits) {
       allUsedCategories.add(cat);
@@ -258,10 +311,16 @@ export async function exportToXeroAction(
     };
   }
 
-  // Idempotency: derive a stable key per (tenant, week) so re-clicking
-  // the button doesn't create duplicate Xero timesheets. The server
-  // also acks duplicate idempotency keys with the existing record.
-  const idempotencyKey = `sc-${tenantId.slice(0, 8)}-${weekStartIso}-${randomBytes(4).toString("hex")}`;
+  // Idempotency: derive the key from (tenant, week, payload) so re-clicking
+  // the button with unchanged data reuses the same key — Xero dedupes and we
+  // don't create duplicate timesheets / double-pay. Re-exporting after
+  // correcting hours changes the payload hash, yielding a fresh key. See
+  // lib/payroll/idempotency.ts (kept pure so it's unit-testable).
+  const idempotencyKey = deriveXeroIdempotencyKey(
+    tenantId,
+    weekStartIso,
+    timesheets,
+  );
 
   let pushError: string | null = null;
   let pushed: Awaited<ReturnType<typeof pushTimesheets>> = [];

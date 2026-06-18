@@ -369,6 +369,12 @@ export interface XeroEmployeeSummary {
   firstName: string;
   lastName: string;
   email: string | null;
+  /**
+   * The pay calendar the employee is assigned to in Xero. Null when the
+   * Xero record has no calendar — such an employee cannot receive a
+   * timesheet (Xero AU rejects it), so the export gates on this.
+   */
+  payrollCalendarId: string | null;
 }
 
 export async function listXeroEmployees(
@@ -387,6 +393,36 @@ export async function listXeroEmployees(
       firstName: e.firstName ?? "",
       lastName: e.lastName ?? "",
       email: e.email ? String(e.email) : null,
+      payrollCalendarId: e.payrollCalendarID ? String(e.payrollCalendarID) : null,
+    }));
+}
+
+export interface XeroPayCalendarSummary {
+  id: string;
+  name: string;
+  type: string | null;
+  startDate: string | null;
+}
+
+// Lists the org's pay calendars. AU timesheets attach to an employee whose
+// record carries a payrollCalendarID; the org must have at least one calendar
+// for any employee to be payable. Used as a pre-flight before export.
+export async function listPayCalendars(
+  tenantId: string,
+): Promise<XeroPayCalendarSummary[]> {
+  const ctx = await getClientForTenant(tenantId);
+  if (!ctx) return [];
+  const response = await ctx.client.payrollAUApi.getPayrollCalendars(
+    ctx.xeroTenantId,
+  );
+  const calendars = response.body.payrollCalendars ?? [];
+  return calendars
+    .filter((c) => c.payrollCalendarID)
+    .map((c) => ({
+      id: String(c.payrollCalendarID),
+      name: c.name ? String(c.name) : "",
+      type: c.calendarType != null ? String(c.calendarType) : null,
+      startDate: c.startDate ? String(c.startDate) : null,
     }));
 }
 
