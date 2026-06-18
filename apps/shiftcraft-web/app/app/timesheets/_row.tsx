@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import {
   EventEditModal,
   type ModalContext,
@@ -77,6 +77,8 @@ export interface RowProps {
   deptLabel: string | null;
   /** Per-day actual hours, formatted ("8:00" or "—"). Mon..Sun, length 7. */
   perDayActualDisplay: string[];
+  /** Per-day actual worked ms, Mon..Sun, length 7. Drives the heat tint. */
+  perDayActualMs: number[];
   /** Per-day planned hours, formatted ("8h" or "" when none). Length 7. */
   perDayPlannedDisplay: string[];
   totalWorkDisplay: string;
@@ -129,22 +131,29 @@ export interface RowProps {
   xeroExport: { state: "exported" | "failed"; detail: string | null } | null;
 }
 
+// Informational anomalies (overtime / long shift) render quiet — they're
+// context, not a call to action. The actionable ones (no clock-out / no-show)
+// keep the danger treatment so the "· Fix" affordance stands out.
 const ANOMALY_LABEL: Record<AnomalyKind, { label: string; classes: string }> = {
   overtime_week: {
     label: "Overtime",
-    classes: "bg-[var(--warn)] text-white",
+    classes:
+      "font-mono text-[9px] uppercase bg-[var(--paper-2)] text-ink-3 border border-[var(--line-soft)]",
   },
   long_shift: {
     label: "Long shift",
-    classes: "bg-[var(--warn)] text-white",
+    classes:
+      "font-mono text-[9px] uppercase bg-[var(--paper-2)] text-ink-3 border border-[var(--line-soft)]",
   },
   no_clockout: {
     label: "No clock-out",
-    classes: "bg-[var(--danger)] text-white",
+    classes:
+      "text-[10px] font-semibold uppercase tracking-wider bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] text-[var(--danger)]",
   },
   no_show: {
     label: "No-show",
-    classes: "bg-[var(--danger)] text-white",
+    classes:
+      "text-[10px] font-semibold uppercase tracking-wider bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] text-[var(--danger)]",
   },
 };
 
@@ -154,6 +163,7 @@ export function TimesheetRow({
   email,
   deptLabel,
   perDayActualDisplay,
+  perDayActualMs,
   perDayPlannedDisplay,
   totalWorkDisplay,
   totalBreakDisplay,
@@ -197,7 +207,7 @@ export function TimesheetRow({
     <>
       <tr>
         {showCheckbox ? (
-          <td className="px-2 py-2 align-middle">
+          <td className="px-2 py-[13px] align-middle">
             <input
               type="checkbox"
               name="userId"
@@ -222,7 +232,7 @@ export function TimesheetRow({
             <span className="inline-block h-6 w-6" aria-hidden />
           )}
         </td>
-        <td className="px-4 py-2">
+        <td className="px-4 py-[13px]">
           <div className="flex flex-wrap items-center gap-1.5">
             <button
               type="button"
@@ -253,7 +263,7 @@ export function TimesheetRow({
                           })
                         }
                         title={`${anomalyHint(a)} — click to add the missing punch`}
-                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider hover:opacity-90 ${ANOMALY_LABEL[a].classes}`}
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 hover:opacity-90 ${ANOMALY_LABEL[a].classes}`}
                       >
                         {ANOMALY_LABEL[a].label}
                         <span
@@ -268,7 +278,7 @@ export function TimesheetRow({
                   return (
                     <span
                       key={a}
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${ANOMALY_LABEL[a].classes}`}
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 ${ANOMALY_LABEL[a].classes}`}
                       title={anomalyHint(a)}
                     >
                       {ANOMALY_LABEL[a].label}
@@ -321,21 +331,31 @@ export function TimesheetRow({
         </td>
         {perDayActualDisplay.map((actual, i) => {
           const planned = perDayPlannedDisplay[i] ?? "";
+          // Heat tint scales with hours worked: a full day glows amber, a light
+          // day stays pale. Alpha is set as a CSS var so globals.css can knock
+          // it down in dark mode (see .heat-tile) without a hydration mismatch.
+          const ms = perDayActualMs[i] ?? 0;
+          const hours = ms / 3_600_000;
+          const alpha = ms ? Math.min(hours / 24, 1) * 0.55 : 0;
           return (
-            <td
-              key={i}
-              className="px-3 py-2 font-mono text-xs tabular-nums text-muted-foreground"
-            >
-              <div>{actual}</div>
-              {planned ? (
-                <div className="text-[10px] text-muted-foreground/60">
-                  /{planned}
-                </div>
-              ) : null}
+            <td key={i} className="px-3 py-[13px] align-middle">
+              <div
+                className="heat-tile flex min-h-[44px] flex-col items-center justify-center rounded-[9px] border border-[var(--line-soft)] px-[3px] py-2 text-center"
+                style={{ "--heat": alpha.toFixed(2) } as CSSProperties}
+              >
+                <span className="font-mono text-xs font-semibold tabular-nums text-ink">
+                  {ms ? actual : <span className="text-ink-3">—</span>}
+                </span>
+                {planned ? (
+                  <span className="font-mono text-[9px] text-ink-3">
+                    /{planned}
+                  </span>
+                ) : null}
+              </div>
             </td>
           );
         })}
-        <td className="px-3 py-2 font-mono text-sm tabular-nums font-semibold">
+        <td className="px-3 py-[13px] font-mono text-sm tabular-nums font-semibold">
           <div>{totalWorkDisplay}</div>
           {awardBreakdownDisplay ? (
             <div
@@ -350,7 +370,7 @@ export function TimesheetRow({
           {totalBreakDisplay}
         </td>
         {showCost ? (
-          <td className="px-3 py-2 font-mono text-xs tabular-nums text-muted-foreground">
+          <td className="px-3 py-[13px] font-mono text-xs tabular-nums text-muted-foreground">
             <div>{costDisplay}</div>
             {!awardCostMatchesFlat ? (
               <div
@@ -362,7 +382,7 @@ export function TimesheetRow({
             ) : null}
           </td>
         ) : null}
-        <td className="px-3 py-2 align-top">{approvalCell}</td>
+        <td className="px-3 py-[13px] align-top">{approvalCell}</td>
       </tr>
       {expanded && canExpand ? (
         <tr className="bg-muted/30">

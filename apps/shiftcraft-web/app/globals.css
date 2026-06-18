@@ -151,4 +151,16 @@
       opacity: 0.3;
     }
   }
+
+  /* Timesheets heat-grid tile. --heat is the per-cell alpha (0..0.55) set
+   * inline from JS; computing a theme-conditional alpha in the client row
+   * would risk an SSR/hydration mismatch, so the dark knockdown lives here.
+   * 217,131,36 == --warn (#d98324). */
+  .heat-tile {
+    background: rgba(217, 131, 36, var(--heat, 0));
+  }
+  .dark .heat-tile {
+    /* alpha × ~0.82 keeps the 0.55 ceiling near ~0.45 on the dark --paper. */
+    background: rgba(217, 131, 36, calc(var(--heat, 0) * 0.82));
+  }
 }

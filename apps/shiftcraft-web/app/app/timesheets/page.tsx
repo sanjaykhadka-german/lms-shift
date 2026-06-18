@@ -1230,8 +1230,10 @@ export default async function TimesheetsPage({
                       <th className="px-4 py-2 font-medium">Employee</th>
                       {WEEKDAYS.map((d, i) => (
                         <th key={d} className="px-3 py-2 font-medium">
-                          <div>{d}</div>
-                          <div className="font-mono text-[10px] text-muted-foreground/70">
+                          <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3">
+                            {d}
+                          </div>
+                          <div className="font-mono text-[10px] text-ink-3">
                             {fmtIsoDate(addDays(weekStart, i))}
                           </div>
                         </th>
@@ -1375,6 +1377,7 @@ export default async function TimesheetsPage({
                           email={r.email}
                           deptLabel={deptLabel}
                           perDayActualDisplay={perDayActualDisplay}
+                          perDayActualMs={r.perDay}
                           perDayPlannedDisplay={perDayPlannedDisplay}
                           totalWorkDisplay={fmtHours(r.totalWorkMs)}
                           totalBreakDisplay={fmtHours(r.totalBreakMs)}
