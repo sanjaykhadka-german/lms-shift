@@ -635,6 +635,9 @@ export async function repeatWeekAction(formData: FormData): Promise<void> {
   const weekStartRaw = String(formData.get("weekStart") ?? "");
   if (!weekStartRaw) return;
   const locationId = String(formData.get("location") ?? "");
+  // Optional area scope: copy only this role's shifts. Combined with the
+  // location filter this is the (location, role) "area" the grid groups by.
+  const role = String(formData.get("role") ?? "").trim();
   // Clamp to 1..12 so a stray value can't spawn a year of drafts.
   const weeksRaw = Number(formData.get("weeks") ?? 1);
   const weeks = Number.isFinite(weeksRaw)
@@ -685,6 +688,7 @@ export async function repeatWeekAction(formData: FormData): Promise<void> {
           sql`${scShifts.startsAt} >= ${sourceStart.toISOString()}::timestamptz`,
           sql`${scShifts.startsAt} < ${sourceEnd.toISOString()}::timestamptz`,
           locationId ? eq(scShifts.locationId, locationId) : undefined,
+          role ? eq(scShifts.role, role) : undefined,
         ),
       ),
   );
@@ -858,6 +862,7 @@ export async function repeatWeekAction(formData: FormData): Promise<void> {
       assigned,
       flagged,
       locationFilter: locationId || null,
+      roleFilter: role || null,
     },
   });
 
@@ -887,6 +892,8 @@ export async function copyDayToDateAction(formData: FormData): Promise<void> {
   const sourceDate = String(formData.get("sourceDate") ?? ""); // YYYY-MM-DD
   const targetDate = String(formData.get("targetDate") ?? ""); // YYYY-MM-DD
   const locationId = String(formData.get("location") ?? "");
+  // Optional area scope: copy only this role's shifts (location + role = area).
+  const role = String(formData.get("role") ?? "").trim();
   const sm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(sourceDate);
   const tm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(targetDate);
   if (!sm || !tm) return;
@@ -936,6 +943,7 @@ export async function copyDayToDateAction(formData: FormData): Promise<void> {
           sql`${scShifts.startsAt} >= ${sourceStart.toISOString()}::timestamptz`,
           sql`${scShifts.startsAt} < ${sourceEnd.toISOString()}::timestamptz`,
           locationId ? eq(scShifts.locationId, locationId) : undefined,
+          role ? eq(scShifts.role, role) : undefined,
         ),
       ),
   );
@@ -1004,6 +1012,7 @@ export async function copyDayToDateAction(formData: FormData): Promise<void> {
       copied,
       skipped,
       locationFilter: locationId || null,
+      roleFilter: role || null,
     },
   });
 

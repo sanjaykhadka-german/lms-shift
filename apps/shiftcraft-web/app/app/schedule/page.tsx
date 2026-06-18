@@ -378,6 +378,13 @@ export default async function SchedulePage({
     .map((l) => ({ id: l.id, name: l.name, draftCount: draftByLocation.get(l.id) ?? 0 }))
     .filter((l) => l.draftCount > 0);
 
+  // Distinct roles present in the current view — drives the optional "area"
+  // (role) scope on the Copy week / Copy a day menus. Reflects the active
+  // location filter since `shifts` is already narrowed to it.
+  const rolesInView = Array.from(new Set(shifts.map((s) => s.role))).sort(
+    (a, b) => a.localeCompare(b),
+  );
+
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-6 py-10">
       <div className="flex items-start justify-between gap-3">
@@ -522,6 +529,23 @@ export default async function SchedulePage({
                     <option value="8">8 weeks</option>
                   </select>
                 </label>
+                {rolesInView.length > 1 && (
+                  <label className="flex flex-col gap-1 whitespace-nowrap text-xs text-ink-2">
+                    Area / role
+                    <select
+                      name="role"
+                      defaultValue=""
+                      className="h-9 rounded-md border border-[color:var(--input)] bg-transparent px-2 text-sm text-ink shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+                    >
+                      <option value="">All roles</option>
+                      {rolesInView.map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 <label className="flex w-full items-center gap-2 text-xs text-ink-2">
                   <input
                     type="checkbox"
@@ -580,6 +604,23 @@ export default async function SchedulePage({
                     className="h-9 rounded-md border border-[color:var(--input)] bg-transparent px-2 text-sm text-ink shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
                   />
                 </label>
+                {rolesInView.length > 1 && (
+                  <label className="flex flex-col gap-1 text-xs text-ink-2">
+                    Area / role
+                    <select
+                      name="role"
+                      defaultValue=""
+                      className="h-9 rounded-md border border-[color:var(--input)] bg-transparent px-2 text-sm text-ink shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+                    >
+                      <option value="">All roles</option>
+                      {rolesInView.map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 <Button type="submit" variant="outline" size="sm">
                   Copy day
                 </Button>
