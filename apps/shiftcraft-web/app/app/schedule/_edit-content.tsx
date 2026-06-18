@@ -96,6 +96,8 @@ export async function EditShiftContent({
         startsAt: scShifts.startsAt,
         endsAt: scShifts.endsAt,
         status: scShifts.status,
+        publishedAt: scShifts.publishedAt,
+        updatedAt: scShifts.updatedAt,
         notes: scShifts.notes,
         breaks: scShifts.breaks,
         requiredSkillId: scShifts.requiredSkillId,
@@ -118,6 +120,14 @@ export async function EditShiftContent({
     membership.role,
   );
   if (!isLocationInScope(scope, shiftRow.locationId)) notFound();
+
+  // A published shift that's been edited since it last went live needs
+  // re-publishing to push the change to staff. Drives the Publish button label
+  // + visibility (matches the schedule's needsPublish predicate).
+  const shiftEditedSincePublish =
+    shiftRow.status === "published" &&
+    (shiftRow.publishedAt == null ||
+      shiftRow.updatedAt.getTime() > shiftRow.publishedAt.getTime());
 
   const [locations, assignments, tenantMembers, departments, commentRows] =
     await Promise.all([
@@ -420,11 +430,11 @@ export async function EditShiftContent({
       </section>
 
       <section className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-5 shadow-sm">
-        {shiftRow.status !== "published" && (
+        {(shiftRow.status !== "published" || shiftEditedSincePublish) && (
           <form action={publishShiftAction}>
             <input type="hidden" name="id" value={shiftRow.id} />
             <Button type="submit" variant="outline" size="sm">
-              Publish
+              {shiftEditedSincePublish ? "Re-publish" : "Publish"}
             </Button>
           </form>
         )}

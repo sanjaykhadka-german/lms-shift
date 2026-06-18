@@ -237,6 +237,14 @@ export function EmployeeScheduleView({
                         }`}
                       />
                       {fmtTime24(s.startsAt)} – {fmtTime24(s.endsAt)}
+                      {s.needsPublish && s.status === "published" ? (
+                        <span
+                          className="ml-auto rounded-full bg-[color-mix(in_srgb,var(--warn)_18%,transparent)] px-1.5 font-mono text-[8px] uppercase tracking-[0.06em] text-[var(--warn)]"
+                          title="Edited since it was published — re-publish to push the change to staff"
+                        >
+                          edited
+                        </span>
+                      ) : null}
                     </div>
                     <div className="truncate text-muted-foreground">
                       {s.role}

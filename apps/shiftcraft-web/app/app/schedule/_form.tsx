@@ -1,12 +1,13 @@
 "use client";
 
-import { useActionState, useRef, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import type { ShiftBreak } from "@tracey/db";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import {
   createShiftAction,
+  publishShiftAction,
   updateShiftAction,
   type FormState,
 } from "./actions";
@@ -81,6 +82,15 @@ export function ShiftForm({
       ? updateShiftAction.bind(null, shiftId)
       : createShiftAction;
   const [state, formAction, pending] = useActionState(action, initial);
+
+  // After an edit saves, offer to publish so staff see the change. Reset on
+  // each successful save so a follow-up edit re-prompts.
+  const [publishPromptDismissed, setPublishPromptDismissed] = useState(false);
+  useEffect(() => {
+    if (state.status === "ok") setPublishPromptDismissed(false);
+  }, [state]);
+  const showPublishPrompt =
+    mode === "edit" && !!shiftId && state.status === "ok" && !publishPromptDismissed;
 
   const submitLabel = mode === "edit" ? "Save changes" : "Create shift";
   const pendingLabel = mode === "edit" ? "Saving…" : "Creating…";
@@ -170,6 +180,7 @@ export function ShiftForm({
   }
 
   return (
+    <>
     <form action={formAction} className="grid gap-4 sm:grid-cols-2">
       {mode === "create" && templates.length > 0 && (
         <div className="space-y-1.5 sm:col-span-2 rounded-md border border-border bg-muted/30 p-3">
@@ -403,5 +414,27 @@ export function ShiftForm({
         )}
       </div>
     </form>
+    {showPublishPrompt && shiftId ? (
+      <div className="mt-3 flex flex-wrap items-center gap-3 rounded-[var(--r-sm)] border border-[color-mix(in_srgb,var(--warn)_45%,transparent)] bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] px-3 py-2">
+        <span className="text-xs font-medium text-ink">
+          Saved. Publish now so assigned staff see the change?
+        </span>
+        <form action={publishShiftAction} className="ml-auto">
+          <input type="hidden" name="id" value={shiftId} />
+          <Button type="submit" size="sm">
+            Publish now
+          </Button>
+        </form>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setPublishPromptDismissed(true)}
+        >
+          Not now
+        </Button>
+      </div>
+    ) : null}
+    </>
   );
 }

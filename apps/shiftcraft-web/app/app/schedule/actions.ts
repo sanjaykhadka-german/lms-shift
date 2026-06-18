@@ -395,6 +395,8 @@ export async function bulkPublishWeekAction(formData: FormData): Promise<void> {
   const weekStart = String(formData.get("weekStart") ?? "");
   const weekEnd = String(formData.get("weekEnd") ?? "");
   const locationId = String(formData.get("location") ?? "");
+  // Optional area scope: publish only this role's shifts (location + role).
+  const role = String(formData.get("role") ?? "").trim();
   if (!weekStart || !weekEnd) return;
 
   // Admin-only: surface the same error message as single-shift publish.
@@ -412,11 +414,15 @@ export async function bulkPublishWeekAction(formData: FormData): Promise<void> {
   const endsAtIso = new Date(weekEnd).toISOString();
   const conditions = [
     eq(scShifts.traceyTenantId, membership.tenant.id),
-    eq(scShifts.status, "draft"),
+    // "Needs publish" = a never-published draft OR a published shift edited
+    // since it last went live (updatedAt advanced past publishedAt). Cancelled
+    // shifts are excluded by construction.
+    sql`(${scShifts.status} = 'draft' or (${scShifts.status} = 'published' and (${scShifts.publishedAt} is null or ${scShifts.updatedAt} > ${scShifts.publishedAt})))`,
     sql`${scShifts.startsAt} >= ${startsAtIso}::timestamptz`,
     sql`${scShifts.startsAt} < ${endsAtIso}::timestamptz`,
   ];
   if (locationId) conditions.push(eq(scShifts.locationId, locationId));
+  if (role) conditions.push(eq(scShifts.role, role));
 
   // Capture the IDs of the shifts that will flip so we can fan out
   // webhooks afterwards. RETURNING on the same UPDATE keeps the round

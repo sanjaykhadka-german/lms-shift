@@ -38,6 +38,10 @@ export interface AreaShift {
   startsAt: Date;
   endsAt: Date;
   status: string;
+  /** True when this shift has changes not yet published (a draft, or a
+   *  published shift edited since it last went live). Drives the "edited"
+   *  badge; computed server-side. */
+  needsPublish: boolean;
   locationName: string | null;
   locationColor: string | null;
   acceptedCount: number;
@@ -212,9 +216,19 @@ function ShiftChip({
             style={{ backgroundColor: STATUS_DOT[shift.status] ?? "var(--ink-3)" }}
           />
           {fmtTime24(shift.startsAt)} – {fmtTime24(shift.endsAt)}
+          {shift.needsPublish && shift.status === "published" ? (
+            <span
+              className="ml-auto rounded-full bg-[color-mix(in_srgb,var(--warn)_18%,transparent)] px-1.5 font-mono text-[8px] uppercase tracking-[0.06em] text-[var(--warn)]"
+              title="Edited since it was published — re-publish to push the change to staff"
+            >
+              edited
+            </span>
+          ) : null}
           {started ? (
             <span
-              className="ml-auto font-mono text-[9px] uppercase tracking-[0.08em] text-ink-3"
+              className={`font-mono text-[9px] uppercase tracking-[0.08em] text-ink-3 ${
+                shift.needsPublish && shift.status === "published" ? "ml-1" : "ml-auto"
+              }`}
               title="Started — locked"
             >
               ⤿ started
