@@ -20,6 +20,8 @@ import { ClassificationsCard } from "./_classifications";
 import { AssignmentsCard } from "./_assignments";
 import { AllowancesCard } from "./_allowances";
 import { AllowanceAssignmentsCard } from "./_allowance_assignments";
+import { FairWorkCard } from "./_fairwork";
+import { isFairWorkConfigured } from "~/lib/award/fairwork/client";
 
 export const metadata = { title: "Award classifications · ShiftCraft" };
 export const dynamic = "force-dynamic";
@@ -128,6 +130,7 @@ export default async function AwardsAdminPage() {
         </div>
       ) : (
         <>
+          <FairWorkCard configured={isFairWorkConfigured()} />
           <FloorToggle block={meta.awardFloorBlock} />
           <ClassificationsCard
             awardCode={meta.awardCode}

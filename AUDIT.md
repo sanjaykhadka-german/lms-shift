@@ -136,6 +136,7 @@ Legend: ✅ Implemented · 🟡 Partial · ❌ Missing.
 - ✅ **Classifications + minimum-rate floor** (Fair Work Slice B) — per-tenant `sc_award_classifications` (`(award, level)` → base rate + casual loading + effective date); `sc_employees.award_level_code`; pure `checkRateFloor` (casual = base × 1+loading); `/app/admin/awards` to manage classifications + assign levels + toggle warn/block (`sc_tenant_config.award_floor_block`). Reusable helper for the export approval gate.
 
 - ✅ **Allowances** (Fair Work Slice C) — per-tenant `sc_award_allowances` (flat / per_hour / per_shift / per_day) + `sc_employee_allowances`; pure `computeAllowances` emits the `allowance` payroll category; admin CRUD + per-employee assignment at `/app/admin/awards`. Stops at the category output — Xero mapping is the export workstream's job.
+- ✅ **Live Fair Work data source** (Slice D) — `@tracey/award` `transformFwcPayload` (pure, fixture-tested) + `lib/award/fairwork/client.ts` (`fetch` only, `Ocp-Apim-Subscription-Key`, no-op without `FWC_MAPD_API_KEY`, TTL cache). `/app/admin/awards` "Fetch latest from Fair Work" previews a diff then upserts classifications + allowances (`source='fwc'`) and stamps the effective date; audited. MAPD endpoint paths/field names flagged `FWC: confirm` pending live-key verification.
 
 **Missing — this is the biggest single gap**
 - **Penalty rates** (evening / late-night time-of-day windows — Sat/Sun/PH done; night needs sub-day splitting)

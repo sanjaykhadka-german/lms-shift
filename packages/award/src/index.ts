@@ -229,3 +229,6 @@ export * from "./floor";
 
 // Allowance computation (emits the `allowance` payroll category).
 export * from "./allowances";
+
+// Fair Work MAPD payload → ShiftCraft classification/allowance rows (pure).
+export * from "./fairwork-transform";

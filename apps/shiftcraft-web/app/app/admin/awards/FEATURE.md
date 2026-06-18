@@ -66,4 +66,33 @@ counterpart to the Xero push (which sends the interpreted hours out).
   is the Xero workstream's job (not wired here). Shift/role-level attach is a
   documented follow-on (employee-level for v1).
 
-<!-- Slice D (FWC MAPD fetcher) extends this file as it ships. -->
+## Slice D — Fair Work (MAPD) fetcher + apply (shipped)
+- Pure transform `@tracey/award` `transformFwcPayload`: MAPD payload →
+  classification + allowance rows stamped with the FWC effective date. No
+  network; unit-tested against a recorded fixture (`tests/fairwork-transform.test.ts`).
+- IO client `lib/award/fairwork/client.ts`: `fetch` only (no dependency),
+  `Ocp-Apim-Subscription-Key` header, 1-hour in-memory TTL cache, and a no-op
+  (returns null) when `FWC_MAPD_API_KEY` is absent — the feature is simply
+  unavailable, nothing else breaks.
+- `/app/admin/awards` → **Fair Work — live award data**: "Preview from Fair
+  Work" diffs the pull against current rows (new / changed / same), then "Apply"
+  upserts classifications + allowances (`source='fwc'`) and stamps the effective
+  date. Audited as `shiftcraft.award.fairwork_imported` (award, effective date,
+  fetched_at, counts).
+- Env: `FWC_MAPD_API_KEY` (see `.env.example`).
+
+### Setup (operator)
+1. Register at developer.fwc.gov.au, accept the Terms of Use, subscribe to the
+   **Modern Awards Pay Database** product, copy the subscription key.
+2. Set `FWC_MAPD_API_KEY` in the environment (Render → service → Environment).
+   You set it — never paste the key into chat. Redeploy.
+3. Open `/app/admin/awards` → Preview → Apply.
+
+### ⚠️ Confirm before relying on it
+The MAPD **base URL, endpoint paths, and response field names** in
+`lib/award/fairwork/client.ts` and `@tracey/award/fairwork-transform.ts` are
+coded against the documented shape and marked `// FWC: confirm`. Confirm them
+against the authenticated portal ("Try it out") + Data dictionary, then adjust
+the URL(s), the `FwcAwardPayload` interface, and the test fixture together.
+Rates change with the annual wage review (**1 July**) — re-pull then. Always
+sanity-check a couple of figures against the Fair Work Pay Guide / PACT.
