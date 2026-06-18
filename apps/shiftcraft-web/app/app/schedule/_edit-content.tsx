@@ -4,6 +4,7 @@ import {
   db,
   forTenant,
   members,
+  scAreas,
   scDepartments,
   scEmployees,
   scLocations,
@@ -129,13 +130,20 @@ export async function EditShiftContent({
     (shiftRow.publishedAt == null ||
       shiftRow.updatedAt.getTime() > shiftRow.publishedAt.getTime());
 
-  const [locations, assignments, tenantMembers, departments, commentRows] =
+  const [locations, areas, assignments, tenantMembers, departments, commentRows] =
     await Promise.all([
       ctx.run((tx) =>
         tx
           .select({ id: scLocations.id, name: scLocations.name })
           .from(scLocations)
           .orderBy(asc(scLocations.name)),
+      ),
+      ctx.run((tx) =>
+        tx
+          .select({ id: scAreas.id, locationId: scAreas.locationId, name: scAreas.name })
+          .from(scAreas)
+          .where(eq(scAreas.traceyTenantId, membership.tenant.id))
+          .orderBy(asc(scAreas.name)),
       ),
       ctx.run((tx) =>
         tx
@@ -267,6 +275,7 @@ export async function EditShiftContent({
           shiftId={shiftRow.id}
           startLocked={shiftRow.startsAt.getTime() <= Date.now()}
           locations={locations}
+          areas={areas}
           skills={await listActiveSkills(membership.tenant.id)}
           defaultValues={{
             locationId: shiftRow.locationId,

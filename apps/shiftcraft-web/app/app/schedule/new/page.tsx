@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
-import { forTenant, scLocations, scShiftTemplates } from "@tracey/db";
+import { forTenant, scAreas, scLocations, scShiftTemplates } from "@tracey/db";
 import { currentMembership } from "~/lib/auth/current";
 import { Button } from "~/components/ui/button";
 import { listActiveSkills } from "~/lib/skills";
@@ -14,12 +14,19 @@ export default async function NewShiftPage() {
   if (!membership) redirect("/app");
 
   const tenantId = membership.tenant.id;
-  const [locations, templates, skills] = await Promise.all([
+  const [locations, areas, templates, skills] = await Promise.all([
     forTenant(tenantId).run((tx) =>
       tx
         .select({ id: scLocations.id, name: scLocations.name })
         .from(scLocations)
         .orderBy(asc(scLocations.name)),
+    ),
+    forTenant(tenantId).run((tx) =>
+      tx
+        .select({ id: scAreas.id, locationId: scAreas.locationId, name: scAreas.name })
+        .from(scAreas)
+        .where(eq(scAreas.traceyTenantId, tenantId))
+        .orderBy(asc(scAreas.name)),
     ),
     forTenant(tenantId).run((tx) =>
       tx
@@ -76,6 +83,7 @@ export default async function NewShiftPage() {
         <ShiftForm
           mode="create"
           locations={locations}
+          areas={areas}
           skills={skills}
           templates={templates}
         />

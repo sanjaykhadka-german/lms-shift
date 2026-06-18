@@ -105,6 +105,48 @@ export const scLocations = pgTable(
   ],
 );
 
+// ─── Areas ───
+//
+// A scheduling subdivision within a Location (Deputy's "Area" / OperationalUnit):
+// e.g. "Butchery", "Front Counter", "Kitchen". Shifts are organised by area, but
+// the area name is stored denormalised on sc_shifts.role so the whole schedule
+// read path (grouping, copy, CSV, templates, notifications) stays unchanged.
+// sc_areas is the managed vocabulary the New-shift form + bulk-copy pick from,
+// which keeps role values typo-free. Renaming an area cascades to existing
+// shifts (see the areas update action), reproducing Deputy's rename-propagation
+// without an area_id FK on every shift.
+export const scAreas = pgTable(
+  "sc_areas",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    // FK to the per-tenant sc_locations is attached in the per-tenant
+    // migration (LIKE INCLUDING ALL doesn't copy FKs), matching how
+    // sc_shifts.location_id is wired.
+    locationId: uuid("location_id").notNull(),
+    name: text("name").notNull(),
+    // Optional hex accent ("#RRGGBB"), same convention as sc_locations.color.
+    color: text("color"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("sc_areas_location_name_uq").on(
+      t.locationId,
+      sql`lower(${t.name})`,
+    ),
+    index("sc_areas_tenant_idx").on(t.traceyTenantId),
+    index("sc_areas_location_idx").on(t.locationId),
+    check(
+      "sc_areas_color_chk",
+      sql`${t.color} is null or ${t.color} ~* '^#[0-9a-f]{6}$'`,
+    ),
+  ],
+);
+
+export type ScArea = typeof scAreas.$inferSelect;
+export type NewScArea = typeof scAreas.$inferInsert;
+
 // ─── Shifts ───
 //
 // Lifecycle: draft → published → (optionally) cancelled.

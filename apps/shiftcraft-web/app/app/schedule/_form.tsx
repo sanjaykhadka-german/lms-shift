@@ -42,6 +42,9 @@ interface Props {
    *  (read-only) and can't be retimed. Other fields stay editable. */
   startLocked?: boolean;
   locations: Array<{ id: string; name: string }>;
+  /** Areas (scheduling sections) per location — drives the cascading Area
+   *  picker that replaced the free-text Role field. */
+  areas: Array<{ id: string; locationId: string; name: string }>;
   /** Skills catalogue for the optional required-skill dropdown. */
   skills?: Array<{ id: string; name: string }>;
   /** Saved templates managers can stamp onto a date. Only shown on create. */
@@ -73,6 +76,7 @@ export function ShiftForm({
   shiftId,
   startLocked = false,
   locations,
+  areas,
   skills = [],
   templates = [],
   defaultValues,
@@ -98,12 +102,20 @@ export function ShiftForm({
   // Refs into the underlying inputs so the "From template" select can
   // imperatively fill them — keeping the existing uncontrolled-form
   // pattern intact for everything else.
-  const locationRef = useRef<HTMLSelectElement | null>(null);
-  const roleRef = useRef<HTMLInputElement | null>(null);
   const startsRef = useRef<HTMLInputElement | null>(null);
   const endsRef = useRef<HTMLInputElement | null>(null);
   const notesRef = useRef<HTMLTextAreaElement | null>(null);
   const skillRef = useRef<HTMLSelectElement | null>(null);
+
+  // Location + Area are controlled — the Area picker cascades off the chosen
+  // location, and submits its name as `role` (the server stores it unchanged).
+  const [locationId, setLocationId] = useState(defaultValues?.locationId ?? "");
+  const [role, setRole] = useState(defaultValues?.role ?? "");
+  const areasForLocation = areas.filter((a) => a.locationId === locationId);
+  // Preserve a current/legacy role not in the area list (created before Areas,
+  // or its area was deleted) so editing doesn't silently drop it.
+  const roleMissingFromAreas =
+    role !== "" && !areasForLocation.some((a) => a.name === role);
 
   // Dynamic break list. Serialized into a hidden `breaks` input on submit;
   // the server derives paid/unpaid totals from it.
@@ -158,8 +170,8 @@ export function ShiftForm({
     }
     const endsAt = `${endDate}T${pad(t.endHour)}:${pad(t.endMinute)}`;
 
-    if (locationRef.current) locationRef.current.value = t.locationId;
-    if (roleRef.current) roleRef.current.value = t.role;
+    setLocationId(t.locationId);
+    setRole(t.role);
     if (startsRef.current) startsRef.current.value = startsAt;
     if (endsRef.current) endsRef.current.value = endsAt;
     if (notesRef.current && t.defaultNotes) {
@@ -208,10 +220,13 @@ export function ShiftForm({
       <div className="space-y-1.5">
         <Label htmlFor="locationId">Location</Label>
         <select
-          ref={locationRef}
           id="locationId"
           name="locationId"
-          defaultValue={defaultValues?.locationId ?? ""}
+          value={locationId}
+          onChange={(e) => {
+            setLocationId(e.target.value);
+            setRole(""); // areas differ per location — clear the stale pick
+          }}
           required
           className="flex h-9 w-full rounded-md border border-[color:var(--input)] bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
         >
@@ -232,15 +247,38 @@ export function ShiftForm({
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="role">Role</Label>
-        <Input
-          ref={roleRef}
+        <Label htmlFor="role">Area</Label>
+        <select
           id="role"
           name="role"
-          defaultValue={defaultValues?.role ?? ""}
-          placeholder="e.g. Butcher, Cashier, Cleaner"
+          value={role}
+          onChange={(e) => setRole(e.target.value)}
           required
-        />
+          disabled={!locationId}
+          className="flex h-9 w-full rounded-md border border-[color:var(--input)] bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <option value="" disabled>
+            {locationId ? "— Choose an area —" : "— Pick a location first —"}
+          </option>
+          {/* Keep a legacy/current role that's no longer a defined area. */}
+          {roleMissingFromAreas && (
+            <option value={role}>{role} (current)</option>
+          )}
+          {areasForLocation.map((a) => (
+            <option key={a.id} value={a.name}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+        {locationId && areasForLocation.length === 0 && !roleMissingFromAreas && (
+          <p className="text-xs text-muted-foreground">
+            No areas at this location yet —{" "}
+            <a href="/app/areas/new" className="text-primary hover:underline">
+              add one
+            </a>{" "}
+            first.
+          </p>
+        )}
         {state.status === "error" && state.fieldErrors?.role && (
           <p className="text-xs text-[color:var(--destructive)]">
             {state.fieldErrors.role[0]}

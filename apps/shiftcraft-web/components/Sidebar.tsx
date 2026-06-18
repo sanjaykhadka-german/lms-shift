@@ -21,6 +21,7 @@ import {
   History,
   KanbanSquare,
   LayoutDashboard,
+  LayoutGrid,
   LogOut,
   MapPin,
   Megaphone,
@@ -101,6 +102,7 @@ const SECTIONS: NavSection[] = [
     label: "Workspace",
     items: [
       { href: "/app/locations", label: "Locations", icon: MapPin },
+      { href: "/app/areas", label: "Areas", icon: LayoutGrid },
       { href: "/app/tasks", label: "Tasks", icon: KanbanSquare },
       { href: "/app/settings", label: "Settings", icon: Settings },
     ],
