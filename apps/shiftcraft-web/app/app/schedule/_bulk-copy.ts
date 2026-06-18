@@ -7,6 +7,9 @@
 export type BulkCopyTarget =
   // Copy every selected shift onto this calendar date, same time-of-day.
   | { kind: "date"; date: string } // YYYY-MM-DD
+  // Copy onto EVERY day in [from..to] (the action expands this into one
+  // "date" resolve per day — resolveBulkCopyTarget returns null for it).
+  | { kind: "dateRange"; from: string; to: string } // YYYY-MM-DD each
   // Copy onto the same weekday within the chosen week (Mon-start).
   | { kind: "week"; weekStart: string } // YYYY-MM-DD (Mon of target week)
   // Shortcut: +7 days each.
@@ -72,6 +75,10 @@ export function resolveBulkCopyTarget(
       };
     case "nextWeek":
       return shiftByDays(src, 7);
+    case "dateRange":
+      // Expanded into per-day "date" resolves by the caller; never resolved
+      // directly.
+      return null;
     case "date": {
       const targetDate = parseLocalDate(target.date);
       if (!targetDate) return null;

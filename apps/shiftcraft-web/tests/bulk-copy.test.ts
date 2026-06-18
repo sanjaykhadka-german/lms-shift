@@ -69,6 +69,16 @@ describe("resolveBulkCopyTarget", () => {
     expect(r!.role).toBe("Cashier");
   });
 
+  it("dateRange: returns null (expanded into per-day 'date' by the action)", () => {
+    expect(
+      resolveBulkCopyTarget(
+        srcWed(),
+        { kind: "dateRange", from: "2026-06-22", to: "2026-06-28" },
+        WEEK_START_MS,
+      ),
+    ).toBeNull();
+  });
+
   it("returns null for a malformed date string", () => {
     expect(
       resolveBulkCopyTarget(srcWed(), { kind: "date", date: "nope" }, WEEK_START_MS),

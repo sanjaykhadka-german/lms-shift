@@ -17,10 +17,11 @@ import {
   type ShiftBreak,
 } from "@tracey/db";
 import { currentMembership, currentUser, requireUser } from "~/lib/auth/current";
-import { startOfWeek } from "~/lib/clock";
+import { fmtIsoDate, startOfWeek } from "~/lib/clock";
 import {
   resolveBulkCopyTarget,
   type BulkCopyTarget,
+  type BulkCopyResolved,
 } from "./_bulk-copy";
 import { logAuditEvent } from "~/lib/audit";
 import { notifyShiftOffered, notifyShiftScheduled } from "~/lib/email";
@@ -1494,11 +1495,18 @@ export async function copyShiftByDeltaAction(
 }
 
 // Bulk-copy hand-picked shifts (multi-select in the area grid) onto a target
-// day, week, "same time next week", or another area (location + role). Each
-// copy lands as an unassigned draft — same as copyShiftInPlaceAction — so it
-// shows in the unpublished/draft count. All inserts are batched.
+// day, a date range (every day in [from..to]), a week, or another area
+// (location + role). Each copy lands as a draft — same as
+// copyShiftInPlaceAction — so it shows in the unpublished/draft count. When
+// carryAssignees is on, the source shift's accepted staff are copied onto each
+// new shift. Inserts are batched.
 const bulkCopyTargetSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("date"), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
+  z.object({
+    kind: z.literal("dateRange"),
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  }),
   z.object({
     kind: z.literal("week"),
     weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -1513,17 +1521,35 @@ const bulkCopyTargetSchema = z.discriminatedUnion("kind", [
 const bulkCopySchema = z.object({
   shiftIds: z.array(z.string().uuid()).min(1).max(200),
   target: bulkCopyTargetSchema,
+  carryAssignees: z.boolean().optional().default(false),
 });
+
+// Inclusive list of YYYY-MM-DD between two ISO dates (auto-swaps if reversed,
+// capped to keep a fat-fingered range from inserting thousands of rows).
+function eachDayIso(fromIso: string, toIso: string, cap = 92): string[] {
+  let a = new Date(`${fromIso}T00:00:00`);
+  let b = new Date(`${toIso}T00:00:00`);
+  if (isNaN(a.getTime()) || isNaN(b.getTime())) return [];
+  if (b < a) [a, b] = [b, a];
+  const out: string[] = [];
+  const cur = new Date(a);
+  while (cur <= b && out.length < cap) {
+    out.push(fmtIsoDate(cur));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return out;
+}
 
 export async function bulkCopyShiftsAction(input: {
   shiftIds: string[];
   target: BulkCopyTarget;
+  carryAssignees?: boolean;
 }): Promise<{ ok: boolean; copied: number; message?: string }> {
   const parsed = bulkCopySchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, copied: 0, message: "Nothing to copy." };
   }
-  const { shiftIds, target } = parsed.data;
+  const { shiftIds, target, carryAssignees } = parsed.data;
 
   const membership = await requireAdminMembership();
   const user = await currentUser();
@@ -1532,6 +1558,7 @@ export async function bulkCopyShiftsAction(input: {
   const sources = await forTenant(tenantId).run((tx) =>
     tx
       .select({
+        id: scShifts.id,
         locationId: scShifts.locationId,
         role: scShifts.role,
         startsAt: scShifts.startsAt,
@@ -1572,48 +1599,113 @@ export async function bulkCopyShiftsAction(input: {
     }
   }
 
-  const toInsert: Array<typeof scShifts.$inferInsert> = [];
-  for (const s of sources) {
-    const weekStartMs = startOfWeek(s.startsAt).getTime();
-    const resolved = resolveBulkCopyTarget(s, target, weekStartMs);
-    // locationId is non-null on every shift (notNull column); guard narrows
-    // the helper's string|null type and defensively skips any malformed row.
-    if (!resolved || !resolved.locationId) continue;
-    toInsert.push({
-      traceyTenantId: tenantId,
-      locationId: resolved.locationId,
-      role: resolved.role,
-      startsAt: resolved.startsAt,
-      endsAt: resolved.endsAt,
-      status: "draft",
-      notes: s.notes,
-      breaks: s.breaks,
-      breakPaidMinutes: s.breakPaidMinutes,
-      breakUnpaidMinutes: s.breakUnpaidMinutes,
-      requiredSkillId: s.requiredSkillId,
-      createdByUserId: user?.id ?? null,
-    });
+  // A date range fans out into one "date" target per day; everything else is a
+  // single target. Each (day-target × source) yields one copy.
+  const dayTargets: BulkCopyTarget[] =
+    target.kind === "dateRange"
+      ? eachDayIso(target.from, target.to).map((d) => ({ kind: "date", date: d }))
+      : [target];
+
+  const rows: Array<typeof scShifts.$inferInsert> = [];
+  const rowSourceIds: string[] = []; // parallel to rows, for carrying staff
+  for (const dt of dayTargets) {
+    for (const s of sources) {
+      const resolved: BulkCopyResolved | null = resolveBulkCopyTarget(
+        s,
+        dt,
+        startOfWeek(s.startsAt).getTime(),
+      );
+      // locationId is non-null on every shift; guard narrows the string|null
+      // and defensively skips a malformed resolve.
+      if (!resolved || !resolved.locationId) continue;
+      rows.push({
+        traceyTenantId: tenantId,
+        locationId: resolved.locationId,
+        role: resolved.role,
+        startsAt: resolved.startsAt,
+        endsAt: resolved.endsAt,
+        status: "draft",
+        notes: s.notes,
+        breaks: s.breaks,
+        breakPaidMinutes: s.breakPaidMinutes,
+        breakUnpaidMinutes: s.breakUnpaidMinutes,
+        requiredSkillId: s.requiredSkillId,
+        createdByUserId: user?.id ?? null,
+      });
+      rowSourceIds.push(s.id);
+    }
   }
 
-  if (toInsert.length === 0) {
+  if (rows.length === 0) {
     return { ok: false, copied: 0, message: "Nothing to copy." };
   }
 
-  await forTenant(tenantId).run((tx) => tx.insert(scShifts).values(toInsert));
+  // Accepted assignees per source shift (only when carrying staff forward).
+  const assigneesBySource = new Map<string, string[]>();
+  if (carryAssignees) {
+    const assignmentRows = await forTenant(tenantId).run((tx) =>
+      tx
+        .select({
+          shiftId: scShiftAssignments.shiftId,
+          userId: scShiftAssignments.userId,
+        })
+        .from(scShiftAssignments)
+        .where(
+          and(
+            inArray(scShiftAssignments.shiftId, shiftIds),
+            eq(scShiftAssignments.status, "accepted"),
+          ),
+        ),
+    );
+    for (const a of assignmentRows) {
+      const arr = assigneesBySource.get(a.shiftId) ?? [];
+      arr.push(a.userId);
+      assigneesBySource.set(a.shiftId, arr);
+    }
+  }
+
+  // RETURNING preserves VALUES order (single INSERT), so inserted[i] is the
+  // copy of rowSourceIds[i] — same pattern repeatWeekAction uses to attach
+  // carried assignments.
+  const inserted = await forTenant(tenantId).run((tx) =>
+    tx.insert(scShifts).values(rows).returning({ id: scShifts.id }),
+  );
+
+  if (carryAssignees && assigneesBySource.size > 0) {
+    const assignInserts: Array<typeof scShiftAssignments.$inferInsert> = [];
+    inserted.forEach((row, i) => {
+      const sourceId = rowSourceIds[i];
+      if (!sourceId) return;
+      for (const userId of assigneesBySource.get(sourceId) ?? []) {
+        assignInserts.push({
+          shiftId: row.id,
+          userId,
+          status: "accepted",
+          respondedAt: new Date(),
+        });
+      }
+    });
+    if (assignInserts.length > 0) {
+      await forTenant(tenantId).run((tx) =>
+        tx.insert(scShiftAssignments).values(assignInserts),
+      );
+    }
+  }
 
   await logAuditEvent({
     action: "shiftcraft.schedule.bulk_copied",
     targetKind: "sc_schedule_bulk",
     details: {
-      count: toInsert.length,
+      count: inserted.length,
       kind: target.kind,
+      carriedAssignees: carryAssignees ?? false,
     },
   });
 
   revalidatePath("/app/schedule");
   revalidatePath("/app/my-shifts");
   revalidatePath("/app/coverage-gaps");
-  return { ok: true, copied: toInsert.length };
+  return { ok: true, copied: inserted.length };
 }
 
 // ─── Assignments ───

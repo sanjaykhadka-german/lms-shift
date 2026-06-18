@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { and, asc, between, count, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import {
@@ -23,6 +24,7 @@ import {
   type AreaShiftSer,
 } from "./_area-view";
 import { EmployeeScheduleView, type EmployeeRow } from "./_employee-view";
+import { PersistRange } from "./_persist-range";
 import {
   bulkPublishWeekAction,
   copyDayToDateAction,
@@ -84,6 +86,7 @@ export default async function SchedulePage({
     location?: string;
     view?: string;
     range?: string;
+    employee?: string;
     copied?: string;
     skipped?: string;
     assigned?: string;
@@ -110,16 +113,30 @@ export default async function SchedulePage({
     location: locationFilter,
     view: viewRaw,
     range: rangeRaw,
+    employee: employeeRaw,
     copied,
     skipped,
     assigned,
     flagged,
   } = await searchParams;
+  // Optional filter: show only shifts the given employee (appUserId) has
+  // accepted. Set by clicking a name in the area-view roster.
+  const employeeFilter = employeeRaw || undefined;
   // Area is the default view (bare /app/schedule). day/employee opt in.
   const view: ScheduleView =
     viewRaw === "day" ? "day" : viewRaw === "employee" ? "employee" : "area";
   // 1-week (default) or 2-week range. dayCount drives every grid + nav step.
-  const range: "1w" | "2w" = rangeRaw === "2w" ? "2w" : "1w";
+  // The URL wins; with no range param we fall back to the user's last choice
+  // (cookie) so an edit/redirect that drops the param keeps you on 2 WK.
+  const cookieRange = (await cookies()).get("sc_schedule_range")?.value;
+  const range: "1w" | "2w" =
+    rangeRaw === "2w"
+      ? "2w"
+      : rangeRaw === "1w"
+        ? "1w"
+        : cookieRange === "2w"
+          ? "2w"
+          : "1w";
   const dayCount = range === "2w" ? 14 : 7;
   const copiedCount = Number.parseInt(copied ?? "", 10);
   const skippedCount = Number.parseInt(skipped ?? "", 10);
@@ -135,6 +152,7 @@ export default async function SchedulePage({
     location?: string | null;
     view?: ScheduleView | null;
     range?: "1w" | "2w" | null;
+    employee?: string | null;
   }) => {
     const params = new URLSearchParams();
     const w = overrides.week ?? week;
@@ -149,7 +167,14 @@ export default async function SchedulePage({
     if (v && v !== "area") params.set("view", v);
     const r =
       overrides.range === null ? undefined : (overrides.range ?? range);
-    if (r && r !== "1w") params.set("range", r);
+    // Always emit range so nav links are authoritative and the 1 WK toggle
+    // can override a sticky 2 WK cookie.
+    if (r) params.set("range", r);
+    const emp =
+      overrides.employee === null
+        ? undefined
+        : (overrides.employee ?? employeeFilter);
+    if (emp) params.set("employee", emp);
     const s = params.toString();
     return s ? `?${s}` : "";
   };
@@ -206,6 +231,14 @@ export default async function SchedulePage({
             between(scShifts.startsAt, weekStart, weekEnd),
             locationFilter ? eq(scShifts.locationId, locationFilter) : undefined,
             scopeIds ? inArray(scShifts.locationId, scopeIds) : undefined,
+            employeeFilter
+              ? sql`EXISTS (
+                  SELECT 1 FROM ${scShiftAssignments}
+                  WHERE ${scShiftAssignments.shiftId} = ${scShifts.id}
+                    AND ${scShiftAssignments.userId} = ${employeeFilter}
+                    AND ${scShiftAssignments.status} = 'accepted'
+                )`
+              : undefined,
           ),
         )
         .orderBy(asc(scShifts.startsAt)),
@@ -425,6 +458,7 @@ export default async function SchedulePage({
         range === "2w" ? "max-w-none" : "max-w-6xl"
       }`}
     >
+      <PersistRange range={range} />
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
@@ -787,6 +821,23 @@ export default async function SchedulePage({
 
       {labourForecast && (
         <WeeklyLabourForecast forecast={labourForecast} />
+      )}
+
+      {employeeFilter && (
+        <div className="flex items-center justify-between gap-3 rounded-[var(--r-sm)] border border-[color-mix(in_srgb,var(--accent-deep)_45%,transparent)] bg-[color-mix(in_srgb,var(--accent-deep)_10%,transparent)] px-4 py-2 text-sm">
+          <span className="font-medium text-ink">
+            Showing{" "}
+            {employees.find((e) => e.appUserId === employeeFilter)?.fullName ??
+              "this employee"}
+            ’s shifts
+          </span>
+          <Link
+            href={`/app/schedule${qs({ employee: null })}`}
+            className="text-xs text-muted-foreground hover:text-ink hover:underline"
+          >
+            Clear filter
+          </Link>
+        </div>
       )}
 
       {view === "area" ? (

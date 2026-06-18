@@ -8,7 +8,7 @@ import {
   useTransition,
 } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   DndContext,
   type DragEndEvent,
@@ -149,7 +149,18 @@ const empId = (uid: string) => `emp:${uid}`;
 const shiftId = (id: string) => `shift:${id}`;
 const cellId = (areaKey: string, dayIdx: number) => `cell:${areaKey}:${dayIdx}`;
 
-function DraggableEmployee({ emp }: { emp: AreaEmployee }) {
+function DraggableEmployee({
+  emp,
+  active,
+  onSelect,
+}: {
+  emp: AreaEmployee;
+  /** True when the grid is currently filtered to this person. */
+  active: boolean;
+  /** Click (not drag) → filter the calendar to this employee. Only wired for
+   *  linked accounts (assignments key on appUserId). */
+  onSelect: (() => void) | null;
+}) {
   const draggable = emp.appUserId != null;
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: empId(emp.appUserId ?? emp.id),
@@ -161,10 +172,23 @@ function DraggableEmployee({ emp }: { emp: AreaEmployee }) {
       ref={setNodeRef}
       {...(draggable ? listeners : {})}
       {...attributes}
+      onClick={onSelect ?? undefined}
       className={`flex items-center gap-2 px-3 py-2 ${
         draggable ? "cursor-grab active:cursor-grabbing" : "opacity-60"
-      } ${isDragging ? "opacity-40" : ""}`}
-      title={draggable ? "Drag onto a shift to schedule" : "No linked account — can't be scheduled"}
+      } ${isDragging ? "opacity-40" : ""} ${
+        active
+          ? "bg-[color-mix(in_srgb,var(--accent-deep)_16%,transparent)] ring-1 ring-inset ring-[var(--accent-deep)]"
+          : onSelect
+            ? "hover:bg-muted/40"
+            : ""
+      }`}
+      title={
+        draggable
+          ? active
+            ? "Showing this person — click to clear"
+            : "Click to view this person's shifts · drag onto a shift to schedule"
+          : "No linked account — can't be scheduled"
+      }
     >
       <Avatar
         name={emp.fullName}
@@ -415,14 +439,18 @@ function BulkCopyBar({
   }>;
   open: boolean;
   setOpen: (v: boolean) => void;
-  onCopy: (target: BulkCopyTarget) => void;
+  onCopy: (target: BulkCopyTarget, carryAssignees: boolean) => void;
   onClear: () => void;
 }) {
   // Sensible defaults: a day/week one week ahead of the week in view.
   const nextWeekStart = startOfWeek(addDays(new Date(weekStartMs), 7));
-  const [dateVal, setDateVal] = useState(() => fmtIsoDate(addDays(new Date(weekStartMs), 7)));
+  const defaultDay = fmtIsoDate(addDays(new Date(weekStartMs), 7));
+  const [fromVal, setFromVal] = useState(() => defaultDay);
+  const [toVal, setToVal] = useState(() => defaultDay);
   const [weekVal, setWeekVal] = useState(() => fmtIsoDate(nextWeekStart));
   const [areaVal, setAreaVal] = useState(areaOptions[0]?.value ?? "");
+  // Carry the assigned employee onto the copies (Deputy-style). Default on.
+  const [carry, setCarry] = useState(true);
 
   const inputCls =
     "h-8 rounded-md border border-[color:var(--input)] bg-transparent px-2 text-xs text-ink shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]";
@@ -437,31 +465,43 @@ function BulkCopyBar({
           <div className="border-b border-border px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Copy {count} shift{count === 1 ? "" : "s"} to…
           </div>
-          {/* Same time next week */}
-          <button
-            type="button"
-            onClick={() => onCopy({ kind: "nextWeek" })}
-            className="flex w-full items-center px-3 py-2 text-left text-xs hover:bg-muted/40"
-          >
-            Same time next week (+7 days)
-          </button>
-          {/* A specific day */}
-          <div className={rowCls}>
-            <input
-              type="date"
-              value={dateVal}
-              onChange={(e) => setDateVal(e.target.value)}
-              aria-label="Target day"
-              className={`${inputCls} flex-1`}
-            />
-            <button
-              type="button"
-              disabled={!dateVal}
-              onClick={() => onCopy({ kind: "date", date: dateVal })}
-              className={goCls}
-            >
-              Day
-            </button>
+          {/* A date range — copies onto every day from→to (same day = one day) */}
+          <div className="space-y-1.5 px-3 py-2">
+            <span className="text-[11px] font-medium text-muted-foreground">
+              Date range
+            </span>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="date"
+                value={fromVal}
+                onChange={(e) => {
+                  setFromVal(e.target.value);
+                  // keep `to` ≥ `from` for a sane default
+                  if (toVal < e.target.value) setToVal(e.target.value);
+                }}
+                aria-label="From date"
+                className={`${inputCls} min-w-0 flex-1`}
+              />
+              <span className="text-xs text-muted-foreground">→</span>
+              <input
+                type="date"
+                value={toVal}
+                min={fromVal}
+                onChange={(e) => setToVal(e.target.value)}
+                aria-label="To date"
+                className={`${inputCls} min-w-0 flex-1`}
+              />
+              <button
+                type="button"
+                disabled={!fromVal || !toVal}
+                onClick={() =>
+                  onCopy({ kind: "dateRange", from: fromVal, to: toVal }, carry)
+                }
+                className={goCls}
+              >
+                Copy
+              </button>
+            </div>
           </div>
           {/* An entire week (Mon-start) */}
           <div className={rowCls}>
@@ -476,12 +516,15 @@ function BulkCopyBar({
               type="button"
               disabled={!weekVal}
               onClick={() =>
-                onCopy({
-                  kind: "week",
-                  weekStart: fmtIsoDate(
-                    startOfWeek(new Date(`${weekVal}T00:00:00`)),
-                  ),
-                })
+                onCopy(
+                  {
+                    kind: "week",
+                    weekStart: fmtIsoDate(
+                      startOfWeek(new Date(`${weekVal}T00:00:00`)),
+                    ),
+                  },
+                  carry,
+                )
               }
               className={goCls}
             >
@@ -509,11 +552,10 @@ function BulkCopyBar({
                 onClick={() => {
                   const a = areaOptions.find((o) => o.value === areaVal);
                   if (a)
-                    onCopy({
-                      kind: "area",
-                      locationId: a.locationId,
-                      role: a.role,
-                    });
+                    onCopy(
+                      { kind: "area", locationId: a.locationId, role: a.role },
+                      carry,
+                    );
                 }}
                 className={goCls}
               >
@@ -521,6 +563,16 @@ function BulkCopyBar({
               </button>
             </div>
           )}
+          {/* Carry the assigned employee onto the copies */}
+          <label className="flex cursor-pointer items-center gap-2 border-t border-border px-3 py-2 text-xs">
+            <input
+              type="checkbox"
+              checked={carry}
+              onChange={(e) => setCarry(e.target.checked)}
+              className="accent-[var(--accent-deep)]"
+            />
+            Also copy the assigned employee
+          </label>
         </div>
       )}
       <div className="flex items-center gap-3 rounded-full border border-border bg-card px-4 py-2 shadow-lg">
@@ -570,6 +622,17 @@ export function AreaScheduleView({
     endsAt: new Date(s.endsAtMs),
   }));
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  // Clicking a name in the roster filters the grid to that employee (toggle).
+  const activeEmployee = searchParams.get("employee");
+  function selectEmployee(appUserId: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (params.get("employee") === appUserId) params.delete("employee");
+    else params.set("employee", appUserId);
+    const s = params.toString();
+    router.push(s ? `${pathname}?${s}` : pathname);
+  }
   const [, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   // Mount-time clock used to lock shifts that have started. Starts null so the
@@ -628,12 +691,12 @@ export function AreaScheduleView({
     return () => clearTimeout(t);
   }, [flash]);
 
-  function runBulkCopy(target: BulkCopyTarget) {
+  function runBulkCopy(target: BulkCopyTarget, carryAssignees: boolean) {
     const shiftIds = Array.from(selected);
     if (shiftIds.length === 0) return;
     setError(null);
     startTransition(async () => {
-      const res = await bulkCopyShiftsAction({ shiftIds, target });
+      const res = await bulkCopyShiftsAction({ shiftIds, target, carryAssignees });
       if (!res.ok) {
         setError(res.message ?? "Couldn't copy those shifts.");
         return;
@@ -831,7 +894,16 @@ export function AreaScheduleView({
                 No active employees yet.
               </li>
             ) : (
-              employees.map((e) => <DraggableEmployee key={e.id} emp={e} />)
+              employees.map((e) => (
+                <DraggableEmployee
+                  key={e.id}
+                  emp={e}
+                  active={!!e.appUserId && activeEmployee === e.appUserId}
+                  onSelect={
+                    e.appUserId ? () => selectEmployee(e.appUserId!) : null
+                  }
+                />
+              ))
             )}
           </ul>
         </aside>
