@@ -430,6 +430,7 @@ export default async function SchedulePage({
         locationId: locId!,
         role,
         count,
+        locationName: locationNameById.get(locId!) ?? "No location",
         label: `${locationNameById.get(locId!) ?? "No location"} › ${role}`,
       };
     })

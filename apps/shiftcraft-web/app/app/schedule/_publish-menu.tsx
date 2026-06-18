@@ -8,6 +8,7 @@ interface Area {
   locationId: string;
   role: string;
   count: number;
+  locationName: string;
   label: string;
 }
 
@@ -71,48 +72,61 @@ export function PublishMenu({
           ▾
         </span>
       </summary>
-      <div className="absolute right-0 z-30 mt-1.5 max-h-[70vh] w-64 overflow-y-auto rounded-[var(--r-md)] border border-line bg-[var(--paper)] p-2 shadow-[var(--shadow-md)]">
+      <div className="absolute right-0 z-30 mt-1.5 flex max-h-[70vh] w-80 flex-col rounded-[var(--r-md)] border border-line bg-[var(--paper)] shadow-[var(--shadow-md)]">
+        {/* Pinned header: select-all */}
         {areas.length > 1 && (
-          <label className="flex cursor-pointer items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-sm font-medium text-ink hover:bg-[var(--paper-2)]">
+          <label className="flex shrink-0 cursor-pointer items-center gap-2 border-b border-line px-3 py-2.5 text-sm font-medium text-ink hover:bg-[var(--paper-2)]">
             <input
               type="checkbox"
               checked={allSelected}
               onChange={toggleAll}
-              className="accent-[var(--accent-deep)]"
+              className="h-4 w-4 accent-[var(--accent-deep)]"
             />
             <span className="flex-1">All areas</span>
             <span className="font-mono text-xs text-ink-2">{draftCount}</span>
           </label>
         )}
-        <p className="px-2 pb-1 pt-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
-          By area
-        </p>
-        {areas.map((a) => {
-          const k = keyOf(a);
-          return (
-            <label
-              key={k}
-              className="flex cursor-pointer items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-sm text-ink-2 hover:bg-[var(--paper-2)] hover:text-ink"
-            >
-              <input
-                type="checkbox"
-                checked={selected.has(k)}
-                onChange={() => toggle(k)}
-                className="accent-[var(--accent-deep)]"
-              />
-              <span className="flex-1 truncate">{a.label}</span>
-              <span className="font-mono text-xs text-ink-3">{a.count}</span>
-            </label>
-          );
-        })}
-        <button
-          type="button"
-          onClick={publish}
-          disabled={pending}
-          className="mt-2 w-full rounded-[var(--r-sm)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-ink)] transition-[filter] hover:brightness-[0.97] disabled:opacity-60"
-        >
-          {btnLabel}
-        </button>
+        {/* Scrollable list — only this scrolls, so the button below stays put */}
+        <div className="min-h-0 flex-1 overflow-y-auto p-1">
+          {areas.map((a) => {
+            const k = keyOf(a);
+            return (
+              <label
+                key={k}
+                className="flex cursor-pointer items-center gap-2.5 rounded-[var(--r-sm)] px-2 py-2 text-sm hover:bg-[var(--paper-2)]"
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.has(k)}
+                  onChange={() => toggle(k)}
+                  className="h-4 w-4 shrink-0 accent-[var(--accent-deep)]"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium text-ink">
+                    {a.role}
+                  </span>
+                  <span className="block truncate text-xs text-ink-3">
+                    {a.locationName}
+                  </span>
+                </span>
+                <span className="shrink-0 font-mono text-xs text-ink-3">
+                  {a.count}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+        {/* Pinned footer: always-visible action */}
+        <div className="shrink-0 border-t border-line p-2">
+          <button
+            type="button"
+            onClick={publish}
+            disabled={pending}
+            className="w-full rounded-[var(--r-sm)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-ink)] transition-[filter] hover:brightness-[0.97] disabled:opacity-60"
+          >
+            {btnLabel}
+          </button>
+        </div>
       </div>
     </details>
   );
