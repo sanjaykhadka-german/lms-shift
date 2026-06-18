@@ -73,6 +73,19 @@ const personalSchema = z.object({
   addressLine: z.string().trim().max(300).optional().or(z.literal("")),
   emergencyContactName: z.string().trim().max(120).optional().or(z.literal("")),
   emergencyContactPhone: z.string().trim().max(40).optional().or(z.literal("")),
+  // Optional like the rest of the welcome flow (the manager can chase later),
+  // but when supplied it must read as a relationship, not a phone number —
+  // mirrors the stricter Deputy-form rule.
+  emergencyContactRelationship: z
+    .union([
+      z.literal(""),
+      z
+        .string()
+        .trim()
+        .max(60)
+        .regex(/[A-Za-z]/, "Enter a relationship, not a phone number"),
+    ])
+    .optional(),
 });
 
 function emptyToNull(v: string | undefined | null): string | null {
@@ -97,6 +110,8 @@ export async function selfUpdatePersonalAction(
     addressLine: formData.get("addressLine") ?? "",
     emergencyContactName: formData.get("emergencyContactName") ?? "",
     emergencyContactPhone: formData.get("emergencyContactPhone") ?? "",
+    emergencyContactRelationship:
+      formData.get("emergencyContactRelationship") ?? "",
   });
   if (!parsed.success) {
     return {
@@ -116,6 +131,9 @@ export async function selfUpdatePersonalAction(
         addressLine: emptyToNull(parsed.data.addressLine),
         emergencyContactName: emptyToNull(parsed.data.emergencyContactName),
         emergencyContactPhone: emptyToNull(parsed.data.emergencyContactPhone),
+        emergencyContactRelationship: emptyToNull(
+          parsed.data.emergencyContactRelationship,
+        ),
         // First save promotes pending → in_progress so the manager
         // queue surfaces ongoing onboarding.
         onboardingStatus: sql`CASE WHEN ${scEmployees.onboardingStatus} = 'pending' THEN 'in_progress' ELSE ${scEmployees.onboardingStatus} END`,
@@ -137,6 +155,12 @@ export async function selfUpdatePersonalAction(
 
 // ─── Payroll PII (encrypted) ────────────────────────────────────────
 
+// Optional select/checkbox values for the ATO TFN declaration + work
+// eligibility. Kept lenient (welcome flow lets workers fill in over time);
+// an empty string means "not answered yet" and leaves the jsonb untouched.
+const optionalEnum = <T extends [string, ...string[]]>(values: T) =>
+  z.union([z.literal(""), z.enum(values)]).optional();
+
 const piiSchema = z.object({
   tfn: z
     .union([
@@ -144,6 +168,7 @@ const piiSchema = z.object({
       z.string().trim().regex(/^\d{3}\s?\d{3}\s?\d{2,3}$/, "TFN is 8-9 digits"),
     ])
     .optional(),
+  bankAccountName: z.string().trim().max(120).optional().or(z.literal("")),
   bsb: z
     .union([
       z.literal(""),
@@ -163,6 +188,14 @@ const piiSchema = z.object({
       z.string().trim().min(2).max(40),
     ])
     .optional(),
+  // ── TFN declaration (ATO) ──
+  residency: optionalEnum(["resident", "foreign", "working_holiday"]),
+  payBasis: optionalEnum(["full_time", "part_time", "casual", "labour_hire"]),
+  claimTaxFreeThreshold: z.union([z.literal("on"), z.literal("")]).optional(),
+  hasStudyLoan: z.union([z.literal("on"), z.literal("")]).optional(),
+  // ── Work eligibility ──
+  workVisa: optionalEnum(["yes_attached", "no", "citizen_or_pr"]),
+  superEligible: z.union([z.literal("on"), z.literal("")]).optional(),
 });
 
 export async function selfSavePayrollPiiAction(
@@ -178,10 +211,17 @@ export async function selfSavePayrollPiiAction(
   }
   const parsed = piiSchema.safeParse({
     tfn: formData.get("tfn") ?? "",
+    bankAccountName: formData.get("bankAccountName") ?? "",
     bsb: formData.get("bsb") ?? "",
     accountNumber: formData.get("accountNumber") ?? "",
     superFundName: formData.get("superFundName") ?? "",
     superMemberNumber: formData.get("superMemberNumber") ?? "",
+    residency: formData.get("residency") ?? "",
+    payBasis: formData.get("payBasis") ?? "",
+    claimTaxFreeThreshold: formData.get("claimTaxFreeThreshold") ?? "",
+    hasStudyLoan: formData.get("hasStudyLoan") ?? "",
+    workVisa: formData.get("workVisa") ?? "",
+    superEligible: formData.get("superEligible") ?? "",
   });
   if (!parsed.success) {
     return {
@@ -210,6 +250,7 @@ export async function selfSavePayrollPiiAction(
   // a blank there is a deliberate clear.
   const updateSet: Partial<typeof scEmployees.$inferInsert> = {
     superFundName,
+    bankAccountName: emptyToNull(parsed.data.bankAccountName),
     updatedAt: new Date(),
   };
   if (tfn !== null) updateSet.tfnEnc = encryptPii(tfn);
@@ -219,6 +260,28 @@ export async function selfSavePayrollPiiAction(
   }
   if (superMemberNumber !== null) {
     updateSet.superMemberNumberEnc = encryptPii(superMemberNumber);
+  }
+
+  // TFN declaration + work eligibility jsonb. Only (re)write a block when the
+  // worker actually answered something in it, so a partial save (e.g. just
+  // fixing a BSB) never blanks a previously-completed declaration.
+  const residency = emptyToNull(parsed.data.residency);
+  const payBasis = emptyToNull(parsed.data.payBasis);
+  if (residency || payBasis) {
+    updateSet.tfnDeclaration = {
+      residency,
+      payBasis,
+      claimTaxFreeThreshold: parsed.data.claimTaxFreeThreshold === "on",
+      hasStudyLoan: parsed.data.hasStudyLoan === "on",
+      declaredAt: new Date().toISOString(),
+    };
+  }
+  const workVisa = emptyToNull(parsed.data.workVisa);
+  if (workVisa) {
+    updateSet.workEligibility = {
+      workVisa,
+      superEligible: parsed.data.superEligible === "on",
+    };
   }
 
   await forTenant(ctx.tenantId).run((tx) =>
@@ -236,6 +299,8 @@ export async function selfSavePayrollPiiAction(
       bsb: bsb !== null,
       account: accountNumber !== null,
       super: superMemberNumber !== null,
+      tfnDeclaration: updateSet.tfnDeclaration !== undefined,
+      workEligibility: updateSet.workEligibility !== undefined,
     },
   });
 

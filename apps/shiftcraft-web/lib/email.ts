@@ -37,6 +37,7 @@ const APP_URL = (
 ).replace(/\/+$/, "");
 const MY_SHIFTS_URL = `${APP_URL}/app/my-shifts`;
 const ANNOUNCEMENTS_URL = `${APP_URL}/app/announcements`;
+const WELCOME_URL = `${APP_URL}/app/welcome`;
 
 function fmtShift(s: { startsAt: Date; endsAt: Date; role: string; locationName: string | null }): string {
   const start = s.startsAt.toLocaleString(undefined, {
@@ -317,6 +318,40 @@ export async function sendDocumentExpiryDigest(opts: {
       context: `sendDocumentExpiryDigest to ${r.email}`,
     });
   }
+}
+
+// Nudge a new hire to complete their onboarding. Links straight to the
+// employee self-service welcome flow (/app/welcome). The recipient must be
+// able to sign in (their account is created when they accept the workspace
+// invite); the link bounces through sign-in otherwise.
+export async function notifyOnboardingInvite(opts: {
+  to: { email: string; name: string | null };
+  tenantName: string;
+  inviterName: string | null;
+}): Promise<void> {
+  const greeting = `Hi ${displayName(opts.to.name, opts.to.email).split(" ")[0]},`;
+  const inviter = opts.inviterName ?? "Your manager";
+  await safeSend({
+    to: opts.to.email,
+    subject: `Complete your onboarding · ${opts.tenantName}`,
+    text:
+      `${greeting}\n\n${inviter} has asked you to finish setting up your ` +
+      `${opts.tenantName} profile — personal details, payroll/tax, super, ` +
+      `work eligibility and any documents.\n\n` +
+      `Complete it here: ${WELCOME_URL}\n\n` +
+      `If you haven't set a password yet, accept your workspace invite first, ` +
+      `then open the link above.`,
+    html: `
+      <p>${greeting}</p>
+      <p><strong>${inviter}</strong> has asked you to finish setting up your
+      <strong>${opts.tenantName}</strong> profile — personal details,
+      payroll/tax, super, work eligibility and any documents.</p>
+      <p><a href="${WELCOME_URL}">Complete your onboarding</a></p>
+      <p style="color:#666;font-size:13px">If you haven't set a password yet,
+      accept your workspace invite first, then open the link above.</p>
+    `,
+    context: "notifyOnboardingInvite",
+  });
 }
 
 export async function notifySwapDeclined(opts: {

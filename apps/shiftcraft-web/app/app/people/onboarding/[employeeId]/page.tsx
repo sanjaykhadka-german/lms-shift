@@ -106,13 +106,20 @@ export default async function OnboardingChecklistPage({
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
       {/* ─── Breadcrumb ─── */}
-      <div className="text-xs text-muted-foreground">
+      <div className="flex items-center justify-between gap-3">
         <Link
           href="/app/people/onboarding"
-          className="hover:underline"
+          className="text-xs text-muted-foreground hover:underline"
         >
           ← Back to onboarding
         </Link>
+        {canManage ? (
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/app/people/onboarding/${employeeId}/complete`}>
+              Fill onboarding form
+            </Link>
+          </Button>
+        ) : null}
       </div>
 
       {/* ─── Employee card ─── */}

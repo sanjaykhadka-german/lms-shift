@@ -13,6 +13,7 @@ import {
 import { currentMembership, currentUser } from "~/lib/auth/current";
 import { isAtLeastManager } from "~/lib/roles";
 import { logAuditEvent } from "~/lib/audit";
+import { notifyOnboardingInvite } from "~/lib/email";
 
 type TenantTx = Parameters<
   Parameters<ReturnType<typeof forTenant>["run"]>[0]
@@ -372,6 +373,100 @@ export async function completeOnboardingAction(formData: FormData): Promise<void
   revalidatePath("/app/people/onboarding");
   revalidatePath(`/app/people/onboarding/${employeeId}`);
   revalidatePath("/app/people/team");
+}
+
+// ─── Send onboarding email ───────────────────────────────────────────
+//
+// Manager nudges an employee to complete their self-service onboarding at
+// /app/welcome. If they're not already onboarded, this also puts them in the
+// queue (seeds the checklist if missing + flips status to 'pending') so the
+// first-login redirect catches them too. Already-completed employees are
+// emailed the link without resetting their status. Email is best-effort
+// (no RESEND_API_KEY in local dev → silent no-op, rest of the flow still runs).
+
+export async function sendOnboardingEmailAction(
+  formData: FormData,
+): Promise<void> {
+  const me = await currentUser();
+  const membership = await currentMembership();
+  if (!me || !membership || !isAtLeastManager(membership.role)) {
+    throw new Error("Forbidden");
+  }
+  const tenantId = membership.tenant.id;
+
+  const parsed = employeeSchema.safeParse({
+    employeeId: formData.get("employeeId"),
+  });
+  if (!parsed.success) throw new Error("Invalid employee id");
+  const { employeeId } = parsed.data;
+
+  const emp = await forTenant(tenantId).run(async (tx) => {
+    const [row] = await tx
+      .select({
+        id: scEmployees.id,
+        email: scEmployees.email,
+        fullName: scEmployees.fullName,
+        completedAt: scEmployees.onboardingCompletedAt,
+      })
+      .from(scEmployees)
+      .where(eq(scEmployees.id, employeeId))
+      .limit(1);
+    if (!row) return null;
+
+    // Not yet onboarded → ensure they're in the queue: seed the checklist if
+    // it's missing and (re)set status to pending. Don't touch a completed row.
+    if (row.completedAt === null) {
+      const existing = await tx
+        .select({ id: scEmployeeOnboardingTasks.id })
+        .from(scEmployeeOnboardingTasks)
+        .where(eq(scEmployeeOnboardingTasks.employeeId, employeeId))
+        .limit(1);
+      if (existing.length === 0) {
+        const seedTasks = await resolveSeedTasks(tx, tenantId);
+        await tx.insert(scEmployeeOnboardingTasks).values(
+          seedTasks.map((t, idx) => ({
+            traceyTenantId: tenantId,
+            employeeId,
+            title: t.title,
+            description: t.description,
+            sortOrder: idx,
+            required: t.required,
+            status: "pending" as const,
+          })),
+        );
+      }
+      await tx
+        .update(scEmployees)
+        .set({
+          onboardingStatus: "pending",
+          onboardingStartedAt: sql`COALESCE(${scEmployees.onboardingStartedAt}, NOW())`,
+        })
+        .where(eq(scEmployees.id, employeeId));
+    }
+    return row;
+  });
+
+  if (!emp) throw new Error("Employee not found");
+  if (!emp.email) {
+    // No address to send to — bounce back with a flag the page surfaces.
+    redirect("/app/people/onboarding?sent=noemail");
+  }
+
+  await notifyOnboardingInvite({
+    to: { email: emp.email, name: emp.fullName },
+    tenantName: membership.tenant.name,
+    inviterName: me.name,
+  });
+
+  await logAuditEvent({
+    action: "shiftcraft.onboarding.email_sent",
+    targetKind: "sc_employee",
+    targetId: employeeId,
+    details: { email: emp.email },
+  });
+
+  revalidatePath("/app/people/onboarding");
+  redirect("/app/people/onboarding?sent=1");
 }
 
 // ─── Checklist template CRUD (the /checklist admin surface) ───

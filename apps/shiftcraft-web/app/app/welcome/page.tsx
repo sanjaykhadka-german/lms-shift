@@ -29,6 +29,37 @@ function fmtBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
+// sc_employees.tfn_declaration / work_eligibility are jsonb (typed as unknown).
+// Read them defensively into the shapes the payroll form expects for prefill;
+// any missing/legacy field falls back to null/false.
+function readDeclaration(v: unknown): {
+  residency: string | null;
+  payBasis: string | null;
+  claimTaxFreeThreshold: boolean;
+  hasStudyLoan: boolean;
+} | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  return {
+    residency: typeof o.residency === "string" ? o.residency : null,
+    payBasis: typeof o.payBasis === "string" ? o.payBasis : null,
+    claimTaxFreeThreshold: o.claimTaxFreeThreshold === true,
+    hasStudyLoan: o.hasStudyLoan === true,
+  };
+}
+
+function readEligibility(v: unknown): {
+  workVisa: string | null;
+  superEligible: boolean;
+} | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  return {
+    workVisa: typeof o.workVisa === "string" ? o.workVisa : null,
+    superEligible: o.superEligible === true,
+  };
+}
+
 export default async function WelcomePage() {
   const membership = await currentMembership();
   if (!membership) redirect("/app");
@@ -168,6 +199,7 @@ export default async function WelcomePage() {
             addressLine: employee.addressLine,
             emergencyContactName: employee.emergencyContactName,
             emergencyContactPhone: employee.emergencyContactPhone,
+            emergencyContactRelationship: employee.emergencyContactRelationship,
           }}
         />
       </section>
@@ -186,6 +218,9 @@ export default async function WelcomePage() {
             hasAccount: employee.accountNumberEnc !== null,
             hasSuper: employee.superMemberNumberEnc !== null,
             superFundName: employee.superFundName,
+            bankAccountName: employee.bankAccountName,
+            declaration: readDeclaration(employee.tfnDeclaration),
+            eligibility: readEligibility(employee.workEligibility),
           }}
         />
       </section>

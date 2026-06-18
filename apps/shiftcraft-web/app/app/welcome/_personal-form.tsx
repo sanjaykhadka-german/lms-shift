@@ -18,6 +18,7 @@ interface Defaults {
   addressLine: string | null;
   emergencyContactName: string | null;
   emergencyContactPhone: string | null;
+  emergencyContactRelationship: string | null;
 }
 
 export function PersonalForm({ defaults }: { defaults: Defaults }) {
@@ -97,6 +98,25 @@ export function PersonalForm({ defaults }: { defaults: Defaults }) {
           placeholder="+61 4xx xxx xxx"
           maxLength={40}
         />
+      </div>
+
+      <div className="space-y-1.5 sm:col-span-2">
+        <Label htmlFor="emergencyContactRelationship">
+          Their relationship to you
+        </Label>
+        <Input
+          id="emergencyContactRelationship"
+          name="emergencyContactRelationship"
+          defaultValue={defaults.emergencyContactRelationship ?? ""}
+          placeholder="e.g. Spouse, Parent, Friend"
+          maxLength={60}
+        />
+        {state.status === "error" &&
+        state.fieldErrors?.emergencyContactRelationship ? (
+          <p className="text-xs text-[color:var(--destructive)]">
+            {state.fieldErrors.emergencyContactRelationship[0]}
+          </p>
+        ) : null}
       </div>
 
       <div className="sm:col-span-2 flex items-center gap-3">

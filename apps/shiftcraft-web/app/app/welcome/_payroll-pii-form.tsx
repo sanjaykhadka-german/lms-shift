@@ -17,7 +17,18 @@ interface Flags {
   hasAccount: boolean;
   hasSuper: boolean;
   superFundName: string | null;
+  bankAccountName: string | null;
+  declaration: {
+    residency: string | null;
+    payBasis: string | null;
+    claimTaxFreeThreshold: boolean;
+    hasStudyLoan: boolean;
+  } | null;
+  eligibility: { workVisa: string | null; superEligible: boolean } | null;
 }
+
+const selectClass =
+  "flex h-9 w-full rounded-md border border-[color:var(--input)] bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]";
 
 export function PayrollPiiForm({ flags }: { flags: Flags }) {
   const [state, formAction, pending] = useActionState(
@@ -66,6 +77,17 @@ export function PayrollPiiForm({ flags }: { flags: Flags }) {
           inputMode="numeric"
           autoComplete="off"
           placeholder={flags.hasTfn ? "Leave blank to keep" : "xxx xxx xxx"}
+        />
+      </div>
+
+      <div className="space-y-1.5 sm:col-span-2">
+        <Label htmlFor="bankAccountName">Account name</Label>
+        <Input
+          id="bankAccountName"
+          name="bankAccountName"
+          defaultValue={flags.bankAccountName ?? ""}
+          placeholder="Name on the bank account"
+          maxLength={120}
         />
       </div>
 
@@ -134,6 +156,86 @@ export function PayrollPiiForm({ flags }: { flags: Flags }) {
           placeholder={flags.hasSuper ? "Leave blank to keep" : "Member ID"}
         />
       </div>
+
+      {/* ── ATO TFN declaration ── */}
+      <div className="space-y-1.5">
+        <Label htmlFor="residency">Residency for tax</Label>
+        <select
+          id="residency"
+          name="residency"
+          defaultValue={flags.declaration?.residency ?? ""}
+          className={selectClass}
+        >
+          <option value="">Select…</option>
+          <option value="resident">Australian resident</option>
+          <option value="foreign">Foreign resident</option>
+          <option value="working_holiday">Working holiday maker</option>
+        </select>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="payBasis">Basis of payment</Label>
+        <select
+          id="payBasis"
+          name="payBasis"
+          defaultValue={flags.declaration?.payBasis ?? ""}
+          className={selectClass}
+        >
+          <option value="">Select…</option>
+          <option value="full_time">Full time</option>
+          <option value="part_time">Part time</option>
+          <option value="casual">Casual</option>
+          <option value="labour_hire">Labour hire</option>
+        </select>
+      </div>
+
+      <label className="flex items-center gap-2 text-sm sm:col-span-2">
+        <input
+          type="checkbox"
+          name="claimTaxFreeThreshold"
+          defaultChecked={flags.declaration?.claimTaxFreeThreshold ?? false}
+          className="h-4 w-4 accent-[var(--accent-deep)]"
+        />
+        Claim the tax-free threshold
+      </label>
+
+      <label className="flex items-center gap-2 text-sm sm:col-span-2">
+        <input
+          type="checkbox"
+          name="hasStudyLoan"
+          defaultChecked={flags.declaration?.hasStudyLoan ?? false}
+          className="h-4 w-4 accent-[var(--accent-deep)]"
+        />
+        I have a HELP / VSL / SSL or other study/training loan
+      </label>
+
+      {/* ── Work eligibility ── */}
+      <div className="space-y-1.5 sm:col-span-2">
+        <Label htmlFor="workVisa">Right to work in Australia</Label>
+        <select
+          id="workVisa"
+          name="workVisa"
+          defaultValue={flags.eligibility?.workVisa ?? ""}
+          className={selectClass}
+        >
+          <option value="">Select…</option>
+          <option value="citizen_or_pr">
+            Australian citizen / permanent resident
+          </option>
+          <option value="yes_attached">Valid work visa (uploaded below)</option>
+          <option value="no">No</option>
+        </select>
+      </div>
+
+      <label className="flex items-center gap-2 text-sm sm:col-span-2">
+        <input
+          type="checkbox"
+          name="superEligible"
+          defaultChecked={flags.eligibility?.superEligible ?? false}
+          className="h-4 w-4 accent-[var(--accent-deep)]"
+        />
+        I'm eligible for superannuation
+      </label>
 
       <div className="sm:col-span-2 flex items-center gap-3">
         <Button type="submit" disabled={pending}>

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { and, asc, count, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray } from "drizzle-orm";
 import {
   forTenant,
   scDepartments,
@@ -13,6 +13,7 @@ import { isAtLeastManager } from "~/lib/roles";
 import { Avatar } from "~/components/Avatar";
 import { Button } from "~/components/ui/button";
 import { BulkStartForm } from "./_bulk-start-form";
+import { sendOnboardingEmailAction } from "./_actions";
 import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "New hire onboarding · ShiftCraft" };
@@ -38,14 +39,14 @@ function startOfThisMonth(): Date {
 export default async function OnboardingHubPage({
   searchParams,
 }: {
-  searchParams: Promise<{ started?: string }>;
+  searchParams: Promise<{ started?: string; sent?: string }>;
 }) {
   const membership = await currentMembership();
   if (!membership) redirect("/app");
   const tenantId = membership.tenant.id;
   const canManage = isAtLeastManager(membership.role);
 
-  const { started } = await searchParams;
+  const { started, sent } = await searchParams;
   const startedCount = Number.parseInt(started ?? "", 10);
   const showStartedFlash = Number.isFinite(startedCount) && started !== undefined;
 
@@ -176,6 +177,17 @@ export default async function OnboardingHubPage({
         </div>
       ) : null}
 
+      {sent === "1" ? (
+        <div className="rounded-lg border border-[color-mix(in_srgb,var(--live)_45%,transparent)] bg-[color-mix(in_srgb,var(--live)_10%,transparent)] px-4 py-2 text-sm font-medium text-ink">
+          Onboarding email sent — the employee can finish at their Welcome page.
+        </div>
+      ) : sent === "noemail" ? (
+        <div className="rounded-lg border border-[color-mix(in_srgb,var(--warn)_45%,transparent)] bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] px-4 py-2 text-sm font-medium text-ink">
+          That employee has no email on file — add one on their profile before
+          sending onboarding.
+        </div>
+      ) : null}
+
       {/* ─── Counters ─── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Stat
@@ -266,6 +278,24 @@ export default async function OnboardingHubPage({
                         {progress.done}/{progress.total} tasks
                       </div>
                     </div>
+                    {canManage ? (
+                      <form action={sendOnboardingEmailAction}>
+                        <input type="hidden" name="employeeId" value={q.id} />
+                        <Button
+                          type="submit"
+                          variant="outline"
+                          size="sm"
+                          disabled={!q.email}
+                          title={
+                            q.email
+                              ? "Email this employee a link to complete onboarding"
+                              : "Add an email to their profile first"
+                          }
+                        >
+                          Send onboarding
+                        </Button>
+                      </form>
+                    ) : null}
                     <Button asChild variant="outline" size="sm">
                       <Link href={`/app/people/onboarding/${q.id}`}>
                         Open checklist
