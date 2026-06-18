@@ -32,6 +32,8 @@ export async function getTenantAwardProfile(
 export interface TenantAwardMeta {
   awardCode: string | null;
   awardEffectiveFrom: string | null;
+  /** Under-minimum floor enforcement: false = warn only, true = hard block. */
+  awardFloorBlock: boolean;
 }
 
 export async function getTenantAwardMeta(
@@ -42,6 +44,7 @@ export async function getTenantAwardMeta(
       .select({
         awardCode: scTenantConfig.awardCode,
         awardEffectiveFrom: scTenantConfig.awardEffectiveFrom,
+        awardFloorBlock: scTenantConfig.awardFloorBlock,
       })
       .from(scTenantConfig)
       .where(eq(scTenantConfig.traceyTenantId, tenantId))
@@ -50,5 +53,6 @@ export async function getTenantAwardMeta(
   return {
     awardCode: row?.awardCode ?? null,
     awardEffectiveFrom: row?.awardEffectiveFrom ?? null,
+    awardFloorBlock: row?.awardFloorBlock ?? false,
   };
 }

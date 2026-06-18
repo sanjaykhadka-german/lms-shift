@@ -223,3 +223,6 @@ export function classifyWeek(
 
 // Award preset catalogue (named Modern Awards → rule structure).
 export * from "./presets";
+
+// Minimum-rate floor check against an award classification.
+export * from "./floor";

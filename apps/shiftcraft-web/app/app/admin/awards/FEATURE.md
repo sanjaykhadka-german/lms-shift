@@ -33,5 +33,22 @@ counterpart to the Xero push (which sends the interpreted hours out).
 - **The preset seeds rules only.** Its multipliers carry `VERIFY` flags; confirm
   against the current award + Fair Work Pay Guide. Real rates arrive via Slice D.
 
-<!-- Slices B (classifications + floor), C (allowances), D (FWC MAPD fetcher)
-     extend this file as they ship. -->
+## Slice B — classifications + minimum-rate floor (shipped)
+- Per-tenant `sc_award_classifications` (per-tenant migration `0060`, public
+  template `0047`): `(award_code, level_code)` → `base_hourly_rate` +
+  `casual_loading` + `effective_from` + `source` (`manual`|`fwc`). History kept;
+  the current row is the latest `effective_from <= today`.
+- `sc_employees.award_level_code` links an employee to a level (plain text, so a
+  Fair Work re-pull that recreates rows never breaks the link).
+- Pure `checkRateFloor` in `@tracey/award`: casuals held to base × (1 + casual
+  loading). Reusable — the Xero/approval workstream can call it without ShiftCraft
+  touching `xero-actions.ts`.
+- Admin page **`/app/admin/awards`** (owner-only): manage classifications, assign
+  each team member a level, and toggle floor enforcement
+  (`sc_tenant_config.award_floor_block`: warn vs hard-block). Under-minimum shows
+  an inline badge per employee.
+- Test: `tests/award-floor.test.ts`.
+- Follow-on: surface the same `checkRateFloor` badge on the timesheets cost row
+  and the employee edit page (thin wiring using the exposed helper).
+
+<!-- Slices C (allowances), D (FWC MAPD fetcher) extend this file as they ship. -->

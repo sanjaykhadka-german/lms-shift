@@ -548,6 +548,12 @@ export const scEmployees = pgTable(
     // tenant → @tracey/award defaults. Null means "inherit from
     // tenant" (which itself may be null → inherit from package).
     awardProfile: jsonb("award_profile"),
+    // Award classification level code (e.g. "L3"), resolved against
+    // sc_award_classifications (award_code, level_code) at compute time to
+    // get the minimum rate for the floor check. Plain text (like `position`)
+    // so a Fair Work re-pull that recreates classification rows never breaks
+    // the link. Null = no classification assigned. See @tracey/award checkRateFloor.
+    awardLevelCode: text("award_level_code"),
     // Payroll PII. Encrypted at rest via the @tracey/db `pii` helper
     // (AES-256-GCM, TRACEY_PII_ENC_KEY). Stored as v1:base64 tokens.
     // - tfn_enc                : AU Tax File Number
@@ -1364,6 +1370,10 @@ export const scTenantConfig = pgTable(
     // Effective date of the award rule-set currently applied (the preset
     // version, or the FWC effective date once pulled live). Null until set.
     awardEffectiveFrom: date("award_effective_from"),
+    // Minimum-rate floor enforcement. false (default) = warn only; true =
+    // hard block (the Xero workstream / approve flow can gate on it via the
+    // shared checkRateFloor helper). See app/app/admin/awards.
+    awardFloorBlock: boolean("award_floor_block").notNull().default(false),
     // ─── Clock-in policy (web punch controls) ───
     // Admins decide how staff may clock in from the web app (not the kiosk,
     // which is always allowed at a paired device). All default to the prior
@@ -1407,6 +1417,55 @@ export const scTenantConfig = pgTable(
     check(
       "sc_tenant_config_notify_channel_chk",
       sql`${t.notifyChannel} in ('email','in_app','both')`,
+    ),
+  ],
+);
+
+// ─── Award classifications (AUDIT.md Feature 4 — Fair Work, Slice B) ──
+//
+// Per-(award, level) minimum rates. One row per (tenant, award, level,
+// effective_from) so history is retained across the annual 1 July update;
+// resolve the latest effective_from <= today. base_hourly_rate is the
+// permanent minimum; casuals get base × (1 + casual_loading). Rows are
+// seeded by the Fair Work (MAPD) pull (source='fwc') or entered by hand
+// (source='manual'). sc_employees.award_level_code links to level_code.
+
+export const scAwardClassifications = pgTable(
+  "sc_award_classifications",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    awardCode: text("award_code").notNull(),
+    levelCode: text("level_code").notNull(),
+    label: text("label").notNull(),
+    baseHourlyRate: numeric("base_hourly_rate", {
+      precision: 10,
+      scale: 2,
+    }).notNull(),
+    casualLoading: numeric("casual_loading", { precision: 5, scale: 4 }),
+    effectiveFrom: date("effective_from").notNull(),
+    source: text("source").notNull().default("manual"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("sc_award_classifications_uq").on(
+      t.traceyTenantId,
+      t.awardCode,
+      t.levelCode,
+      t.effectiveFrom,
+    ),
+    index("sc_award_classifications_tenant_award_idx").on(
+      t.traceyTenantId,
+      t.awardCode,
+    ),
+    check(
+      "sc_award_classifications_source_chk",
+      sql`${t.source} in ('manual','fwc')`,
     ),
   ],
 );
