@@ -130,6 +130,11 @@ export const scShifts = pgTable(
     startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
     endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
     status: text("status").notNull().default("draft"),
+    // Timestamp of the last publish (draft→published, or a re-publish of a
+    // shift that was edited after going live). Null = never published. The
+    // schedule compares updatedAt > publishedAt to surface "edited since
+    // publish" shifts and re-include them in the publish action.
+    publishedAt: timestamp("published_at", { withTimezone: true }),
     notes: text("notes"),
     // Scheduled meal/rest breaks. `breaks` is the source of truth: an ordered
     // list of {label, minutes, paid} entries the admin defines per shift. The

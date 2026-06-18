@@ -396,7 +396,7 @@ export async function bulkPublishWeekAction(formData: FormData): Promise<void> {
   const published = await forTenant(membership.tenant.id).run((tx) =>
     tx
       .update(scShifts)
-      .set({ status: "published", updatedAt: new Date() })
+      .set({ status: "published", publishedAt: new Date(), updatedAt: new Date() })
       .where(and(...conditions))
       .returning({
         id: scShifts.id,
@@ -1078,7 +1078,13 @@ async function setShiftStatus(
   await forTenant(tenant.id).run((tx) =>
     tx
       .update(scShifts)
-      .set({ status: next, updatedAt: new Date() })
+      .set({
+        status: next,
+        updatedAt: new Date(),
+        // Stamp the publish time so the schedule can tell an edited-since-
+        // publish shift (updatedAt > publishedAt) from a clean published one.
+        ...(next === "published" ? { publishedAt: new Date() } : {}),
+      })
       .where(and(eq(scShifts.id, id), eq(scShifts.traceyTenantId, tenant.id))),
   );
   revalidatePath("/app/schedule");
