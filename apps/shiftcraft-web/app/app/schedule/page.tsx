@@ -83,6 +83,8 @@ export default async function SchedulePage({
     location?: string;
     view?: string;
     range?: string;
+    from?: string;
+    to?: string;
     employee?: string;
     copied?: string;
     skipped?: string;
@@ -110,6 +112,8 @@ export default async function SchedulePage({
     location: locationFilter,
     view: viewRaw,
     range: rangeRaw,
+    from: fromRaw,
+    to: toRaw,
     employee: employeeRaw,
     copied,
     skipped,
@@ -134,14 +138,54 @@ export default async function SchedulePage({
         : cookieRange === "2w"
           ? "2w"
           : "1w";
-  const dayCount = range === "2w" ? 14 : 7;
+  // Kati's rostering feedback #1.C — an explicit custom span via
+  // ?from=YYYY-MM-DD&to=YYYY-MM-DD overrides the 1wk/2wk range. Both dates
+  // must be valid and from ≤ to; the span is capped at 35 days so a stray
+  // range can't blow up the grid/DB. Any week-nav control (Prev/Today/Next,
+  // 1wk/2wk) drops from/to via qs() and reverts to week mode.
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  const fromDate =
+    fromRaw && DATE_RE.test(fromRaw) ? new Date(`${fromRaw}T00:00:00`) : null;
+  const toDate =
+    toRaw && DATE_RE.test(toRaw) ? new Date(`${toRaw}T00:00:00`) : null;
+  const custom =
+    fromDate &&
+    toDate &&
+    !isNaN(fromDate.getTime()) &&
+    !isNaN(toDate.getTime()) &&
+    toDate >= fromDate
+      ? { from: fromDate, to: toDate }
+      : null;
   const copiedCount = Number.parseInt(copied ?? "", 10);
   const skippedCount = Number.parseInt(skipped ?? "", 10);
   const assignedCount = Number.parseInt(assigned ?? "", 10);
   const flaggedCount = Number.parseInt(flagged ?? "", 10);
   const showCopyFlash = Number.isFinite(copiedCount) && copied !== undefined;
   const anchor = week ? new Date(`${week}T00:00:00`) : new Date();
-  const weekStart = startOfWeek(isNaN(anchor.getTime()) ? new Date() : anchor);
+  let weekStart: Date;
+  let dayCount: number;
+  if (custom) {
+    weekStart = new Date(custom.from);
+    weekStart.setHours(0, 0, 0, 0);
+    const span =
+      Math.round(
+        (Date.UTC(
+          custom.to.getFullYear(),
+          custom.to.getMonth(),
+          custom.to.getDate(),
+        ) -
+          Date.UTC(
+            custom.from.getFullYear(),
+            custom.from.getMonth(),
+            custom.from.getDate(),
+          )) /
+          86_400_000,
+      ) + 1;
+    dayCount = Math.min(35, Math.max(1, span));
+  } else {
+    dayCount = range === "2w" ? 14 : 7;
+    weekStart = startOfWeek(isNaN(anchor.getTime()) ? new Date() : anchor);
+  }
   const weekEnd = addDays(weekStart, dayCount); // exclusive
 
   const qs = (overrides: {
@@ -449,7 +493,7 @@ export default async function SchedulePage({
     // cramping; the 1-week view stays comfortably capped.
     <div
       className={`mx-auto space-y-6 px-6 py-10 ${
-        range === "2w" ? "max-w-none" : "max-w-6xl"
+        range === "2w" || dayCount > 7 ? "max-w-none" : "max-w-6xl"
       }`}
     >
       <PersistRange range={range} />
@@ -556,6 +600,56 @@ export default async function SchedulePage({
               </Link>
             ))}
           </div>
+          {/* Kati's rostering feedback #1.C — pick an arbitrary span. GET form
+              sets ?from&to (dropping range/week), so submitting jumps straight
+              to the custom view; any week-nav control reverts to 1wk/2wk. */}
+          <details className="relative">
+            <summary
+              className={`inline-flex h-8 cursor-pointer list-none items-center whitespace-nowrap rounded-[var(--r-sm)] border px-3 text-xs font-medium hover:bg-[color-mix(in_srgb,var(--ink)_5%,transparent)] ${
+                custom
+                  ? "border-[var(--accent-deep)] text-ink"
+                  : "border-[color:var(--input)] text-ink-2"
+              }`}
+            >
+              {custom
+                ? `${fmtIsoDate(weekStart)} → ${fmtIsoDate(addDays(weekStart, dayCount - 1))}`
+                : "Custom…"}
+            </summary>
+            <form
+              method="get"
+              className="absolute right-0 z-10 mt-1 flex flex-wrap items-end gap-2 rounded-[var(--r-sm)] border border-border bg-card p-3 shadow-lg"
+            >
+              {locationFilter && (
+                <input type="hidden" name="location" value={locationFilter} />
+              )}
+              {view !== "area" && (
+                <input type="hidden" name="view" value={view} />
+              )}
+              <label className="flex flex-col gap-1 text-xs text-ink-2">
+                From
+                <input
+                  type="date"
+                  name="from"
+                  required
+                  defaultValue={fmtIsoDate(weekStart)}
+                  className="h-9 rounded-md border border-[color:var(--input)] bg-transparent px-2 text-sm text-ink shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-ink-2">
+                To
+                <input
+                  type="date"
+                  name="to"
+                  required
+                  defaultValue={fmtIsoDate(addDays(weekStart, dayCount - 1))}
+                  className="h-9 rounded-md border border-[color:var(--input)] bg-transparent px-2 text-sm text-ink shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+                />
+              </label>
+              <Button type="submit" variant="outline" size="sm">
+                Apply
+              </Button>
+            </form>
+          </details>
           <span className="mx-1 h-6 w-px self-center bg-line" aria-hidden />
           {/* Group 3 — Actions */}
           <Button asChild variant="outline" size="sm">
