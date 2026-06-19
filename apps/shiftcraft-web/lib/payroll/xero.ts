@@ -534,3 +534,57 @@ export async function fetchPayRunSummary(
     periodEndDate: run.payRunPeriodEndDate ?? null,
   };
 }
+
+// ─── Pay-run list (for the read-back picker) ────────────────────────
+//
+// Xero's web UI never exposes the PayRunID GUID — only the API does — so the
+// read-back form can't ask the operator to paste one. This lists recent pay
+// runs (GUID + period + status + totals) so the UI can offer a pick-list.
+
+export interface XeroPayRunListItem {
+  payRunId: string;
+  /** YYYY-MM-DD (the period start = the week's Monday for a weekly calendar). */
+  periodStart: string | null;
+  periodEnd: string | null;
+  paymentDate: string | null;
+  status: string;
+  wages: number | null;
+  netPay: number | null;
+}
+
+function isoDateOf(value: unknown): string | null {
+  const s = String(value ?? "");
+  // Xero AU payroll returns dates as .NET "/Date(1623110400000+0000)/".
+  const dotnet = s.match(/\/Date\((\d+)/);
+  if (dotnet) {
+    const d = new Date(Number(dotnet[1]));
+    return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+  }
+  // ISO date or datetime fallback.
+  const iso = s.match(/\d{4}-\d{2}-\d{2}/);
+  return iso ? iso[0] : null;
+}
+
+export async function listPayRuns(
+  tenantId: string,
+  limit = 20,
+): Promise<XeroPayRunListItem[]> {
+  const ctx = await getClientForTenant(tenantId);
+  if (!ctx) return [];
+  const response = await ctx.client.payrollAUApi.getPayRuns(ctx.xeroTenantId);
+  const runs = response.body.payRuns ?? [];
+  return runs
+    .filter((r) => r.payRunID)
+    .map((r) => ({
+      payRunId: String(r.payRunID),
+      periodStart: isoDateOf(r.payRunPeriodStartDate),
+      periodEnd: isoDateOf(r.payRunPeriodEndDate),
+      paymentDate: isoDateOf(r.paymentDate),
+      status: String(r.payRunStatus ?? "UNKNOWN"),
+      wages: r.wages ?? null,
+      netPay: r.netPay ?? null,
+    }))
+    // Most recent period first.
+    .sort((a, b) => (b.periodStart ?? "").localeCompare(a.periodStart ?? ""))
+    .slice(0, limit);
+}

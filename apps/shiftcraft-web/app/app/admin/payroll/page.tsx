@@ -13,6 +13,7 @@ import {
   isXeroConfigured,
   listAvailableOrgs,
   listEarningsRates,
+  listPayRuns,
   listXeroEmployees,
   loadConnection,
 } from "~/lib/payroll/xero";
@@ -30,6 +31,7 @@ import {
   switchXeroOrgAction,
 } from "./actions";
 import { ExportToXeroForm, ReadbackForm } from "./_export-form";
+import { PayRunPicker } from "./_payrun-picker";
 import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "Payroll · ShiftCraft" };
@@ -112,13 +114,15 @@ export default async function PayrollAdminPage({
   let earningsRates: Awaited<ReturnType<typeof listEarningsRates>> = [];
   let xeroEmployees: Awaited<ReturnType<typeof listXeroEmployees>> = [];
   let availableOrgs: Awaited<ReturnType<typeof listAvailableOrgs>> = [];
+  let payRuns: Awaited<ReturnType<typeof listPayRuns>> = [];
   let listError: string | null = null;
   if (connection) {
     try {
-      [earningsRates, xeroEmployees, availableOrgs] = await Promise.all([
+      [earningsRates, xeroEmployees, availableOrgs, payRuns] = await Promise.all([
         listEarningsRates(tenantId),
         listXeroEmployees(tenantId),
         listAvailableOrgs(tenantId),
+        listPayRuns(tenantId),
       ]);
     } catch (err) {
       // Surface the real Xero error — the xero-node SDK throws non-Error
@@ -426,11 +430,18 @@ export default async function PayrollAdminPage({
         <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
           <h2 className="text-sm font-semibold">Read-back finalised pay run</h2>
           <p className="mt-1 mb-4 text-xs text-muted-foreground">
-            After Xero finalises a pay run, paste its PayRunID below to
-            pull the totals (gross / net / tax / super) back into
-            ShiftCraft. Surfaces on the Reports page.
+            After Xero finalises a pay run, pull its totals (gross / net / tax /
+            super) back into ShiftCraft. Surfaces on the Reports page.
           </p>
-          <ReadbackForm />
+          <PayRunPicker payRuns={payRuns} />
+          <details className="mt-4">
+            <summary className="cursor-pointer text-xs text-muted-foreground hover:text-ink">
+              Or read back by PayRunID manually
+            </summary>
+            <div className="mt-3">
+              <ReadbackForm />
+            </div>
+          </details>
         </section>
       )}
 

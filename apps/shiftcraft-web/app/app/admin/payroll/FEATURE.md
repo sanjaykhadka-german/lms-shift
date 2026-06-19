@@ -49,8 +49,11 @@ employee id), `sc_xero_pay_runs` (export ledger; unique on `(tenant, week_start)
 3. On **Timesheets**, approve the week, then **Send timesheets to Xero**
    (`exportToXeroAction`, or `approveWeekAndExportAction` for one click).
 4. Finalise the pay run in Xero.
-5. Paste the Xero **PayRunID** into the read-back form (`readbackPayRunAction`) to pull
-   gross/net/tax/super into `sc_xero_pay_runs.summary` for Reports.
+5. **Read-back:** the page lists recent Xero pay runs (`listPayRuns` → `getPayRuns`);
+   click **Read back** on one to pull gross/net/tax/super into
+   `sc_xero_pay_runs.summary` for Reports (`readbackPayRunAction`). Xero's UI never
+   exposes the `PayRunID` GUID, so the picker is the primary path; a manual
+   PayRunID field remains as a fallback (`<details>`).
 
 ### Pre-flight (export fails fast, naming what to fix)
 Xero configured → valid week → manager/owner → Xero connected → ≥1 pay calendar in the
