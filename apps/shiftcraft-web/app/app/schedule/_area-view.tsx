@@ -40,6 +40,10 @@ export interface AreaShift {
   startsAt: Date;
   endsAt: Date;
   status: string;
+  /** Free-text shift note (sc_shifts.notes). Surfaced on the card so a
+   *  placeholder like "GUNNAR (pending)" is visible on the grid, not just in
+   *  the edit modal (Kati's rostering feedback #5). */
+  notes: string | null;
   /** True when this shift has changes not yet published (a draft, or a
    *  published shift edited since it last went live). Drives the "edited"
    *  badge; computed server-side. */
@@ -255,11 +259,18 @@ function ShiftChip({
   // overflow the ~5rem column). Status/edited/started detail lives in the 1-week
   // view + edit page; the left dept bar + cancelled dimming carry here.
   const timeRange = dense ? (
+    // Kati's rostering feedback #6 — a persistent draft/published/cancelled dot
+    // in the dense 2-week view (the rest of the status detail stays hover-only).
     <div
-      className="truncate font-mono text-[10px] font-medium leading-tight tabular-nums"
+      className="flex items-center gap-1 truncate font-mono text-[10px] font-medium leading-tight tabular-nums"
       title={timeLabel}
     >
-      {timeLabel}
+      <span
+        aria-hidden
+        className="h-1.5 w-1.5 flex-shrink-0 rounded-full"
+        style={{ backgroundColor: STATUS_DOT[shift.status] ?? "var(--ink-3)" }}
+      />
+      <span className="truncate">{timeLabel}</span>
     </div>
   ) : (
     <div className="flex items-center gap-1 font-medium tabular-nums">
@@ -301,6 +312,19 @@ function ShiftChip({
     </div>
   );
 
+  // Kati's rostering feedback #5 — show the shift note on the card (e.g. a
+  // "GUNNAR (pending)" placeholder for a not-yet-onboarded hire). Tight in the
+  // dense 2-week pill, so there it's a title tooltip only; shown inline in 1wk.
+  const notesLine =
+    shift.notes && !dense ? (
+      <div
+        className="mt-0.5 truncate text-[10px] italic text-ink-3"
+        title={shift.notes}
+      >
+        {shift.notes}
+      </div>
+    ) : null;
+
   // ── Select mode: the whole chip is a checkbox toggle (no drag/edit/copy) ──
   if (selectMode) {
     return (
@@ -328,6 +352,7 @@ function ShiftChip({
         <span className="min-w-0 flex-1">
           {timeRange}
           {assignee}
+          {notesLine}
         </span>
       </button>
     );
@@ -356,6 +381,7 @@ function ShiftChip({
       >
         {timeRange}
         {assignee}
+        {notesLine}
       </div>
       <div
         className={`mt-0.5 items-center gap-2 ${

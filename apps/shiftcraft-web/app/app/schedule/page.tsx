@@ -212,6 +212,7 @@ export default async function SchedulePage({
           startsAt: scShifts.startsAt,
           endsAt: scShifts.endsAt,
           status: scShifts.status,
+          notes: scShifts.notes,
           publishedAt: scShifts.publishedAt,
           updatedAt: scShifts.updatedAt,
           locationName: scLocations.name,
@@ -452,7 +453,11 @@ export default async function SchedulePage({
       }`}
     >
       <PersistRange range={range} />
-      <div className="flex items-start justify-between gap-3">
+      {/* Kati's rostering feedback #1.A — the action bar stays visible while
+          scrolling a long roster. Sits just under the 64px TopBar on desktop;
+          bleeds past the container padding (-mx-6) so rows scroll cleanly
+          underneath the blurred background. */}
+      <div className="sticky top-0 z-20 -mx-6 flex items-start justify-between gap-3 border-b border-line bg-[color-mix(in_srgb,var(--paper)_88%,transparent)] px-6 py-3 backdrop-blur md:top-16">
         <div>
           <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
             Schedule
@@ -471,9 +476,46 @@ export default async function SchedulePage({
             {shifts.length} shift{shifts.length === 1 ? "" : "s"}
             {activeLocation ? ` · ${activeLocation.name}` : ""}
           </p>
+          {/* Kati's rostering feedback #6 — legend so the status dots on the
+              grid read at a glance (matches STATUS_DOT in _area-view). */}
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink-3">
+            <span className="inline-flex items-center gap-1">
+              <span
+                aria-hidden
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: "var(--ink-3)" }}
+              />
+              Draft
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span
+                aria-hidden
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: "var(--live)" }}
+              />
+              Published
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span
+                aria-hidden
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: "var(--danger)" }}
+              />
+              Cancelled
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="rounded-full bg-[color-mix(in_srgb,var(--warn)_18%,transparent)] px-1.5 font-mono text-[8px] uppercase tracking-[0.06em] text-[var(--warn)]">
+                edited
+              </span>
+              changed since publish
+            </span>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <div className="mr-1 inline-flex gap-0.5 rounded-[var(--r-sm)] border border-line bg-[var(--paper-2)] p-0.5">
+        {/* Kati's rostering feedback #1.B — controls grouped by purpose:
+            View · Date & range · Actions, separated by hairlines. */}
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {/* Group 1 — View */}
+          <div className="inline-flex gap-0.5 rounded-[var(--r-sm)] border border-line bg-[var(--paper-2)] p-0.5">
             {(["area", "employee", "day"] as const).map((v) => (
               <Link
                 key={v}
@@ -488,7 +530,18 @@ export default async function SchedulePage({
               </Link>
             ))}
           </div>
-          <div className="mr-1 inline-flex gap-0.5 rounded-[var(--r-sm)] border border-line bg-[var(--paper-2)] p-0.5">
+          <span className="mx-1 h-6 w-px self-center bg-line" aria-hidden />
+          {/* Group 2 — Date & range */}
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/app/schedule${qs({ week: prevWeek })}`}>← Prev</Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/app/schedule${qs({ week: thisWeek })}`}>Today</Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/app/schedule${qs({ week: nextWeek })}`}>Next →</Link>
+          </Button>
+          <div className="inline-flex gap-0.5 rounded-[var(--r-sm)] border border-line bg-[var(--paper-2)] p-0.5">
             {(["1w", "2w"] as const).map((r) => (
               <Link
                 key={r}
@@ -503,15 +556,8 @@ export default async function SchedulePage({
               </Link>
             ))}
           </div>
-          <Button asChild variant="outline" size="sm">
-            <Link href={`/app/schedule${qs({ week: prevWeek })}`}>← Prev</Link>
-          </Button>
-          <Button asChild variant="outline" size="sm">
-            <Link href={`/app/schedule${qs({ week: thisWeek })}`}>Today</Link>
-          </Button>
-          <Button asChild variant="outline" size="sm">
-            <Link href={`/app/schedule${qs({ week: nextWeek })}`}>Next →</Link>
-          </Button>
+          <span className="mx-1 h-6 w-px self-center bg-line" aria-hidden />
+          {/* Group 3 — Actions */}
           <Button asChild variant="outline" size="sm">
             <a
               href={`/api/schedule/export?from=${fmtIsoDate(weekStart)}&to=${fmtIsoDate(weekEnd)}${locationFilter ? `&location=${locationFilter}` : ""}`}
