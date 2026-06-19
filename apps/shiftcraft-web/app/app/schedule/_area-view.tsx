@@ -29,6 +29,7 @@ import {
   bulkCopyShiftsAction,
   copyShiftByDeltaAction,
   copyShiftInPlaceAction,
+  createAndAssignViaDnd,
   moveShiftAction,
 } from "./actions";
 
@@ -165,20 +166,23 @@ function DraggableEmployee({
    *  linked accounts (assignments key on appUserId). */
   onSelect: (() => void) | null;
 }) {
-  const draggable = emp.appUserId != null;
+  // Kati's rostering feedback #2 — everyone is draggable now, including
+  // un-onboarded staff with no app login: dragging them onto a cell pencils
+  // their name in as a placeholder note (they can't hold a real assignment).
+  const linked = emp.appUserId != null;
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: empId(emp.appUserId ?? emp.id),
-    data: { type: "emp", appUserId: emp.appUserId },
-    disabled: !draggable,
+    data: { type: "emp", appUserId: emp.appUserId, empName: emp.fullName },
+    disabled: false,
   });
   return (
     <li
       ref={setNodeRef}
-      {...(draggable ? listeners : {})}
+      {...listeners}
       {...attributes}
       onClick={onSelect ?? undefined}
-      className={`flex items-center gap-2 px-3 py-2 ${
-        draggable ? "cursor-grab active:cursor-grabbing" : "opacity-60"
+      className={`flex items-center gap-2 px-3 py-2 cursor-grab active:cursor-grabbing ${
+        linked ? "" : "opacity-70"
       } ${isDragging ? "opacity-40" : ""} ${
         active
           ? "bg-[color-mix(in_srgb,var(--accent-deep)_16%,transparent)] ring-1 ring-inset ring-[var(--accent-deep)]"
@@ -187,11 +191,11 @@ function DraggableEmployee({
             : ""
       }`}
       title={
-        draggable
+        linked
           ? active
             ? "Showing this person — click to clear"
-            : "Click to view this person's shifts · drag onto a shift to schedule"
-          : "No linked account — can't be scheduled"
+            : "Click to view this person's shifts · drag onto a shift or empty day to schedule"
+          : "No app login yet — drag onto an empty day to pencil them in as a placeholder"
       }
     >
       <Avatar
@@ -226,7 +230,7 @@ function ShiftChip({
   /** Multi-select mode: chip becomes a checkbox toggle, drag + actions off. */
   selectMode: boolean;
   selected: boolean;
-  onCopy: (shiftId: string) => void;
+  onCopy: (shiftId: string, carryPerson?: boolean) => void;
   onToggleSelect: (shiftId: string) => void;
 }) {
   // A started shift can't be moved — disable the drag handle (the server
@@ -407,6 +411,19 @@ function ShiftChip({
         >
           Copy
         </button>
+        {shift.assigneeName ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCopy(shift.id, true);
+            }}
+            title="Copy this shift with the person on it, then drag the copy to another day"
+            className="inline-block font-mono text-[10px] uppercase tracking-[0.06em] text-ink-3 hover:text-ink"
+          >
+            +person
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -416,17 +433,23 @@ function DayCell({
   areaKey,
   dayIdx,
   dense,
+  locationId,
+  role,
   children,
 }: {
   areaKey: string;
   dayIdx: number;
   /** 2-week view: tighter cell so 4–5 dense pills fit without overflow. */
   dense: boolean;
+  /** This area's location + role — carried in the droppable data so dropping
+   *  an employee here can create a shift in the right area (Kati #2). */
+  locationId: string | null;
+  role: string;
   children: ReactNode;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: cellId(areaKey, dayIdx),
-    data: { type: "cell", dayIdx },
+    data: { type: "cell", dayIdx, locationId, role },
   });
   return (
     <div
@@ -822,6 +845,35 @@ export function AreaScheduleView({
       return;
     }
 
+    // Employee dragged onto an EMPTY day cell → create a draft shift in that
+    // area (default 09:00–17:00) and assign them (Kati's rostering feedback
+    // #2). Un-linked staff (no appUserId) get pencilled in as a placeholder
+    // note instead of a real assignment.
+    if (a.data.current?.type === "emp" && over.data.current?.type === "cell") {
+      const appUserId = a.data.current.appUserId as string | null;
+      const empName = (a.data.current.empName as string | null) ?? null;
+      const targetDayIdx = over.data.current.dayIdx as number;
+      const locationId = over.data.current.locationId as string | null;
+      const role = over.data.current.role as string;
+      if (!locationId) {
+        setError("This area has no location — add one before scheduling here.");
+        return;
+      }
+      const dateIso = fmtIsoDate(addDays(weekStart, targetDayIdx));
+      startTransition(async () => {
+        const res = await createAndAssignViaDnd(
+          dateIso,
+          locationId,
+          role,
+          appUserId,
+          appUserId ? null : empName,
+        );
+        if (!res.ok) setError(res.message ?? "Couldn't create that shift.");
+        router.refresh();
+      });
+      return;
+    }
+
     // Shift dragged onto a day cell. Today/future moves it. Dropping on a PAST
     // date is refused server-side (Kati's rostering feedback #4 — no past-dated
     // rosters); the copy action returns {ok:false} and we surface the message.
@@ -858,10 +910,12 @@ export function AreaScheduleView({
 
   // "Copy" button on a shift chip: duplicate it in place, then refresh so the
   // copy appears next to the original — ready to drag onto another day.
-  function handleCopy(id: string) {
+  // carryPerson = Kati's #2.B "Copy (keep person)": the copy keeps the
+  // assignee so dragging it to another day moves the person with it.
+  function handleCopy(id: string, carryPerson = false) {
     setError(null);
     startTransition(async () => {
-      const res = await copyShiftInPlaceAction(id);
+      const res = await copyShiftInPlaceAction(id, carryPerson);
       if (!res.ok) setError(res.message ?? "Couldn't copy that shift.");
       router.refresh();
     });
@@ -969,7 +1023,14 @@ export function AreaScheduleView({
                 </div>
                 <div className="grid" style={gridCols}>
                   {area.shiftsByDay.map((cell, idx) => (
-                    <DayCell key={idx} areaKey={area.key} dayIdx={idx} dense={dense}>
+                    <DayCell
+                      key={idx}
+                      areaKey={area.key}
+                      dayIdx={idx}
+                      dense={dense}
+                      locationId={area.locationId}
+                      role={area.role}
+                    >
                       {cell.map((s) => (
                         <ShiftChip
                           key={s.id}

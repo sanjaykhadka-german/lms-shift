@@ -1618,6 +1618,11 @@ export async function copyShiftToDateAction(formData: FormData): Promise<void> {
 // so the grid just refreshes in place.
 export async function copyShiftInPlaceAction(
   shiftId: string,
+  // Kati's rostering feedback #2.B — "Copy (keep person)": carry the source's
+  // accepted assignees onto the copy. The copy lands at the same time so it
+  // momentarily overlaps the original; that's expected — the manager drags it
+  // onto another day next (the move preserves the assignment).
+  carryAssignee = false,
 ): Promise<{ ok: boolean; message?: string }> {
   const membership = await requireAdminMembership();
   const user = await currentUser();
@@ -1666,22 +1671,46 @@ export async function copyShiftInPlaceAction(
     };
   }
 
-  await forTenant(membership.tenant.id).run((tx) =>
-    tx.insert(scShifts).values({
-      traceyTenantId: membership.tenant.id,
-      locationId: source.locationId,
-      role: source.role,
-      startsAt: source.startsAt,
-      endsAt: source.endsAt,
-      status: "draft",
-      notes: source.notes,
-      breaks: source.breaks,
-      breakPaidMinutes: source.breakPaidMinutes,
-      breakUnpaidMinutes: source.breakUnpaidMinutes,
-      requiredSkillId: source.requiredSkillId,
-      createdByUserId: user?.id ?? null,
-    }),
-  );
+  await forTenant(membership.tenant.id).run(async (tx) => {
+    const [created] = await tx
+      .insert(scShifts)
+      .values({
+        traceyTenantId: membership.tenant.id,
+        locationId: source.locationId,
+        role: source.role,
+        startsAt: source.startsAt,
+        endsAt: source.endsAt,
+        status: "draft",
+        notes: source.notes,
+        breaks: source.breaks,
+        breakPaidMinutes: source.breakPaidMinutes,
+        breakUnpaidMinutes: source.breakUnpaidMinutes,
+        requiredSkillId: source.requiredSkillId,
+        createdByUserId: user?.id ?? null,
+      })
+      .returning({ id: scShifts.id });
+    if (carryAssignee && created) {
+      const assignees = await tx
+        .select({ userId: scShiftAssignments.userId })
+        .from(scShiftAssignments)
+        .where(
+          and(
+            eq(scShiftAssignments.shiftId, shiftId),
+            eq(scShiftAssignments.status, "accepted"),
+          ),
+        );
+      if (assignees.length > 0) {
+        await tx.insert(scShiftAssignments).values(
+          assignees.map((a) => ({
+            shiftId: created.id,
+            userId: a.userId,
+            status: "accepted" as const,
+            respondedAt: new Date(),
+          })),
+        );
+      }
+    }
+  });
 
   revalidatePath("/app/schedule");
   revalidatePath("/app/my-shifts");
@@ -2182,6 +2211,108 @@ export async function assignEmployeeViaDnd(
   fd.set("shiftId", shiftId);
   fd.set("userId", userId);
   return assignEmployeeAction({ status: "idle" }, fd);
+}
+
+// Drag-and-drop create-and-assign (Kati's rostering feedback #2): dropping an
+// employee onto an EMPTY day cell creates a draft shift in that area at a
+// default 09:00–17:00 (a shift has no inherent time; the manager retimes it
+// after) and assigns them. For an un-linked employee (no app login) we can't
+// write an assignment row, so their name is parked in the shift note as a
+// placeholder (#5) to be assigned for real once they're onboarded.
+const NIL_UUID = "00000000-0000-0000-0000-000000000000";
+const DEFAULT_SHIFT_START_HOUR = 9;
+const DEFAULT_SHIFT_END_HOUR = 17;
+
+export async function createAndAssignViaDnd(
+  dateIso: string,
+  locationId: string,
+  role: string,
+  userId: string | null,
+  placeholderName: string | null,
+): Promise<{ ok: boolean; message?: string }> {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateIso);
+  if (!m) return { ok: false, message: "Invalid date." };
+  if (!locationId) {
+    return {
+      ok: false,
+      message: "This area has no location — add one before scheduling here.",
+    };
+  }
+  const membership = await requireAdminMembership();
+  const user = await currentUser();
+
+  const y = Number(m[1]);
+  const mo = Number(m[2]) - 1;
+  const d = Number(m[3]);
+  const startsAt = new Date(y, mo, d, DEFAULT_SHIFT_START_HOUR, 0, 0);
+  const endsAt = new Date(y, mo, d, DEFAULT_SHIFT_END_HOUR, 0, 0);
+
+  // Kati's rostering feedback #4 — no creating into the past.
+  if (hasStarted(startsAt)) {
+    return { ok: false, message: "Can't create a shift in the past." };
+  }
+
+  if (user) {
+    const scopeErr = await guardLocationScope(
+      membership.tenant.id,
+      user.id,
+      membership.role,
+      locationId,
+    );
+    if (scopeErr) return { ok: false, message: scopeErr.message };
+  }
+
+  // Kati's rostering feedback #8 — don't double-book a linked employee.
+  if (userId) {
+    const overlap = await findOverlappingAssignment(
+      membership.tenant.id,
+      userId,
+      startsAt,
+      endsAt,
+      NIL_UUID,
+    );
+    if (overlap) {
+      return {
+        ok: false,
+        message: `Already rostered ${fmtShiftWindow(
+          overlap.startsAt,
+          overlap.endsAt,
+          overlap.locationName,
+        )} that day.`,
+      };
+    }
+  }
+
+  await forTenant(membership.tenant.id).run(async (tx) => {
+    const [created] = await tx
+      .insert(scShifts)
+      .values({
+        traceyTenantId: membership.tenant.id,
+        locationId,
+        role,
+        startsAt,
+        endsAt,
+        status: "draft",
+        notes:
+          !userId && placeholderName?.trim()
+            ? `${placeholderName.trim()} (pending)`
+            : null,
+        createdByUserId: user?.id ?? null,
+      })
+      .returning({ id: scShifts.id });
+    if (userId && created) {
+      await tx.insert(scShiftAssignments).values({
+        shiftId: created.id,
+        userId,
+        status: "accepted",
+        respondedAt: new Date(),
+      });
+    }
+  });
+
+  revalidatePath("/app/schedule");
+  revalidatePath("/app/my-shifts");
+  return { ok: true };
 }
 
 // Drag-and-drop move: shift a shift's window by a whole number of days,
