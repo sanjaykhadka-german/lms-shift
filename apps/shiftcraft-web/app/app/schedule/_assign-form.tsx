@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "~/components/ui/button";
 import { Label } from "~/components/ui/label";
 import { assignEmployeeAction, type FormState } from "./actions";
@@ -13,7 +14,16 @@ interface Props {
 }
 
 export function AssignForm({ shiftId, availableEmployees }: Props) {
+  const router = useRouter();
   const [state, formAction, pending] = useActionState(assignEmployeeAction, initial);
+
+  // Kati's rostering feedback #3 — close the editor once the assignment lands,
+  // after a beat so the "Scheduled." flash is visible. ✕/Esc still cancel.
+  useEffect(() => {
+    if (state.status !== "ok") return;
+    const t = setTimeout(() => router.back(), 400);
+    return () => clearTimeout(t);
+  }, [state, router]);
 
   if (availableEmployees.length === 0) {
     return (

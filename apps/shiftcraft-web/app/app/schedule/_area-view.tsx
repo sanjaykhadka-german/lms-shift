@@ -796,9 +796,9 @@ export function AreaScheduleView({
       return;
     }
 
-    // Shift dragged onto a day cell. Dropping on a PAST date (before today)
-    // copies the shift there and leaves the original in place; today/future
-    // moves it as before.
+    // Shift dragged onto a day cell. Today/future moves it. Dropping on a PAST
+    // date is refused server-side (Kati's rostering feedback #4 — no past-dated
+    // rosters); the copy action returns {ok:false} and we surface the message.
     if (a.data.current?.type === "shift" && over.data.current?.type === "cell") {
       const movedShiftId = a.data.current.shiftId as string;
       const sourceDayIdx = a.data.current.dayIdx as number;

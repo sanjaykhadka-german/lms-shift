@@ -11,6 +11,12 @@ interface LeaveRow {
   userId: string;
 }
 
+interface OverlapRow {
+  startsAt: Date;
+  endsAt: Date;
+  locationName: string | null;
+}
+
 const state = {
   shift: null as
     | null
@@ -22,6 +28,7 @@ const state = {
         locationName: string | null;
       },
   leaveRows: [] as LeaveRow[],
+  overlapRows: [] as OverlapRow[],
   inserts: [] as Array<{ shiftId: string; userId: string }>,
   emailSends: [] as Array<{ email: string; name: string | null }>,
   selectIdx: 0,
@@ -29,15 +36,19 @@ const state = {
 
 const currentMembershipMock = vi.fn();
 
-// assignEmployeeAction performs two forTenant().run() selects before any
-// insert: (1) shift lookup, (2) leave-overlap check. Track which one
-// the harness is serving.
-const TENANT_SELECTS = ["shift", "leave"] as const;
+// assignEmployeeAction performs three forTenant().run() selects before any
+// insert: (1) shift lookup, (2) leave-overlap check, (3) double-booking
+// overlap check (Kati's rostering feedback #8). Track which one the harness
+// is serving.
+const TENANT_SELECTS = ["shift", "leave", "overlap"] as const;
 
 function reset() {
   state.shift = {
-    startsAt: new Date("2026-06-05T08:00:00Z"),
-    endsAt: new Date("2026-06-05T16:00:00Z"),
+    // Always in the (near) future so the past-assign guard (Kati #4) doesn't
+    // trip — these tests exercise the leave/double-booking guards, not the
+    // past lock. Computed off now so the test doesn't rot as dates pass.
+    startsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    endsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000 + 8 * 60 * 60 * 1000),
     role: "Butcher",
     // Published so the post-assign "you're scheduled" email path is exercised;
     // assigning to a draft is intentionally silent until publish.
@@ -45,6 +56,7 @@ function reset() {
     locationName: "Brunswick",
   };
   state.leaveRows = [];
+  state.overlapRows = [];
   state.inserts = [];
   state.emailSends = [];
   state.selectIdx = 0;
@@ -104,7 +116,9 @@ vi.mock("@tracey/db", () => {
                   : []
                 : which === "leave"
                   ? state.leaveRows
-                  : [];
+                  : which === "overlap"
+                    ? state.overlapRows
+                    : [];
             const whereChain = {
               limit: async () => rows,
               then(
@@ -116,6 +130,12 @@ vi.mock("@tracey/db", () => {
             };
             return {
               from: () => ({
+                // Double-booking query joins assignments → shifts → locations.
+                innerJoin: () => ({
+                  leftJoin: () => ({
+                    where: () => whereChain,
+                  }),
+                }),
                 leftJoin: () => ({
                   where: () => whereChain,
                 }),
@@ -292,5 +312,67 @@ describe("assignEmployeeAction clash guard (AUDIT.md #6)", () => {
       expect(result.message).toContain("Personal/Sick leave on 2026-06-05");
       expect(result.message).not.toContain("→");
     }
+  });
+});
+
+describe("assignEmployeeAction double-booking guard (Kati's rostering feedback #8)", () => {
+  it("refuses when the worker already has an overlapping accepted shift", async () => {
+    state.overlapRows = [
+      {
+        startsAt: state.shift!.startsAt,
+        endsAt: state.shift!.endsAt,
+        locationName: "Dispatch",
+      },
+    ];
+    const { assignEmployeeAction } = await load();
+    const result = await assignEmployeeAction(
+      { status: "idle" },
+      fd({ shiftId: SHIFT_ID, userId: USER_ID }),
+    );
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.message).toMatch(/Already rostered/);
+      expect(result.message).toContain("Dispatch");
+      expect(result.canOverride).toBe(true);
+    }
+    expect(state.inserts).toHaveLength(0);
+    expect(state.emailSends).toHaveLength(0);
+  });
+
+  it("assigns anyway when force is set despite an overlap", async () => {
+    state.overlapRows = [
+      {
+        startsAt: state.shift!.startsAt,
+        endsAt: state.shift!.endsAt,
+        locationName: "Dispatch",
+      },
+    ];
+    const { assignEmployeeAction } = await load();
+    const result = await assignEmployeeAction(
+      { status: "idle" },
+      fd({ shiftId: SHIFT_ID, userId: USER_ID, force: "1" }),
+    );
+    expect(result.status).toBe("ok");
+    expect(state.inserts).toHaveLength(1);
+  });
+});
+
+describe("assignEmployeeAction past-shift guard (Kati's rostering feedback #4)", () => {
+  it("refuses to change who's rostered on a shift that has already started", async () => {
+    state.shift = {
+      ...state.shift!,
+      startsAt: new Date(Date.now() - 60 * 60 * 1000),
+      endsAt: new Date(Date.now() - 30 * 60 * 1000),
+    };
+    const { assignEmployeeAction } = await load();
+    const result = await assignEmployeeAction(
+      { status: "idle" },
+      fd({ shiftId: SHIFT_ID, userId: USER_ID }),
+    );
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.message).toMatch(/already started/);
+    }
+    expect(state.inserts).toHaveLength(0);
   });
 });

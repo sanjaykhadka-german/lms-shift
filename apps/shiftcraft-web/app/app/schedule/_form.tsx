@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { ShiftBreak } from "@tracey/db";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
@@ -86,10 +87,14 @@ export function ShiftForm({
       ? updateShiftAction.bind(null, shiftId)
       : createShiftAction;
   const [state, formAction, pending] = useActionState(action, initial);
+  const router = useRouter();
 
   // After an edit saves, offer to publish so staff see the change. Reset on
   // each successful save so a follow-up edit re-prompts.
   const [publishPromptDismissed, setPublishPromptDismissed] = useState(false);
+  // Kati's rostering feedback #3 — both publish-prompt choices close the editor
+  // (the prompt sits right under Save, so the manager never scrolls up to ✕).
+  const [publishing, setPublishing] = useState(false);
   useEffect(() => {
     if (state.status === "ok") setPublishPromptDismissed(false);
   }, [state]);
@@ -441,9 +446,17 @@ export function ShiftForm({
       </div>
 
       <div className="sm:col-span-2 flex items-center gap-3">
-        <Button type="submit" disabled={pending}>
+        {/* Kati's rostering feedback #7 — a started shift is locked entirely;
+            the server rejects edits, so disable Save rather than let the
+            manager type and then bounce. */}
+        <Button type="submit" disabled={pending || (startLocked && mode === "edit")}>
           {pending ? pendingLabel : submitLabel}
         </Button>
+        {startLocked && mode === "edit" && (
+          <p className="text-xs text-ink-2">
+            This shift has already started — it can no longer be edited.
+          </p>
+        )}
         {state.status === "ok" && (
           <p className="text-xs text-[var(--live)]">{state.message}</p>
         )}
@@ -457,17 +470,27 @@ export function ShiftForm({
         <span className="text-xs font-medium text-ink">
           Saved. Publish now so assigned staff see the change?
         </span>
-        <form action={publishShiftAction} className="ml-auto">
-          <input type="hidden" name="id" value={shiftId} />
-          <Button type="submit" size="sm">
-            Publish now
-          </Button>
-        </form>
+        <Button
+          type="button"
+          size="sm"
+          disabled={publishing}
+          className="ml-auto"
+          onClick={async () => {
+            setPublishing(true);
+            const fd = new FormData();
+            fd.set("id", shiftId);
+            await publishShiftAction(fd);
+            router.back();
+          }}
+        >
+          {publishing ? "Publishing…" : "Publish now"}
+        </Button>
         <Button
           type="button"
           variant="ghost"
           size="sm"
-          onClick={() => setPublishPromptDismissed(true)}
+          disabled={publishing}
+          onClick={() => router.back()}
         >
           Not now
         </Button>

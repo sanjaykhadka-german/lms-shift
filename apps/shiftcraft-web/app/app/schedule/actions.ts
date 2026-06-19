@@ -13,6 +13,7 @@ import {
   scShiftAssignments,
   scShifts,
   scShiftTemplates,
+  scTimesheetApprovals,
   users,
   type ShiftBreak,
 } from "@tracey/db";
@@ -241,6 +242,95 @@ function hasStarted(startsAt: Date): boolean {
   return startsAt.getTime() <= Date.now();
 }
 
+// Kati's rostering feedback #4/#7 — the roster locks once a shift starts.
+// Copying/assigning a shift into the past produces wrong rosters and wrong
+// pay, so every copy/assign/delete path refuses a target that's already
+// started (via hasStarted above). Same-day-not-yet-started stays editable —
+// the boundary is the start instant, not the calendar day.
+
+// Kati's rostering feedback #7 — a week whose timesheet has been approved is
+// frozen for payroll. Deleting/retiming a shift in an approved week would
+// desync the roster from the signed-off timesheet, so we block it. Mirrors
+// assertWeekUnlocked() in timesheets/event-actions.ts, but checks per
+// employee for a single shift date. Returns true when any of the given
+// users' covering week is approved.
+async function hasApprovedTimesheet(
+  tenantId: string,
+  userIds: string[],
+  date: Date,
+): Promise<boolean> {
+  if (userIds.length === 0) return false;
+  const weekStartIso = fmtIsoDate(startOfWeek(date));
+  const [row] = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({ status: scTimesheetApprovals.status })
+      .from(scTimesheetApprovals)
+      .where(
+        and(
+          eq(scTimesheetApprovals.traceyTenantId, tenantId),
+          inArray(scTimesheetApprovals.employeeUserId, userIds),
+          eq(scTimesheetApprovals.status, "approved"),
+          sql`${scTimesheetApprovals.weekStart} = ${weekStartIso}::date`,
+        ),
+      )
+      .limit(1),
+  );
+  return Boolean(row);
+}
+
+// Kati's rostering feedback #8 — double-booking guard. Returns the first
+// ACCEPTED assignment in any area whose shift window overlaps [startsAt,
+// endsAt) for this user, excluding the current shift. Standard interval
+// overlap (other.start < end AND other.end > start), mirroring
+// findApprovedLeaveOverlap. ISO strings + ::timestamptz casts per the
+// sql-template type-hint convention used elsewhere in this file.
+async function findOverlappingAssignment(
+  tenantId: string,
+  userId: string,
+  startsAt: Date,
+  endsAt: Date,
+  excludeShiftId: string,
+): Promise<{ startsAt: Date; endsAt: Date; locationName: string | null } | null> {
+  const [row] = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({
+        startsAt: scShifts.startsAt,
+        endsAt: scShifts.endsAt,
+        locationName: scLocations.name,
+      })
+      .from(scShiftAssignments)
+      .innerJoin(scShifts, eq(scShifts.id, scShiftAssignments.shiftId))
+      .leftJoin(scLocations, eq(scLocations.id, scShifts.locationId))
+      .where(
+        and(
+          eq(scShifts.traceyTenantId, tenantId),
+          eq(scShiftAssignments.userId, userId),
+          eq(scShiftAssignments.status, "accepted"),
+          sql`${scShiftAssignments.shiftId} <> ${excludeShiftId}`,
+          sql`${scShifts.startsAt} < ${endsAt.toISOString()}::timestamptz`,
+          sql`${scShifts.endsAt} > ${startsAt.toISOString()}::timestamptz`,
+        ),
+      )
+      .limit(1),
+  );
+  return row ?? null;
+}
+
+// Render a shift window as "09:00–17:15 in Dispatch" for conflict messages.
+// Uses the server-local frame the rest of this file reasons about dates in.
+function fmtShiftWindow(
+  startsAt: Date,
+  endsAt: Date,
+  locationName: string | null,
+): string {
+  const hhmm = (d: Date) =>
+    `${String(d.getHours()).padStart(2, "0")}:${String(
+      d.getMinutes(),
+    ).padStart(2, "0")}`;
+  const where = locationName ? ` in ${locationName}` : "";
+  return `${hhmm(startsAt)}–${hhmm(endsAt)}${where}`;
+}
+
 export async function createShiftAction(
   _prev: FormState,
   formData: FormData,
@@ -355,8 +445,10 @@ export async function updateShiftAction(
       if (scopeErr) return scopeErr;
     }
   }
-  // A started shift can't be retimed. Allow every other field through (end
-  // time, notes, breaks, role, location) but reject a changed start time.
+  // Kati's rostering feedback #7 — a started shift is locked entirely (not
+  // just its start time): editing it after the fact desyncs the roster from
+  // what actually happened. Same-day-not-yet-started stays editable. A shift
+  // whose timesheet week is approved is frozen for payroll too.
   const [existingShift] = await forTenant(tenant.id).run((tx) =>
     tx
       .select({ startsAt: scShifts.startsAt })
@@ -364,16 +456,37 @@ export async function updateShiftAction(
       .where(and(eq(scShifts.id, id), eq(scShifts.traceyTenantId, tenant.id)))
       .limit(1),
   );
-  if (
-    existingShift &&
-    hasStarted(existingShift.startsAt) &&
-    parsed.data.startsAt.getTime() !== existingShift.startsAt.getTime()
-  ) {
+  if (existingShift && hasStarted(existingShift.startsAt)) {
     return {
       status: "error",
-      message: "This shift has already started — its start time can't be changed.",
-      fieldErrors: { startsAt: ["Shift already started"] },
+      message: "This shift has already started — it can no longer be edited.",
     };
+  }
+  if (existingShift) {
+    const assignees = await forTenant(tenant.id).run((tx) =>
+      tx
+        .select({ userId: scShiftAssignments.userId })
+        .from(scShiftAssignments)
+        .where(
+          and(
+            eq(scShiftAssignments.shiftId, id),
+            eq(scShiftAssignments.status, "accepted"),
+          ),
+        ),
+    );
+    if (
+      await hasApprovedTimesheet(
+        tenant.id,
+        assignees.map((a) => a.userId),
+        existingShift.startsAt,
+      )
+    ) {
+      return {
+        status: "error",
+        message:
+          "This shift's timesheet week is approved — reopen it before editing.",
+      };
+    }
   }
   await forTenant(tenant.id).run((tx) =>
     tx
@@ -877,6 +990,12 @@ export async function repeatWeekAction(formData: FormData): Promise<void> {
     for (const s of sourceShifts) {
       const newStart = new Date(s.startsAt.getTime() + offsetMs);
       const newEnd = new Date(s.endsAt.getTime() + offsetMs);
+      // Kati's rostering feedback #4 — never clone into the past (a past source
+      // week copied forward can still land in the past).
+      if (hasStarted(newStart)) {
+        skipped += 1;
+        continue;
+      }
       const key = `${s.locationId}|${s.role}|${newStart.getTime()}`;
       if (destKeys.has(key)) {
         skipped += 1;
@@ -1074,6 +1193,11 @@ export async function copyDayToDateAction(formData: FormData): Promise<void> {
   for (const s of sourceShifts) {
     const newStart = new Date(s.startsAt.getTime() + offsetMs);
     const newEnd = new Date(s.endsAt.getTime() + offsetMs);
+    // Kati's rostering feedback #4 — skip any clone that lands in the past.
+    if (hasStarted(newStart)) {
+      skipped += 1;
+      continue;
+    }
     const key = `${s.locationId}|${s.role}|${newStart.getTime()}`;
     if (destKeys.has(key)) {
       skipped += 1;
@@ -1277,6 +1401,46 @@ export async function deleteShiftAction(
 ): Promise<{ ok: boolean; message?: string }> {
   if (!id) return { ok: false, message: "Missing shift id." };
   const tenant = await requireTenant();
+  // Kati's rostering feedback #7 — don't delete a shift that has already
+  // started, or one in an approved-timesheet week. Both would erase a record
+  // of work that happened / was signed off for pay.
+  const [existing] = await forTenant(tenant.id).run((tx) =>
+    tx
+      .select({ startsAt: scShifts.startsAt })
+      .from(scShifts)
+      .where(and(eq(scShifts.id, id), eq(scShifts.traceyTenantId, tenant.id)))
+      .limit(1),
+  );
+  if (!existing) return { ok: false, message: "Shift not found." };
+  if (hasStarted(existing.startsAt)) {
+    return {
+      ok: false,
+      message: "That shift has already started — it can't be deleted.",
+    };
+  }
+  const assignees = await forTenant(tenant.id).run((tx) =>
+    tx
+      .select({ userId: scShiftAssignments.userId })
+      .from(scShiftAssignments)
+      .where(
+        and(
+          eq(scShiftAssignments.shiftId, id),
+          eq(scShiftAssignments.status, "accepted"),
+        ),
+      ),
+  );
+  if (
+    await hasApprovedTimesheet(
+      tenant.id,
+      assignees.map((a) => a.userId),
+      existing.startsAt,
+    )
+  ) {
+    return {
+      ok: false,
+      message: "This shift's timesheet week is approved — reopen it first.",
+    };
+  }
   await forTenant(tenant.id).run((tx) =>
     tx
       .delete(scShifts)
@@ -1312,6 +1476,9 @@ export async function duplicateShiftAction(formData: FormData): Promise<void> {
       .limit(1),
   );
   if (!source) return;
+
+  // Kati's rostering feedback #4 — no copying into the past.
+  if (hasStarted(new Date(source.startsAt.getTime() + offsetMs))) return;
 
   const [created] = await forTenant(tenant.id).run((tx) =>
     tx
@@ -1404,6 +1571,10 @@ export async function copyShiftToDateAction(formData: FormData): Promise<void> {
   const deltaDays = Math.round((targetDayUtc - srcDayUtc) / 86_400_000);
   const offsetMs = deltaDays * 86_400_000;
 
+  // Kati's rostering feedback #4 — no copying onto a day/time already in the
+  // past. The client also blocks past dates in the picker.
+  if (hasStarted(new Date(source.startsAt.getTime() + offsetMs))) return;
+
   const [created] = await forTenant(tenant.id).run((tx) =>
     tx
       .insert(scShifts)
@@ -1486,6 +1657,15 @@ export async function copyShiftInPlaceAction(
     if (scopeErr) return { ok: false, message: scopeErr.message };
   }
 
+  // Kati's rostering feedback #4 — copy-in-place lands at the same time, so a
+  // past shift would copy into the past. Refuse it.
+  if (hasStarted(source.startsAt)) {
+    return {
+      ok: false,
+      message: "That shift has already started — copy it to a future day instead.",
+    };
+  }
+
   await forTenant(membership.tenant.id).run((tx) =>
     tx.insert(scShifts).values({
       traceyTenantId: membership.tenant.id,
@@ -1558,6 +1738,11 @@ export async function copyShiftByDeltaAction(
   }
 
   const ms = deltaDays * 86_400_000;
+  // Kati's rostering feedback #4 — dragging a shift onto a past day used to
+  // copy it there; that produces past-dated rosters, so refuse it now.
+  if (hasStarted(new Date(source.startsAt.getTime() + ms))) {
+    return { ok: false, message: "Can't copy a shift into the past." };
+  }
   await forTenant(membership.tenant.id).run((tx) =>
     tx.insert(scShifts).values({
       traceyTenantId: membership.tenant.id,
@@ -1853,6 +2038,15 @@ export async function assignEmployeeAction(
     return { status: "error", message: "Shift not found." };
   }
 
+  // Kati's rostering feedback #4 — can't change who's rostered on a shift that
+  // has already started; that retroactively rewrites the roster/pay record.
+  if (hasStarted(shiftRow.startsAt)) {
+    return {
+      status: "error",
+      message: "That shift has already started — you can't change who's rostered on it.",
+    };
+  }
+
   // Roster-clash guard (AUDIT.md #6): if the worker has an approved
   // time-off request overlapping the shift window, refuse the assign —
   // unless the manager explicitly overrides ("assign anyway").
@@ -1878,6 +2072,43 @@ export async function assignEmployeeAction(
       details: {
         userId: parsed.data.userId,
         conflict: fmtConflict(conflicts[0]!),
+      },
+    });
+  }
+
+  // Kati's rostering feedback #8 — double-booking guard: the same person
+  // already has an accepted, overlapping shift in any area. Same override
+  // affordance as the leave clash ("assign anyway").
+  const overlap = await findOverlappingAssignment(
+    membership.tenant.id,
+    parsed.data.userId,
+    shiftRow.startsAt,
+    shiftRow.endsAt,
+    parsed.data.shiftId,
+  );
+  if (overlap && !force) {
+    return {
+      status: "error",
+      message: `Already rostered ${fmtShiftWindow(
+        overlap.startsAt,
+        overlap.endsAt,
+        overlap.locationName,
+      )} that day. Tick "assign anyway" to override.`,
+      canOverride: true,
+    };
+  }
+  if (overlap && force) {
+    await logAuditEvent({
+      action: "shiftcraft.schedule.assign_override",
+      targetKind: "sc_shift",
+      targetId: parsed.data.shiftId,
+      details: {
+        userId: parsed.data.userId,
+        conflict: `double-booked ${fmtShiftWindow(
+          overlap.startsAt,
+          overlap.endsAt,
+          overlap.locationName,
+        )}`,
       },
     });
   }

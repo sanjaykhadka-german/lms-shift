@@ -637,6 +637,9 @@ export default async function SchedulePage({
                     type="date"
                     name="targetDate"
                     required
+                    // Kati's rostering feedback #4 — can't copy into the past;
+                    // the server enforces this too.
+                    min={fmtIsoDate(new Date())}
                     defaultValue={fmtIsoDate(addDays(weekStart, dayCount))}
                     className="h-9 rounded-md border border-[color:var(--input)] bg-transparent px-2 text-sm text-ink shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
                   />
