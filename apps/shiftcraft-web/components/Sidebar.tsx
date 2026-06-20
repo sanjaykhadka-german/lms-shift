@@ -117,6 +117,7 @@ const SECTIONS: NavSection[] = [
       { href: "/app/shift-templates", label: "Shift templates", icon: CalendarDays },
       { href: "/app/swaps", label: "Swap requests", icon: Repeat },
       { href: "/app/coverage-gaps", label: "Coverage gaps", icon: AlertCircle },
+      { href: "/app/admin/clock-now", label: "Who's clocked in", icon: Clock },
       { href: "/app/admin/daily-sales", label: "Daily sales", icon: DollarSign },
       { href: "/app/admin/documents-expiring", label: "Doc expiry digest", icon: FileText },
       { href: "/app/admin/kiosks", label: "Kiosks", icon: Tablet },
