@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   forTenant,
@@ -255,6 +255,116 @@ export async function startOnboardingBulkAction(
   revalidatePath("/app/people/onboarding");
   revalidatePath("/app/people/team");
   redirect(`/app/people/onboarding?started=${started}`);
+}
+
+// R2 — completion reminders. Emails every still-onboarding employee
+// (pending/in_progress, with an email) the onboarding nudge. Manual trigger on
+// the admin's own cadence (ShiftCraft has no cron), mirroring R1's digest +
+// the WHS-reminder pattern. Best-effort sends (safeSend swallows failures).
+export async function sendOnboardingRemindersAction(): Promise<void> {
+  const me = await currentUser();
+  const membership = await currentMembership();
+  if (!me || !membership || !isAtLeastManager(membership.role)) {
+    throw new Error("Forbidden");
+  }
+  const tenantId = membership.tenant.id;
+  const rows = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({ email: scEmployees.email, fullName: scEmployees.fullName })
+      .from(scEmployees)
+      .where(
+        and(
+          inArray(scEmployees.onboardingStatus, ["pending", "in_progress"]),
+          eq(scEmployees.isActive, true),
+          isNotNull(scEmployees.email),
+        ),
+      ),
+  );
+  let reminded = 0;
+  for (const r of rows) {
+    if (!r.email || r.email.trim().length === 0) continue;
+    await notifyOnboardingInvite({
+      to: { email: r.email, name: r.fullName },
+      tenantName: membership.tenant.name,
+      inviterName: me.name ?? null,
+    });
+    reminded += 1;
+  }
+  await logAuditEvent({
+    action: "shiftcraft.onboarding.reminders_sent",
+    targetKind: "sc_employee",
+    targetId: null,
+    details: { reminded },
+  });
+  revalidatePath("/app/people/onboarding");
+  redirect(`/app/people/onboarding?reminded=${reminded}`);
+}
+
+// R2 — bulk-assign one shared task (e.g. "Read the Dispatch safety manual") to
+// everyone currently onboarding, optionally scoped to a department. Appends a
+// row to each employee's checklist (sort_order high so it lands at the end).
+const sharedTaskSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  description: z.string().trim().max(2000).optional().or(z.literal("")),
+  required: z.boolean(),
+  departmentId: z.string().uuid().optional().or(z.literal("")),
+});
+
+export async function assignSharedOnboardingTaskAction(
+  formData: FormData,
+): Promise<void> {
+  const me = await currentUser();
+  const membership = await currentMembership();
+  if (!me || !membership || !isAtLeastManager(membership.role)) {
+    throw new Error("Forbidden");
+  }
+  const tenantId = membership.tenant.id;
+  const parsed = sharedTaskSchema.safeParse({
+    title: formData.get("title") ?? "",
+    description: formData.get("description") ?? "",
+    required: formData.get("required") === "on",
+    departmentId: formData.get("departmentId") ?? "",
+  });
+  if (!parsed.success) {
+    redirect("/app/people/onboarding");
+  }
+  const { title, description, required, departmentId } = parsed.data;
+
+  let assigned = 0;
+  await forTenant(tenantId).run(async (tx) => {
+    const emps = await tx
+      .select({ id: scEmployees.id })
+      .from(scEmployees)
+      .where(
+        and(
+          inArray(scEmployees.onboardingStatus, ["pending", "in_progress"]),
+          eq(scEmployees.isActive, true),
+          departmentId ? eq(scEmployees.departmentId, departmentId) : undefined,
+        ),
+      );
+    if (emps.length === 0) return;
+    await tx.insert(scEmployeeOnboardingTasks).values(
+      emps.map((e) => ({
+        traceyTenantId: tenantId,
+        employeeId: e.id,
+        title,
+        description: description && description.length > 0 ? description : null,
+        sortOrder: 1000,
+        required,
+        status: "pending" as const,
+      })),
+    );
+    assigned = emps.length;
+  });
+
+  await logAuditEvent({
+    action: "shiftcraft.onboarding.shared_task_assigned",
+    targetKind: "sc_employee",
+    targetId: null,
+    details: { assigned, title, required },
+  });
+  revalidatePath("/app/people/onboarding");
+  redirect(`/app/people/onboarding?assigned=${assigned}`);
 }
 
 export async function markOnboardingTaskAction(formData: FormData): Promise<void> {

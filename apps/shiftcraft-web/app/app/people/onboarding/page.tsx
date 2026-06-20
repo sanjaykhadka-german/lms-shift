@@ -13,7 +13,11 @@ import { isAtLeastManager } from "~/lib/roles";
 import { Avatar } from "~/components/Avatar";
 import { Button } from "~/components/ui/button";
 import { BulkStartForm } from "./_bulk-start-form";
-import { sendOnboardingEmailAction } from "./_actions";
+import { OnboardingRemindersButton } from "./_reminders-button";
+import {
+  assignSharedOnboardingTaskAction,
+  sendOnboardingEmailAction,
+} from "./_actions";
 import { InfoPopover } from "~/components/InfoPopover";
 
 export const metadata = { title: "New hire onboarding · ShiftCraft" };
@@ -39,20 +43,28 @@ function startOfThisMonth(): Date {
 export default async function OnboardingHubPage({
   searchParams,
 }: {
-  searchParams: Promise<{ started?: string; sent?: string }>;
+  searchParams: Promise<{
+    started?: string;
+    sent?: string;
+    reminded?: string;
+    assigned?: string;
+  }>;
 }) {
   const membership = await currentMembership();
   if (!membership) redirect("/app");
   const tenantId = membership.tenant.id;
   const canManage = isAtLeastManager(membership.role);
 
-  const { started, sent } = await searchParams;
+  const { started, sent, reminded, assigned } = await searchParams;
   const startedCount = Number.parseInt(started ?? "", 10);
   const showStartedFlash = Number.isFinite(startedCount) && started !== undefined;
+  // R2 — flashes for the reminders + shared-task actions.
+  const remindedCount = reminded == null ? null : Number.parseInt(reminded, 10);
+  const assignedCount = assigned == null ? null : Number.parseInt(assigned, 10);
 
   // Counters (small enough to issue three trivial queries).
   const monthStart = startOfThisMonth();
-  const [queue, counts, completedThisMonthRows, activeEmployees] =
+  const [queue, counts, completedThisMonthRows, activeEmployees, departments] =
     await forTenant(tenantId).run(async (tx) => {
       const queueRows = await tx
         .select({
@@ -101,6 +113,7 @@ export default async function OnboardingHubPage({
               id: scEmployees.id,
               fullName: scEmployees.fullName,
               email: scEmployees.email,
+              departmentId: scEmployees.departmentId,
             })
             .from(scEmployees)
             .where(
@@ -112,7 +125,17 @@ export default async function OnboardingHubPage({
             .orderBy(asc(scEmployees.fullName))
         : [];
 
-      return [queueRows, countRows, completedMonth, activeRows];
+      // R2 — department list for the onboard-by-department filter + the
+      // bulk shared-task form.
+      const departmentRows = canManage
+        ? await tx
+            .select({ id: scDepartments.id, name: scDepartments.name })
+            .from(scDepartments)
+            .where(eq(scDepartments.traceyTenantId, tenantId))
+            .orderBy(asc(scDepartments.name))
+        : [];
+
+      return [queueRows, countRows, completedMonth, activeRows, departmentRows];
     });
 
   const pendingCount = counts.find((c) => c.status === "pending")?.n ?? 0;
@@ -188,6 +211,22 @@ export default async function OnboardingHubPage({
         </div>
       ) : null}
 
+      {remindedCount != null && Number.isFinite(remindedCount) ? (
+        <div className="rounded-lg border border-[color-mix(in_srgb,var(--live)_45%,transparent)] bg-[color-mix(in_srgb,var(--live)_10%,transparent)] px-4 py-2 text-sm font-medium text-ink">
+          {remindedCount > 0
+            ? `Sent onboarding reminders to ${remindedCount} employee${remindedCount === 1 ? "" : "s"}.`
+            : "No one to remind — everyone's onboarding is complete."}
+        </div>
+      ) : null}
+
+      {assignedCount != null && Number.isFinite(assignedCount) ? (
+        <div className="rounded-lg border border-[color-mix(in_srgb,var(--live)_45%,transparent)] bg-[color-mix(in_srgb,var(--live)_10%,transparent)] px-4 py-2 text-sm font-medium text-ink">
+          {assignedCount > 0
+            ? `Added the task to ${assignedCount} employee${assignedCount === 1 ? "" : "s"}' checklists.`
+            : "No one currently onboarding matched — task not added."}
+        </div>
+      ) : null}
+
       {/* ─── Counters ─── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Stat
@@ -209,10 +248,12 @@ export default async function OnboardingHubPage({
 
       {/* ─── Active queue ─── */}
       <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
-        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-3">
           <h2 className="text-base font-semibold">
             Currently onboarding ({queue.length})
           </h2>
+          {/* R2 — completion reminders: nudge everyone still onboarding. */}
+          {canManage && queue.length > 0 ? <OnboardingRemindersButton /> : null}
         </div>
         {queue.length === 0 ? (
           <p className="px-5 py-6 text-sm text-muted-foreground">
@@ -339,8 +380,89 @@ export default async function OnboardingHubPage({
               </Link>
             </p>
           ) : (
-            <BulkStartForm employees={activeEmployees} />
+            <BulkStartForm
+              employees={activeEmployees}
+              departments={departments}
+            />
           )}
+        </section>
+      ) : null}
+
+      {/* ─── R2 — assign a shared task to everyone onboarding (admin only) ─── */}
+      {canManage && queue.length > 0 ? (
+        <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+          <div className="border-b border-border px-5 py-3">
+            <h2 className="text-base font-semibold">Assign a shared task</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Add one task (e.g. &ldquo;Read the Dispatch safety manual&rdquo;)
+              to everyone currently onboarding — optionally just one department.
+            </p>
+          </div>
+          <form
+            action={assignSharedOnboardingTaskAction}
+            className="space-y-3 px-5 py-4"
+          >
+            <div className="space-y-1.5">
+              <label
+                htmlFor="shared-title"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Task title
+              </label>
+              <input
+                id="shared-title"
+                name="title"
+                required
+                maxLength={200}
+                placeholder="e.g. Read the Dispatch safety manual"
+                className="h-9 w-full rounded-md border border-[color:var(--input)] bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label
+                htmlFor="shared-desc"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Description (optional)
+              </label>
+              <textarea
+                id="shared-desc"
+                name="description"
+                rows={2}
+                maxLength={2000}
+                className="w-full rounded-md border border-[color:var(--input)] bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                Department
+                <select
+                  name="departmentId"
+                  defaultValue=""
+                  className="h-8 rounded-md border border-[color:var(--input)] bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+                >
+                  <option value="">Everyone onboarding</option>
+                  {departments.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  name="required"
+                  defaultChecked
+                  className="h-4 w-4 rounded border-border"
+                />
+                Required
+              </label>
+              <Button type="submit" size="sm" className="ml-auto">
+                Add task
+              </Button>
+            </div>
+          </form>
         </section>
       ) : null}
     </div>
