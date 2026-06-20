@@ -49,6 +49,7 @@ import { getTenantAwardProfile } from "~/lib/award-profile";
 import { TimesheetRow, type AnomalyFix } from "./_row";
 import { BulkSelectionForm } from "./_bulk_form";
 import { XeroRetryButton } from "./_xero-retry-button";
+import { ApprovalDigestButton } from "./_digest-button";
 import { ApprovalButtons } from "./_approval_buttons";
 import { AddEntryForm } from "./_add_entry_form";
 import { CloseStaleClockInsButton } from "./_close-stale-button";
@@ -197,7 +198,12 @@ function parseStatusFilter(raw: string | undefined): StatusFilter {
 export default async function TimesheetsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ week?: string; dept?: string; status?: string }>;
+  searchParams: Promise<{
+    week?: string;
+    dept?: string;
+    status?: string;
+    digest?: string;
+  }>;
 }) {
   const user = await currentUser();
   if (!user) redirect("/sign-in");
@@ -250,7 +256,9 @@ export default async function TimesheetsPage({
     viewScope = viewerEmp?.locationId ? [viewerEmp.locationId] : [];
   }
 
-  const { week, dept, status: statusRaw } = await searchParams;
+  const { week, dept, status: statusRaw, digest: digestRaw } = await searchParams;
+  // R1 Features 3+4 — flash after the "email managers a summary" action.
+  const digestCount = digestRaw == null ? null : Number.parseInt(digestRaw, 10);
   const deptFilter = dept ?? "";
   const statusFilter = parseStatusFilter(statusRaw);
   const weekStart = startOfWeek(parseIsoDate(week) ?? new Date());
@@ -1239,7 +1247,18 @@ export default async function TimesheetsPage({
               lastError={xeroLastError}
             />
           ) : null}
+
+          {/* R1 Features 3+4 — email managers a pending-approval digest. */}
+          <ApprovalDigestButton />
         </>
+      ) : null}
+
+      {digestCount != null && Number.isFinite(digestCount) ? (
+        <div className="rounded-[var(--r-sm)] border border-[color-mix(in_srgb,var(--live)_45%,transparent)] bg-[color-mix(in_srgb,var(--live)_10%,transparent)] px-4 py-2 text-sm font-medium text-ink">
+          {digestCount > 0
+            ? `Emailed managers — ${digestCount} timesheet${digestCount === 1 ? "" : "s"} awaiting approval flagged.`
+            : "Emailed — no pending timesheets, everyone's caught up."}
+        </div>
       ) : null}
 
       {(() => {

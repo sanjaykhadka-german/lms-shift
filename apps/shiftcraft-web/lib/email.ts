@@ -15,7 +15,7 @@ import { APPS } from "./site-config";
 
 const apiKey = process.env.RESEND_API_KEY;
 const from = `${process.env.MAIL_FROM_NAME ?? "ShiftCraft"} <${
-  process.env.MAIL_FROM ?? "no-reply@example.com"
+  process.env.MAIL_FROM ?? "onboarding@resend.dev"
 }>`;
 
 let resend: Resend | null = null;
@@ -316,6 +316,43 @@ export async function sendDocumentExpiryDigest(opts: {
         <p><a href="${DOCS_URL}">Review on ShiftCraft</a></p>
       `,
       context: `sendDocumentExpiryDigest to ${r.email}`,
+    });
+  }
+}
+
+// R1 Features 3+4 — the timesheet approval digest email. Mirrors
+// sendDocumentExpiryDigest: a plaintext summary (one line per week, overdue
+// weeks already marked by the caller) linking managers to /app/timesheets.
+export async function sendTimesheetApprovalSummary(opts: {
+  to: Array<{ email: string; name: string | null }>;
+  tenantName: string;
+  total: number;
+  /** Plaintext summary from runApprovalDigest — already formatted. */
+  summary: string;
+}): Promise<void> {
+  if (opts.to.length === 0) return;
+  const TS_URL = `${APP_URL}/app/timesheets`;
+  const subject = `${opts.total} timesheet${opts.total === 1 ? "" : "s"} awaiting approval · ${opts.tenantName}`;
+  const summaryHtml = opts.summary
+    .split("\n")
+    .map((l) => l.replace(/^  /, "&nbsp;&nbsp;"))
+    .join("<br />");
+  for (const r of opts.to) {
+    const greeting = `Hi ${displayName(r.name, r.email).split(" ")[0]},`;
+    await safeSend({
+      to: r.email,
+      subject,
+      text:
+        `${greeting}\n\n${opts.total} timesheet${opts.total === 1 ? "" : "s"} ` +
+        `awaiting approval in ${opts.tenantName}.\n\n${opts.summary}\n\n` +
+        `Review & approve: ${TS_URL}`,
+      html: `
+        <p>${greeting}</p>
+        <p>${opts.total} timesheet${opts.total === 1 ? "" : "s"} awaiting approval in <strong>${opts.tenantName}</strong>.</p>
+        <p style="font-family: ui-monospace, SFMono-Regular, monospace; font-size: 13px; white-space: pre-wrap">${summaryHtml}</p>
+        <p><a href="${TS_URL}">Review on ShiftCraft</a></p>
+      `,
+      context: `sendTimesheetApprovalSummary to ${r.email}`,
     });
   }
 }
