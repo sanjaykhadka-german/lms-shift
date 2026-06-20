@@ -984,6 +984,20 @@ export default async function TimesheetsPage({
 
   const visibleRows = rows.filter((r) => rowMatches(r, statusFilter));
 
+  // R1 Feature 1 — one-click "approve all pending in this view" (e.g. all of
+  // Dispatch this week). Pending = worked-but-unapproved, taken across the
+  // whole dept-filtered / in-scope set (not just the active status pill).
+  // Admin-only; bulkApproveAction re-gates on the server.
+  const pendingUserIds = isAdmin
+    ? rows
+        .filter(
+          (r) =>
+            r.approvalStatus === null &&
+            (r.totalWorkMs > 0 || r.totalBreakMs > 0),
+        )
+        .map((r) => r.userId)
+    : [];
+
   // Summary numbers reflect the CURRENT filtered slice (dept × status).
   const summary = visibleRows.reduce(
     (acc, r) => {
@@ -1428,7 +1442,10 @@ export default async function TimesheetsPage({
         );
 
         return isAdmin && visibleRows.length > 0 ? (
-          <BulkSelectionForm weekStartIso={weekStartIso}>
+          <BulkSelectionForm
+            weekStartIso={weekStartIso}
+            pendingUserIds={pendingUserIds}
+          >
             {tableSection}
           </BulkSelectionForm>
         ) : (

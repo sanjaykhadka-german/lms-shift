@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState, type ReactNode } from "react";
+import { useRef, useState, useTransition, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { bulkApproveAction, bulkDisputeAction } from "./actions";
 
 // Wraps the timesheets <table> in a single form so checkboxes on each row
@@ -13,13 +14,41 @@ import { bulkApproveAction, bulkDisputeAction } from "./actions";
 
 export function BulkSelectionForm({
   weekStartIso,
+  pendingUserIds,
   children,
 }: {
   weekStartIso: string;
+  /** R1 Feature 1 — every worked-but-unapproved user in the current
+   *  (dept-filtered) view; drives the one-click "Approve all pending" button. */
+  pendingUserIds: string[];
   children: ReactNode;
 }) {
   const formRef = useRef<HTMLFormElement | null>(null);
   const [selectedCount, setSelectedCount] = useState(0);
+  const [approvingAll, startApproveAll] = useTransition();
+  const router = useRouter();
+
+  // R1 Feature 1 — approve every pending timesheet in the current view in one
+  // click (e.g. "approve all of Dispatch this week"), reusing bulkApproveAction.
+  function approveAllPending() {
+    if (pendingUserIds.length === 0) return;
+    if (
+      !window.confirm(
+        `Approve all ${pendingUserIds.length} pending timesheet${
+          pendingUserIds.length === 1 ? "" : "s"
+        } in this view?`,
+      )
+    ) {
+      return;
+    }
+    const fd = new FormData();
+    fd.append("weekStart", weekStartIso);
+    for (const id of pendingUserIds) fd.append("userId", id);
+    startApproveAll(async () => {
+      await bulkApproveAction(fd);
+      router.refresh();
+    });
+  }
 
   function recount() {
     const form = formRef.current;
@@ -48,6 +77,24 @@ export function BulkSelectionForm({
   return (
     <form ref={formRef} onChange={recount}>
       <input type="hidden" name="weekStart" value={weekStartIso} />
+
+      {pendingUserIds.length > 0 ? (
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+          <button
+            type="button"
+            onClick={approveAllPending}
+            disabled={approvingAll}
+            className="rounded-md bg-[var(--live)] px-3 py-1 text-xs font-semibold uppercase tracking-wider text-white hover:bg-[color-mix(in_srgb,var(--live)_85%,black)] disabled:opacity-60"
+          >
+            {approvingAll
+              ? "Approving…"
+              : `Approve all pending (${pendingUserIds.length})`}
+          </button>
+          <span className="text-muted-foreground">
+            approves every worked-but-unapproved timesheet in this view
+          </span>
+        </div>
+      ) : null}
 
       {selectedCount > 0 ? (
         <div className="sticky top-0 z-10 mb-3 flex flex-wrap items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-4 py-2 text-sm shadow-sm">
