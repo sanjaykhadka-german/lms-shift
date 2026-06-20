@@ -48,6 +48,7 @@ import {
 import { getTenantAwardProfile } from "~/lib/award-profile";
 import { TimesheetRow, type AnomalyFix } from "./_row";
 import { BulkSelectionForm } from "./_bulk_form";
+import { XeroRetryButton } from "./_xero-retry-button";
 import { ApprovalButtons } from "./_approval_buttons";
 import { AddEntryForm } from "./_add_entry_form";
 import { CloseStaleClockInsButton } from "./_close-stale-button";
@@ -403,11 +404,19 @@ export default async function TimesheetsPage({
     string,
     { state: "exported" | "failed"; detail: string | null }
   >();
+  // R1 Feature 2 — drives the "Retry Xero export" affordance when the last
+  // push for this week failed (whole-run failure or any per-employee rejection).
+  let xeroFailed = false;
+  let xeroLastError: string | null = null;
   if (isAdmin) {
     const wkIso = fmtIsoDate(weekStart);
     const [payRunRow] = await forTenant(tenantId).run((tx) =>
       tx
-        .select({ summary: scXeroPayRuns.summary })
+        .select({
+          status: scXeroPayRuns.status,
+          lastError: scXeroPayRuns.lastError,
+          summary: scXeroPayRuns.summary,
+        })
         .from(scXeroPayRuns)
         .where(
           and(
@@ -424,6 +433,13 @@ export default async function TimesheetsPage({
         error?: string | null;
       }>;
     } | null;
+    const anyEmployeeError =
+      summary?.timesheets?.some((t) => Boolean(t.error)) ?? false;
+    xeroFailed = payRunRow?.status === "failed" || anyEmployeeError;
+    xeroLastError =
+      payRunRow?.lastError ??
+      summary?.timesheets?.find((t) => t.error)?.error ??
+      null;
     if (summary?.timesheets && summary.timesheets.length > 0) {
       const links = await forTenant(tenantId).run((tx) =>
         tx
@@ -1215,6 +1231,14 @@ export default async function TimesheetsPage({
               </Button>
             ) : null}
           </form>
+
+          {/* R1 Feature 2 — retry the Xero push right where the failure shows. */}
+          {xeroFailed ? (
+            <XeroRetryButton
+              weekStartIso={weekStartIso}
+              lastError={xeroLastError}
+            />
+          ) : null}
         </>
       ) : null}
 
