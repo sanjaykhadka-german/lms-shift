@@ -1,5 +1,9 @@
 import "server-only";
-import type { FwcAwardPayload } from "@tracey/award";
+import type {
+  FwcAllowanceRow,
+  FwcAwardPayload,
+  FwcPayRateRow,
+} from "@tracey/award";
 
 // Fair Work Commission — Modern Awards Pay Database (MAPD) client (Slice D).
 //
@@ -7,24 +11,73 @@ import type { FwcAwardPayload } from "@tracey/award";
 // when FWC_MAPD_API_KEY is absent, mirroring lib/email.ts, so dev/CI/builds
 // never break and the feature is simply unavailable until the key is set.
 //
-// ⚠️ Base URL + endpoint paths + response field names are CODED AGAINST THE
-// DOCUMENTED SHAPE and flagged `FWC: confirm`. Confirm via the authenticated
-// developer.fwc.gov.au portal ("Try it out") + the Data dictionary, then adjust
-// the URL(s) below and the FwcAwardPayload mapping. The MAPD likely needs
-// several calls (classifications, pay-rates, allowances) assembled into one
-// FwcAwardPayload — assemble them here.
+// Endpoint shape verified live (2026-06-21):
+//   1. GET /awards/{code}                    → paginated version list. Every row
+//      carries `award_fixed_id` (the stable id the sub-resources key off — NOT
+//      the per-year `award_id`). We pick the latest published version's fixed id.
+//   2. GET /awards/{fixed_id}/pay-rates      → classification + rate rows
+//   3. GET /awards/{fixed_id}/wage-allowances    → taxable allowances
+//   4. GET /awards/{fixed_id}/expense-allowances → reimbursements
+// All four are paginated ({_meta:{has_more_results}, results:[…]}); we flatten
+// every page and hand the raw arrays to the pure transform in @tracey/award.
 
-const BASE = "https://api.fwc.gov.au/api/v1"; // FWC: confirm base
+const BASE = "https://api.fwc.gov.au/api/v1";
 const KEY = process.env.FWC_MAPD_API_KEY;
 
 export function isFairWorkConfigured(): boolean {
   return !!KEY;
 }
 
-// Small module-level TTL cache (mirrors lib/holidays.ts). Award data changes
-// at most a few times a year, so a generous TTL is fine.
+// Award data changes a few times a year; a generous TTL is fine.
 const TTL_MS = 60 * 60 * 1000; // 1 hour
 const cache = new Map<string, { value: FwcAwardPayload; at: number }>();
+
+interface FwcListResponse<T> {
+  _meta?: { has_more_results?: boolean; result_count?: number };
+  results?: T[];
+}
+
+interface FwcAwardVersion {
+  award_id?: number;
+  award_fixed_id?: number;
+  code?: string;
+  name?: string;
+  published_year?: number;
+}
+
+async function fwcGet<T>(path: string): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: {
+      "Ocp-Apim-Subscription-Key": KEY as string,
+      Accept: "application/json",
+    },
+    // Authenticated upstream — bypass Next's fetch cache; we cache in-memory.
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(
+      `Fair Work API ${res.status} ${res.statusText} for ${path}`,
+    );
+  }
+  return (await res.json()) as T;
+}
+
+// Walk every page of a list endpoint and flatten the rows. Hard page cap is a
+// runaway guard — real awards top out around a few hundred rows.
+async function fwcList<T>(pathBase: string): Promise<T[]> {
+  const out: T[] = [];
+  const limit = 100;
+  for (let page = 1; page <= 50; page++) {
+    const sep = pathBase.includes("?") ? "&" : "?";
+    const body = await fwcGet<FwcListResponse<T>>(
+      `${pathBase}${sep}page=${page}&limit=${limit}`,
+    );
+    const rows = body.results ?? [];
+    out.push(...rows);
+    if (rows.length === 0 || !body._meta?.has_more_results) break;
+  }
+  return out;
+}
 
 export async function fetchAwardPayload(
   awardCode: string,
@@ -35,51 +88,35 @@ export async function fetchAwardPayload(
   const hit = cache.get(cacheKey);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.value;
 
-  // FWC: confirm the exact endpoint(s) + query params. Single call assumed here;
-  // split into classifications / pay-rates / allowances calls if required and
-  // merge into one FwcAwardPayload before returning.
-  const url = `${BASE}/awards/${encodeURIComponent(awardCode)}?operativeFrom=${encodeURIComponent(asOf)}`;
-  const res = await fetch(url, {
-    headers: {
-      "Ocp-Apim-Subscription-Key": KEY,
-      Accept: "application/json",
-    },
-    // Avoid Next's fetch cache for an authenticated upstream; we cache in-memory.
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    throw new Error(
-      `Fair Work API ${res.status} ${res.statusText} for ${awardCode}`,
-    );
-  }
-  const body = (await res.json()) as unknown;
-  const payload = normalizePayload(awardCode, body);
+  // 1. Resolve the award's stable fixed id from the version-search endpoint.
+  const versions = await fwcList<FwcAwardVersion>(
+    `/awards/${encodeURIComponent(awardCode)}`,
+  );
+  const withFixedId = versions.filter(
+    (v): v is FwcAwardVersion & { award_fixed_id: number } =>
+      typeof v.award_fixed_id === "number",
+  );
+  if (withFixedId.length === 0) return null; // unknown award code
+
+  const latest = withFixedId.reduce((a, b) =>
+    (b.published_year ?? 0) > (a.published_year ?? 0) ? b : a,
+  );
+  const fixedId = latest.award_fixed_id;
+
+  // 2. Fetch the rate-set + both allowance lists in parallel, keyed by fixed id.
+  const [payRates, wageAllowances, expenseAllowances] = await Promise.all([
+    fwcList<FwcPayRateRow>(`/awards/${fixedId}/pay-rates`),
+    fwcList<FwcAllowanceRow>(`/awards/${fixedId}/wage-allowances`),
+    fwcList<FwcAllowanceRow>(`/awards/${fixedId}/expense-allowances`),
+  ]);
+
+  const payload: FwcAwardPayload = {
+    code: awardCode,
+    name: latest.name,
+    payRates,
+    wageAllowances,
+    expenseAllowances,
+  };
   cache.set(cacheKey, { value: payload, at: Date.now() });
   return payload;
-}
-
-// Maps the raw API body onto FwcAwardPayload. Kept thin + defensive so a shape
-// surprise degrades to empty arrays rather than throwing. FWC: confirm the
-// top-level field names (the cast below is the single place to fix).
-function normalizePayload(awardCode: string, body: unknown): FwcAwardPayload {
-  const b = (body ?? {}) as Record<string, unknown>;
-  return {
-    code: awardCode,
-    name: typeof b.name === "string" ? b.name : undefined,
-    operativeFrom:
-      typeof b.operativeFrom === "string" ? b.operativeFrom : undefined,
-    ordinaryHoursPerWeek:
-      typeof b.ordinaryHoursPerWeek === "number"
-        ? b.ordinaryHoursPerWeek
-        : undefined,
-    classifications: Array.isArray(b.classifications)
-      ? (b.classifications as FwcAwardPayload["classifications"])
-      : [],
-    wageAllowances: Array.isArray(b.wageAllowances)
-      ? (b.wageAllowances as FwcAwardPayload["wageAllowances"])
-      : [],
-    expenseAllowances: Array.isArray(b.expenseAllowances)
-      ? (b.expenseAllowances as FwcAwardPayload["expenseAllowances"])
-      : [],
-  };
 }
