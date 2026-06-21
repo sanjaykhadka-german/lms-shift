@@ -14,16 +14,25 @@ export function SignaturePad({
   name,
   label = "Signature",
   required = false,
+  onInkChange,
 }: {
   name: string;
   label?: string;
   required?: boolean;
+  /** Fires whenever the signed/empty state changes — lets a parent form gate
+   *  its submit button on a signature being present. */
+  onInkChange?: (hasInk: boolean) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const hiddenRef = useRef<HTMLInputElement>(null);
   const strokesRef = useRef<Point[][]>([]);
   const drawingRef = useRef(false);
   const [hasInk, setHasInk] = useState(false);
+  // The signature PNG lives in React state and is rendered into a *controlled*
+  // hidden input below, so the value submitted with the form is always exactly
+  // what's on screen. (An uncontrolled input set imperatively via a ref can
+  // submit stale/empty on a re-render — which is what caused "add your
+  // signature" even after signing.)
+  const [dataUrl, setDataUrl] = useState("");
 
   // Resize the backing store to match the element's CSS size × DPR so lines
   // stay crisp. Re-draws existing strokes after a resize.
@@ -63,12 +72,12 @@ export function SignaturePad({
 
   const commit = useCallback(() => {
     const canvas = canvasRef.current;
-    const input = hiddenRef.current;
-    if (!canvas || !input) return;
+    if (!canvas) return;
     const ink = strokesRef.current.some((s) => s.length > 0);
     setHasInk(ink);
-    input.value = ink ? canvas.toDataURL("image/png") : "";
-  }, []);
+    onInkChange?.(ink);
+    setDataUrl(ink ? canvas.toDataURL("image/png") : "");
+  }, [onInkChange]);
 
   useEffect(() => {
     fit();
@@ -146,7 +155,7 @@ export function SignaturePad({
         onPointerLeave={onPointerUp}
         className="h-44 w-full touch-none rounded-lg border border-[rgba(244,238,227,0.18)] bg-[#f4eee3]"
       />
-      <input ref={hiddenRef} type="hidden" name={name} defaultValue="" />
+      <input type="hidden" name={name} value={dataUrl} readOnly />
       {!hasInk ? (
         <p className="mt-1 text-xs text-[#a89c8c]">
           Sign above with your finger, stylus, or mouse.

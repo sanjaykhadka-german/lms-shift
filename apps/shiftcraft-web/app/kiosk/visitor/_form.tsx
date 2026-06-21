@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useFormStatus } from "react-dom";
 import { SignaturePad } from "~/components/SignaturePad";
+import { EmployeePicker } from "./_employee_picker";
 import { visitorSignInAction, visitorSignOutAction } from "./actions";
 
 export interface SignedInVisitor {
@@ -28,9 +29,11 @@ function fmtTime(iso: string): string {
 function SubmitButton({
   children,
   tone,
+  disabled,
 }: {
   children: React.ReactNode;
   tone: "in" | "out";
+  disabled?: boolean;
 }) {
   const { pending } = useFormStatus();
   const bg =
@@ -40,8 +43,8 @@ function SubmitButton({
   return (
     <button
       type="submit"
-      disabled={pending}
-      className={`mt-2 w-full rounded-xl px-6 py-4 text-base font-semibold text-white shadow-sm transition disabled:opacity-60 ${bg}`}
+      disabled={pending || disabled}
+      className={`mt-2 w-full rounded-xl px-6 py-4 text-base font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60 ${bg}`}
     >
       {pending ? "…" : children}
     </button>
@@ -50,13 +53,17 @@ function SubmitButton({
 
 export function VisitorForm({
   signedInVisitors,
-  employeeNames,
+  employees,
 }: {
   signedInVisitors: SignedInVisitor[];
-  employeeNames: string[];
+  employees: { id: string; name: string }[];
 }) {
   const [tab, setTab] = useState<"in" | "out">("in");
-  const [selectedOut, setSelectedOut] = useState("");
+  // Gate the sign-in button on the two inputs that can't use native `required`
+  // (the signature canvas + the custom employee picker both write to hidden
+  // inputs). An empty signature was the most common cause of the bounce.
+  const [hasSignature, setHasSignature] = useState(false);
+  const [employeeId, setEmployeeId] = useState("");
 
   return (
     <div className="space-y-6">
@@ -131,23 +138,15 @@ export function VisitorForm({
               />
             </div>
             <div>
-              <label className={LABEL} htmlFor="visitingPerson">
+              <label className={LABEL} htmlFor="visitingEmployeeId">
                 Who are you visiting? *
               </label>
-              <input
-                id="visitingPerson"
-                name="visitingPerson"
-                required
-                maxLength={120}
-                list="employee-names"
-                placeholder="Name or department"
-                className={INPUT}
+              <EmployeePicker
+                employees={employees}
+                value={employeeId}
+                onChange={setEmployeeId}
+                inputClassName={INPUT}
               />
-              <datalist id="employee-names">
-                {employeeNames.map((n) => (
-                  <option key={n} value={n} />
-                ))}
-              </datalist>
             </div>
           </div>
           <div>
@@ -162,8 +161,22 @@ export function VisitorForm({
               className={INPUT}
             />
           </div>
-          <SignaturePad name="signInSignature" label="Signature" required />
-          <SubmitButton tone="in">Sign in</SubmitButton>
+          <SignaturePad
+            name="signInSignature"
+            label="Signature"
+            required
+            onInkChange={setHasSignature}
+          />
+          {!employeeId || !hasSignature ? (
+            <p className="text-xs text-[#a89c8c]">
+              {!employeeId
+                ? "Choose who you're visiting, then sign in the box above."
+                : "Please sign in the box above to enable sign-in."}
+            </p>
+          ) : null}
+          <SubmitButton tone="in" disabled={!employeeId || !hasSignature}>
+            Sign in
+          </SubmitButton>
         </form>
       ) : (
         <form action={visitorSignOutAction} className="space-y-4">
@@ -174,27 +187,27 @@ export function VisitorForm({
           ) : (
             <>
               <div>
-                <label className={LABEL} htmlFor="id">
-                  Select visitor *
+                <label className={LABEL} htmlFor="visitorNameOut">
+                  Your name *
                 </label>
-                <select
-                  id="id"
-                  name="id"
+                <input
+                  id="visitorNameOut"
+                  name="visitorNameOut"
                   required
-                  value={selectedOut}
-                  onChange={(e) => setSelectedOut(e.target.value)}
+                  maxLength={120}
+                  autoComplete="off"
+                  list="signed-in-names"
+                  placeholder="Type your name"
                   className={INPUT}
-                >
-                  <option value="">Choose a visitor…</option>
+                />
+                <datalist id="signed-in-names">
                   {signedInVisitors.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.visitorName}
-                      {v.visitorCompany ? ` · ${v.visitorCompany}` : ""} —
-                      visiting {v.visitingPerson} (since{" "}
-                      {fmtTime(v.signedInAt)})
+                    <option key={v.id} value={v.visitorName}>
+                      {v.visitorCompany ? `${v.visitorCompany} · ` : ""}visiting{" "}
+                      {v.visitingPerson} (since {fmtTime(v.signedInAt)})
                     </option>
                   ))}
-                </select>
+                </datalist>
               </div>
               <SignaturePad name="signOutSignature" label="Signature (optional)" />
               <SubmitButton tone="out">Sign out</SubmitButton>

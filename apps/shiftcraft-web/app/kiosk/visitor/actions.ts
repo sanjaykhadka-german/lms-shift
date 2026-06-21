@@ -2,17 +2,25 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { and, eq, isNull } from "drizzle-orm";
-import { forTenant, scKioskDevices, scVisitorSignins } from "@tracey/db";
+import { and, desc, eq, isNull } from "drizzle-orm";
+import {
+  forTenant,
+  scEmployees,
+  scKioskDevices,
+  scVisitorSignins,
+} from "@tracey/db";
 import {
   KIOSK_DEVICE_COOKIE,
   verifyDeviceCookie,
 } from "~/lib/kiosk/cookies";
+import { createNotifications } from "~/lib/notifications";
 
 // Signature blobs are PNG data URLs from the SignaturePad canvas. Cap the
 // decoded size so a tampered client can't post a huge blob; validate the PNG
 // magic bytes so a renamed file can't slip through.
-const MAX_SIGNATURE_BYTES = 200 * 1024;
+// 1 MB decoded — generous for a high-DPI canvas PNG; the server-action body
+// limit (next.config.ts) is 5 MB so this leaves ample headroom.
+const MAX_SIGNATURE_BYTES = 1024 * 1024;
 const PNG_DATA_URL_RE = /^data:image\/png;base64,(.+)$/i;
 
 function decodeSignature(raw: string): Buffer | null {
@@ -70,14 +78,53 @@ export async function visitorSignInAction(formData: FormData): Promise<void> {
   const visitorName = field(formData, "visitorName", 120);
   const visitorCompany = field(formData, "visitorCompany", 120);
   const visitorMobile = field(formData, "visitorMobile", 40);
-  const visitingPerson = field(formData, "visitingPerson", 120);
+  const visitingEmployeeId = String(
+    formData.get("visitingEmployeeId") ?? "",
+  ).trim();
   const visitReason = field(formData, "visitReason", 300);
   const sig = decodeSignature(String(formData.get("signInSignature") ?? ""));
 
-  // Required fields mirror the visitor-app: name, mobile, who they're visiting,
-  // and a signature. Bounce back with an error flag if anything's missing.
-  if (!visitorName || !visitorMobile || !visitingPerson || !sig) {
+  // Required fields: name, mobile, a chosen employee, and a signature. Report
+  // the SPECIFIC missing field so the banner can say exactly what's wrong
+  // (the old generic "missing" made failures impossible to diagnose).
+  if (!visitorName || !visitorMobile) {
     redirect("/kiosk/visitor?error=missing");
+  }
+  if (!UUID_RE.test(visitingEmployeeId)) {
+    redirect("/kiosk/visitor?error=employee");
+  }
+  if (!sig) {
+    // Diagnostic: print why the signature was rejected so a "I did sign"
+    // report can be pinned down from the dev/prod server log.
+    const raw = String(formData.get("signInSignature") ?? "");
+    console.warn(
+      `[kiosk/visitor] signature rejected: rawLen=${raw.length} head=${JSON.stringify(
+        raw.slice(0, 40),
+      )}`,
+    );
+    redirect("/kiosk/visitor?error=signature");
+  }
+
+  // Resolve the chosen employee (scoped to this tenant) so we can store their
+  // name + FK and find their login to notify them.
+  const [employee] = await forTenant(deviceClaim.tenantId).run((tx) =>
+    tx
+      .select({
+        id: scEmployees.id,
+        fullName: scEmployees.fullName,
+        appUserId: scEmployees.appUserId,
+      })
+      .from(scEmployees)
+      .where(
+        and(
+          eq(scEmployees.id, visitingEmployeeId),
+          eq(scEmployees.traceyTenantId, deviceClaim.tenantId),
+        ),
+      )
+      .limit(1),
+  );
+  if (!employee) {
+    redirect("/kiosk/visitor?error=employee");
   }
 
   await forTenant(deviceClaim.tenantId).run((tx) =>
@@ -87,12 +134,29 @@ export async function visitorSignInAction(formData: FormData): Promise<void> {
       visitorName,
       visitorCompany: visitorCompany || null,
       visitorMobile,
-      visitingPerson,
+      visitingPerson: employee.fullName,
+      visitingEmployeeId: employee.id,
       visitReason: visitReason || null,
       signInSignature: sig,
       source: "kiosk",
     }),
   );
+
+  // Best-effort: ping the employee being visited (in-app bell + web push) so
+  // they know someone's waiting at reception. Skipped if they have no login.
+  if (employee.appUserId) {
+    await createNotifications(deviceClaim.tenantId, [
+      {
+        recipientUserId: employee.appUserId,
+        kind: "shiftcraft.visitor.sign_in",
+        title: "Visitor at reception",
+        body: `${visitorName}${
+          visitorCompany ? ` (${visitorCompany})` : ""
+        } has signed in to see you.`,
+        actionUrl: "/app",
+      },
+    ]);
+  }
 
   redirect("/kiosk/visitor?signed=in");
 }
@@ -107,10 +171,34 @@ export async function visitorSignOutAction(formData: FormData): Promise<void> {
   );
   if (!deviceClaim) redirect("/kiosk");
 
-  const id = String(formData.get("id") ?? "").trim();
-  if (!UUID_RE.test(id)) redirect("/kiosk/visitor?error=missing");
+  // Visitors sign themselves out by typing their name (matched against the
+  // currently signed-in list) rather than picking from a dropdown.
+  const nameOut = field(formData, "visitorNameOut", 120);
+  if (!nameOut) redirect("/kiosk/visitor?error=missing");
 
   const sig = decodeSignature(String(formData.get("signOutSignature") ?? ""));
+
+  // Match the typed name against still-signed-in visitors (case-insensitive),
+  // most recent first so a repeat-visitor name resolves to their open visit.
+  const active = await forTenant(deviceClaim.tenantId).run((tx) =>
+    tx
+      .select({
+        id: scVisitorSignins.id,
+        visitorName: scVisitorSignins.visitorName,
+      })
+      .from(scVisitorSignins)
+      .where(
+        and(
+          eq(scVisitorSignins.traceyTenantId, deviceClaim.tenantId),
+          isNull(scVisitorSignins.signedOutAt),
+        ),
+      )
+      .orderBy(desc(scVisitorSignins.signedInAt)),
+  );
+  const target = active.find(
+    (v) => v.visitorName.trim().toLowerCase() === nameOut.toLowerCase(),
+  );
+  if (!target) redirect("/kiosk/visitor?error=notfound");
 
   await forTenant(deviceClaim.tenantId).run((tx) =>
     tx
@@ -121,7 +209,7 @@ export async function visitorSignOutAction(formData: FormData): Promise<void> {
       })
       .where(
         and(
-          eq(scVisitorSignins.id, id),
+          eq(scVisitorSignins.id, target.id),
           eq(scVisitorSignins.traceyTenantId, deviceClaim.tenantId),
           isNull(scVisitorSignins.signedOutAt),
         ),

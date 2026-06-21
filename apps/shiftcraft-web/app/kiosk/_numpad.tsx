@@ -45,6 +45,27 @@ export function KioskNumpad({
   const handleBack = () => setPin((p) => p.slice(0, -1));
   const handleClear = () => setPin("");
 
+  // Hardware-keyboard support. Many kiosks run on a laptop where typing the
+  // PIN on the physical number row is far quicker than tapping. Number keys
+  // (top row or numpad) enter digits, Backspace deletes, Escape clears.
+  // Ignored while locked so it can't hammer the rate limiter.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (state.status === "locked") return;
+      if (/^[0-9]$/.test(e.key)) {
+        e.preventDefault();
+        setPin((p) => (p.length >= PIN_LENGTH ? p : p + e.key));
+      } else if (e.key === "Backspace") {
+        e.preventDefault();
+        setPin((p) => p.slice(0, -1));
+      } else if (e.key === "Escape") {
+        setPin("");
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [state.status]);
+
   const message =
     state.status === "error"
       ? state.message
@@ -56,7 +77,7 @@ export function KioskNumpad({
     <form
       ref={formRef}
       action={formAction}
-      className="mx-auto flex w-full max-w-sm flex-col items-center gap-6"
+      className="mx-auto flex w-full max-w-md flex-col items-center gap-6"
     >
       <input type="hidden" name="pin" value={pin} />
       {appUserId ? (
@@ -97,7 +118,7 @@ export function KioskNumpad({
         <p className="text-sm text-[#766b5e]">Enter your 4-digit PIN</p>
       )}
 
-      <div className="grid w-full grid-cols-3 gap-3">
+      <div className="grid w-full grid-cols-3 gap-4">
         {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => (
           <PadButton key={d} onClick={() => handleDigit(d)}>
             {d}
@@ -164,10 +185,14 @@ function PadButton({
     <button
       type="button"
       onClick={onClick}
+      // touch-manipulation removes the ~300ms double-tap-zoom delay that makes
+      // taps feel dropped; select-none + transparent tap-highlight stop a quick
+      // tap from being swallowed by text selection on a tablet. active:scale
+      // gives an instant press confirmation.
       className={
         secondary
-          ? "h-20 rounded-xl bg-[rgba(244,238,227,0.08)] text-base font-medium text-[#a89c8c] active:bg-[rgba(244,238,227,0.12)]"
-          : "h-20 rounded-xl bg-[rgba(244,238,227,0.04)] text-3xl font-semibold text-[#f4eee3] ring-1 ring-[rgba(244,238,227,0.13)] active:bg-[rgba(244,238,227,0.08)]"
+          ? "h-24 touch-manipulation select-none rounded-xl bg-[rgba(244,238,227,0.08)] text-lg font-medium text-[#a89c8c] transition-transform [-webkit-tap-highlight-color:transparent] active:scale-95 active:bg-[rgba(244,238,227,0.12)]"
+          : "h-24 touch-manipulation select-none rounded-xl bg-[rgba(244,238,227,0.04)] text-4xl font-semibold text-[#f4eee3] ring-1 ring-[rgba(244,238,227,0.13)] transition-transform [-webkit-tap-highlight-color:transparent] active:scale-95 active:bg-[rgba(244,238,227,0.08)]"
       }
       {...rest}
     >

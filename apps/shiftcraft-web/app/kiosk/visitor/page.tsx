@@ -69,9 +69,14 @@ export default async function KioskVisitorPage({
     ),
     forTenant(tenantId).run((tx) =>
       tx
-        .select({ fullName: scEmployees.fullName })
+        .select({ id: scEmployees.id, fullName: scEmployees.fullName })
         .from(scEmployees)
-        .where(eq(scEmployees.traceyTenantId, tenantId))
+        .where(
+          and(
+            eq(scEmployees.traceyTenantId, tenantId),
+            eq(scEmployees.isActive, true),
+          ),
+        )
         .orderBy(asc(scEmployees.fullName)),
     ),
   ]);
@@ -84,9 +89,9 @@ export default async function KioskVisitorPage({
     visitingPerson: v.visitingPerson,
     signedInAt: v.signedInAt.toISOString(),
   }));
-  const employeeNames = employees
-    .map((e) => e.fullName)
-    .filter((n): n is string => !!n);
+  const employeeOptions = employees
+    .filter((e) => !!e.fullName)
+    .map((e) => ({ id: e.id, name: e.fullName }));
 
   if (signed === "in" || signed === "out") {
     return (
@@ -128,16 +133,21 @@ export default async function KioskVisitorPage({
         </header>
 
         <div className="space-y-6 p-8">
-          {error === "missing" ? (
+          {error ? (
             <p className="rounded-md border border-[color-mix(in_srgb,var(--danger)_40%,transparent)] bg-[color-mix(in_srgb,var(--danger)_15%,transparent)] px-4 py-2 text-sm text-[color-mix(in_srgb,var(--danger)_60%,white)]">
-              Please fill in your name, mobile, who you're visiting, and sign
-              before signing in.
+              {error === "notfound"
+                ? "No signed-in visitor with that name. Check the spelling or pick from the suggestions."
+                : error === "employee"
+                  ? "Please choose who you're visiting from the list."
+                  : error === "signature"
+                    ? "Please add your signature before signing in."
+                    : "Please fill in your full name and mobile number."}
             </p>
           ) : null}
 
           <VisitorForm
             signedInVisitors={signedInVisitors}
-            employeeNames={employeeNames}
+            employees={employeeOptions}
           />
         </div>
       </div>
