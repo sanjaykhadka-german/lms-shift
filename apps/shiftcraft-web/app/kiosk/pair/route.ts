@@ -29,6 +29,7 @@ import { forTenant, scKioskDevices } from "@tracey/db";
 import {
   KIOSK_COOKIE_OPTS,
   KIOSK_DEVICE_COOKIE,
+  KIOSK_DEVICE_MAX_AGE,
   signDeviceCookie,
 } from "~/lib/kiosk/cookies";
 
@@ -109,6 +110,9 @@ export async function GET(request: Request): Promise<NextResponse> {
   });
 
   const response = NextResponse.redirect(new URL("/kiosk", origin));
-  response.cookies.set(KIOSK_DEVICE_COOKIE, cookieValue, KIOSK_COOKIE_OPTS);
+  response.cookies.set(KIOSK_DEVICE_COOKIE, cookieValue, {
+    ...KIOSK_COOKIE_OPTS,
+    maxAge: KIOSK_DEVICE_MAX_AGE,
+  });
   return response;
 }

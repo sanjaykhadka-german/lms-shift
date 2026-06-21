@@ -205,6 +205,13 @@ services:
         sync: false
       - key: VAPID_SUBJECT
         sync: false
+      # ── Kiosk cookie signing. DO NOT regenerate — rotating either secret
+      #    invalidates every paired kiosk's device cookie, un-pairing all of
+      #    them. Copy the existing dashboard values; must be ≥32 chars. ──
+      - key: KIOSK_DEVICE_SECRET
+        sync: false
+      - key: KIOSK_ACTOR_SECRET
+        sync: false
 
   - type: cron
     name: lms-stripe-reconcile

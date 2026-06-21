@@ -14,6 +14,7 @@ import { currentMembership } from "~/lib/auth/current";
 import { isAtLeastManager } from "~/lib/roles";
 import { Button } from "~/components/ui/button";
 import { PairKioskForm } from "./_pair_form";
+import { SetupKioskHereForm } from "./_setup_here_form";
 import { DeleteKioskButton } from "./_delete_button";
 import {
   regeneratePairingCodeAction,
@@ -232,11 +233,26 @@ export default async function KiosksAdminPage({
         </section>
       ) : null}
 
-      <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
-        <h2 className="text-sm font-semibold">Add a kiosk</h2>
+      <section className="rounded-lg border-2 border-primary/30 bg-primary/5 p-5 shadow-sm">
+        <h2 className="text-sm font-semibold">Use this device as a kiosk</h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          You'll get a single-use code and QR to enter on the device — valid
-          for 15 minutes.
+          Setting up the tablet/laptop you're on right now? Pick its location
+          and tap once — no code to type, no link to open. This device becomes
+          the kiosk immediately and stays paired across restarts and deploys.
+        </p>
+        <div className="mt-4">
+          <SetupKioskHereForm
+            locations={locations}
+            defaultLocationId={locations[0]?.id ?? null}
+          />
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
+        <h2 className="text-sm font-semibold">Pair a different device</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Setting up another device remotely? You'll get a single-use code and
+          QR to open on that device — valid for 15 minutes.
         </p>
         <div className="mt-4">
           <PairKioskForm

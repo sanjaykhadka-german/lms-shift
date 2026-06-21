@@ -4,10 +4,15 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 // HMAC-signed cookies for the on-premise kiosk. Two independent identities:
 //
 //   kiosk.device  — long-lived, HttpOnly. Issued at /kiosk/pair when a
-//                   single-use pairing code is claimed. Carries
-//                   {deviceId, tenantId, locationId}. Persists indefinitely
-//                   until the admin revokes the device (sc_kiosk_devices
-//                   .revoked_at). Verified on every /kiosk/* request.
+//                   single-use pairing code is claimed (or by the one-tap
+//                   "use this device as a kiosk" admin action). Carries
+//                   {deviceId, tenantId, locationId}. Set with an explicit
+//                   far-future Max-Age (KIOSK_DEVICE_MAX_AGE) so it survives
+//                   browser restarts — without it the cookie is a SESSION
+//                   cookie and the device silently un-pairs whenever the
+//                   kiosk's browser/PWA session ends. Stays valid until the
+//                   admin revokes the device (sc_kiosk_devices.revoked_at).
+//                   Verified on every /kiosk/* request.
 //
 //   kiosk.actor   — short-lived (60 sec), HttpOnly. Issued after a correct
 //                   PIN. Carries {appUserId, deviceId} plus iat/exp.
@@ -136,3 +141,10 @@ export const KIOSK_COOKIE_OPTS = {
   secure: process.env.NODE_ENV === "production",
   path: "/",
 };
+
+// Max-Age (seconds) for the device cookie. ~5 years — effectively permanent
+// for a wall-mounted kiosk. MUST be set explicitly on every device-cookie
+// Set-Cookie; the base opts above intentionally omit maxAge so the actor
+// cookie can stay short-lived. The device stays paired until an admin
+// revokes it server-side (sc_kiosk_devices.revoked_at), independent of this.
+export const KIOSK_DEVICE_MAX_AGE = 60 * 60 * 24 * 365 * 5;
