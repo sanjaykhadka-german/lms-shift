@@ -70,7 +70,10 @@ export function AwardProfileForm({
 
   return (
     <form action={formAction} className="space-y-5">
-      <input type="hidden" name="intent" value="save" />
+      {/* No hidden `intent` input: each submit button carries its own intent
+          (save / apply_preset / reset). A hidden field here would be FIRST in
+          the form data, so formData.get("intent") would always return it and
+          shadow the Apply-preset / Reset buttons. */}
 
       <fieldset className="space-y-2 rounded-md border border-border bg-muted/30 p-3">
         <legend className="px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -306,7 +309,7 @@ function NumberField({
 function SaveButton() {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" disabled={pending}>
+    <Button type="submit" name="intent" value="save" disabled={pending}>
       {pending ? "Saving…" : "Save"}
     </Button>
   );
