@@ -46,7 +46,7 @@ export default async function AcceptInvitePage({ searchParams }: PageProps) {
         <div className="flex flex-col gap-2">
           <Button asChild>
             <Link
-              href={`/sign-up?email=${encodeURIComponent(row.email)}&returnTo=${encodeURIComponent(next)}`}
+              href={`/sign-up?email=${encodeURIComponent(row.email)}&returnTo=${encodeURIComponent(next)}&workspace=${encodeURIComponent(row.tenantName)}`}
             >
               Create account ({row.email})
             </Link>

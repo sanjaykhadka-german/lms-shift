@@ -11,12 +11,13 @@ export default async function SignUpPage({
     returnTo?: string;
     plan?: string;
     billing?: string;
+    workspace?: string;
   }>;
 }) {
   const session = await auth();
   if (session?.user) redirect("/app");
 
-  const { email, returnTo, plan, billing } = await searchParams;
+  const { email, returnTo, plan, billing, workspace } = await searchParams;
   // A plan from the pricing page routes the new user to workspace creation,
   // carrying the chosen plan/billing so the trial records it. An explicit
   // returnTo (e.g. an invite accept) takes precedence.
@@ -30,12 +31,22 @@ export default async function SignUpPage({
   const safeReturnTo =
     derivedReturnTo && derivedReturnTo.startsWith("/") ? derivedReturnTo : undefined;
 
+  // When reached via an invite accept, the user is creating a login to join an
+  // existing workspace — name it if we have it, so it never reads as "start your
+  // own workspace". The owner/pricing funnel keeps the generic ShiftCraft copy.
+  const isInvite = !!safeReturnTo && safeReturnTo.startsWith("/accept-invite");
+  const subheading = isInvite
+    ? workspace
+      ? `Create your login to join ${workspace}.`
+      : "Create your login to accept your invitation."
+    : "Sign up to start using ShiftCraft.";
+
   return (
     <AuthShell
       mode="signup"
       returnTo={safeReturnTo}
       heading="Create your account"
-      subheading="Sign up to start using ShiftCraft."
+      subheading={subheading}
     >
       <SignUpForm email={email} returnTo={safeReturnTo} />
     </AuthShell>

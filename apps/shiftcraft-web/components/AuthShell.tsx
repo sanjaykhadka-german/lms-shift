@@ -23,6 +23,10 @@ export function AuthShell({
 }) {
   const signInHref = returnTo ? `/sign-in?returnTo=${encodeURIComponent(returnTo)}` : "/sign-in";
   const signUpHref = returnTo ? `/sign-up?returnTo=${encodeURIComponent(returnTo)}` : "/sign-up";
+  // An invite accept routes through here with returnTo=/accept-invite — the
+  // new user is creating a login to join an existing workspace, not starting
+  // their own, so the toggle says "Create account" rather than "Create workspace".
+  const isInvite = !!returnTo && returnTo.startsWith("/accept-invite");
 
   return (
     <div className="grid min-h-screen lg:grid-cols-[1.05fr_1fr]">
@@ -112,7 +116,7 @@ export function AuthShell({
                   : "text-ink-2 hover:text-ink",
               )}
             >
-              Create workspace
+              {isInvite ? "Create account" : "Create workspace"}
             </Link>
           </div>
 
