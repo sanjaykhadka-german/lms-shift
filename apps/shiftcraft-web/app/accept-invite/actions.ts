@@ -1,8 +1,15 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { and, eq, isNull } from "drizzle-orm";
-import { db, invitations, members, users } from "@tracey/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import {
+  db,
+  forTenant,
+  invitations,
+  members,
+  scEmployees,
+  users,
+} from "@tracey/db";
 import { currentUser, setActiveTenant } from "~/lib/auth/current";
 import { logAuditEvent } from "~/lib/audit";
 
@@ -52,6 +59,27 @@ export async function acceptInvitationAction(formData: FormData): Promise<void> 
       role: inv.role,
     });
   }
+
+  // Back-fill the roster link. The common flow is: an admin adds the hire on
+  // /app/employees (which creates an sc_employees row with app_user_id=NULL and
+  // sends this invite), then the hire accepts. Without this step the profile
+  // lookup at /app/welcome (eq(scEmployees.appUserId, user.id)) never matches,
+  // so the user is stuck on the "ask your manager to add you" fallback even
+  // though their roster row already exists. Match by email within the tenant
+  // and only claim a row that isn't already linked to someone else.
+  // sc_employees is per-tenant, so this must run through forTenant().
+  await forTenant(inv.tenantId).run((tx) =>
+    tx
+      .update(scEmployees)
+      .set({ appUserId: me.id, updatedAt: new Date() })
+      .where(
+        and(
+          eq(scEmployees.traceyTenantId, inv.tenantId),
+          isNull(scEmployees.appUserId),
+          sql`lower(${scEmployees.email}) = lower(${me.email})`,
+        ),
+      ),
+  );
 
   // Promote email-verified status if not already (the invitation email proves
   // ownership of the address).
