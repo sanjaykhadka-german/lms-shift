@@ -30,11 +30,22 @@ interface Flags {
 const selectClass =
   "flex h-9 w-full rounded-md border border-[color:var(--input)] bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]";
 
+function FieldError({ errors }: { errors?: string[] }) {
+  if (!errors?.length) return null;
+  return (
+    <p className="text-xs text-[color:var(--destructive)]">{errors[0]}</p>
+  );
+}
+
 export function PayrollPiiForm({ flags }: { flags: Flags }) {
   const [state, formAction, pending] = useActionState(
     selfSavePayrollPiiAction,
     initial,
   );
+  // Per-field messages from the server action's Zod validation, so
+  // "Please fix the highlighted fields" actually points at the bad field.
+  const fieldErrors =
+    state.status === "error" ? state.fieldErrors : undefined;
   const [showForm, setShowForm] = useState(
     !(flags.hasTfn && flags.hasBsb && flags.hasAccount && flags.hasSuper),
   );
@@ -78,6 +89,7 @@ export function PayrollPiiForm({ flags }: { flags: Flags }) {
           autoComplete="off"
           placeholder={flags.hasTfn ? "Leave blank to keep" : "xxx xxx xxx"}
         />
+        <FieldError errors={fieldErrors?.tfn} />
       </div>
 
       <div className="space-y-1.5 sm:col-span-2">
@@ -89,6 +101,7 @@ export function PayrollPiiForm({ flags }: { flags: Flags }) {
           placeholder="Name on the bank account"
           maxLength={120}
         />
+        <FieldError errors={fieldErrors?.bankAccountName} />
       </div>
 
       <div className="space-y-1.5">
@@ -107,6 +120,7 @@ export function PayrollPiiForm({ flags }: { flags: Flags }) {
           autoComplete="off"
           placeholder={flags.hasBsb ? "Leave blank to keep" : "xxx-xxx"}
         />
+        <FieldError errors={fieldErrors?.bsb} />
       </div>
 
       <div className="space-y-1.5">
@@ -127,6 +141,7 @@ export function PayrollPiiForm({ flags }: { flags: Flags }) {
             flags.hasAccount ? "Leave blank to keep" : "4–12 digits"
           }
         />
+        <FieldError errors={fieldErrors?.accountNumber} />
       </div>
 
       <div className="space-y-1.5">
@@ -138,6 +153,7 @@ export function PayrollPiiForm({ flags }: { flags: Flags }) {
           placeholder="e.g. Australian Super"
           maxLength={120}
         />
+        <FieldError errors={fieldErrors?.superFundName} />
       </div>
 
       <div className="space-y-1.5 sm:col-span-2">
@@ -155,6 +171,7 @@ export function PayrollPiiForm({ flags }: { flags: Flags }) {
           autoComplete="off"
           placeholder={flags.hasSuper ? "Leave blank to keep" : "Member ID"}
         />
+        <FieldError errors={fieldErrors?.superMemberNumber} />
       </div>
 
       {/* ── ATO TFN declaration ── */}
@@ -171,6 +188,7 @@ export function PayrollPiiForm({ flags }: { flags: Flags }) {
           <option value="foreign">Foreign resident</option>
           <option value="working_holiday">Working holiday maker</option>
         </select>
+        <FieldError errors={fieldErrors?.residency} />
       </div>
 
       <div className="space-y-1.5">
@@ -187,6 +205,7 @@ export function PayrollPiiForm({ flags }: { flags: Flags }) {
           <option value="casual">Casual</option>
           <option value="labour_hire">Labour hire</option>
         </select>
+        <FieldError errors={fieldErrors?.payBasis} />
       </div>
 
       <label className="flex items-center gap-2 text-sm sm:col-span-2">
@@ -225,6 +244,7 @@ export function PayrollPiiForm({ flags }: { flags: Flags }) {
           <option value="yes_attached">Valid work visa (uploaded below)</option>
           <option value="no">No</option>
         </select>
+        <FieldError errors={fieldErrors?.workVisa} />
       </div>
 
       <label className="flex items-center gap-2 text-sm sm:col-span-2">

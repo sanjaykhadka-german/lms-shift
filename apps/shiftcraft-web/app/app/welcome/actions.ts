@@ -161,26 +161,25 @@ export async function selfUpdatePersonalAction(
 const optionalEnum = <T extends [string, ...string[]]>(values: T) =>
   z.union([z.literal(""), z.enum(values)]).optional();
 
+// Numeric secret fields (TFN / BSB / account number). Workers reasonably type
+// these with spaces or dashes ("123 456 789", "062-000"), so we strip those
+// separators before counting digits rather than rejecting the format. The
+// action stores the normalised bare-digit form. Empty stays "not answered".
+const optionalDigits = (min: number, max: number, msg: string) =>
+  z
+    .string()
+    .trim()
+    .optional()
+    .refine(
+      (v) => !v || new RegExp(`^\\d{${min},${max}}$`).test(v.replace(/[\s-]/g, "")),
+      msg,
+    );
+
 const piiSchema = z.object({
-  tfn: z
-    .union([
-      z.literal(""),
-      z.string().trim().regex(/^\d{3}\s?\d{3}\s?\d{2,3}$/, "TFN is 8-9 digits"),
-    ])
-    .optional(),
+  tfn: optionalDigits(8, 9, "TFN must be 8 or 9 digits"),
   bankAccountName: z.string().trim().max(120).optional().or(z.literal("")),
-  bsb: z
-    .union([
-      z.literal(""),
-      z.string().trim().regex(/^\d{3}-?\d{3}$/, "BSB is 6 digits (xxx-xxx)"),
-    ])
-    .optional(),
-  accountNumber: z
-    .union([
-      z.literal(""),
-      z.string().trim().regex(/^\d{4,12}$/, "Account number is 4-12 digits"),
-    ])
-    .optional(),
+  bsb: optionalDigits(6, 6, "BSB must be 6 digits (e.g. 062-000)"),
+  accountNumber: optionalDigits(4, 12, "Account number must be 4–12 digits"),
   superFundName: z.string().trim().max(120).optional().or(z.literal("")),
   superMemberNumber: z
     .union([
@@ -234,9 +233,10 @@ export async function selfSavePayrollPiiAction(
   // Normalise spacing/dashes before encrypting so the manager-side
   // reveal returns a canonical form (matches the existing
   // savePayrollPiiAction convention).
-  const tfn = emptyToNull(parsed.data.tfn)?.replace(/\s/g, "") ?? null;
-  const bsb = emptyToNull(parsed.data.bsb)?.replace(/-/g, "") ?? null;
-  const accountNumber = emptyToNull(parsed.data.accountNumber);
+  const tfn = emptyToNull(parsed.data.tfn)?.replace(/[\s-]/g, "") ?? null;
+  const bsb = emptyToNull(parsed.data.bsb)?.replace(/[\s-]/g, "") ?? null;
+  const accountNumber =
+    emptyToNull(parsed.data.accountNumber)?.replace(/[\s-]/g, "") ?? null;
   const superFundName = emptyToNull(parsed.data.superFundName);
   const superMemberNumber = emptyToNull(parsed.data.superMemberNumber);
 

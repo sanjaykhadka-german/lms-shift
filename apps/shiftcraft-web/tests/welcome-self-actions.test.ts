@@ -347,6 +347,40 @@ describe("selfSavePayrollPiiAction", () => {
       fd({ tfn: "abc" }),
     );
     expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.fieldErrors?.tfn?.[0]).toMatch(/8 or 9 digits/);
+    }
+  });
+
+  it("accepts TFN / BSB / account typed with spaces or dashes and stores bare digits", async () => {
+    const { selfSavePayrollPiiAction } = await load();
+    const result = await selfSavePayrollPiiAction(
+      { status: "idle" },
+      fd({
+        tfn: "123 456 789",
+        bsb: "062-000",
+        accountNumber: "1234 5678",
+      }),
+    );
+    expect(result.status).toBe("ok");
+    const emp = state.employees[0]!;
+    // Stored ciphertext is just the v1: envelope; the point is it saved
+    // without a validation error and wrote all three secret columns.
+    expect(emp.tfnEnc).toMatch(/^v1:/);
+    expect(emp.bsbEnc).toMatch(/^v1:/);
+    expect(emp.accountNumberEnc).toMatch(/^v1:/);
+  });
+
+  it("flags a too-short account number on the accountNumber field", async () => {
+    const { selfSavePayrollPiiAction } = await load();
+    const result = await selfSavePayrollPiiAction(
+      { status: "idle" },
+      fd({ accountNumber: "12" }),
+    );
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.fieldErrors?.accountNumber?.[0]).toMatch(/4.?12 digits/);
+    }
   });
 });
 
