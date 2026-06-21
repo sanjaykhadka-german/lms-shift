@@ -12,6 +12,14 @@ const nextConfig: NextConfig = {
   transpilePackages: ["@tracey/ui", "@tracey/auth", "@tracey/db", "@tracey/types"],
   poweredByHeader: false,
   reactStrictMode: true,
+  // Dev-only. `next dev` blocks _next/* asset loads and server-action calls
+  // that arrive with a non-localhost Origin/Host, so opening the app from
+  // another device on the LAN (e.g. a kiosk tablet at http://192.168.x.x:4100)
+  // renders the HTML but never hydrates — the live clock stays --:--:-- and
+  // buttons do nothing. List the dev machine's LAN address(es) here to allow
+  // them. The `*` wildcards cover a changing last octet on a typical home/
+  // shop subnet; add specific IPs if yours differs. No effect in production.
+  allowedDevOrigins: ["192.168.2.78", "192.168.2.*", "192.168.0.*", "192.168.1.*"],
   turbopack: {
     root: monorepoRoot,
   },

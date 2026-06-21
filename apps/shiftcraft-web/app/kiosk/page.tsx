@@ -3,6 +3,7 @@ import { and, eq, inArray, isNull } from "drizzle-orm";
 import {
   forTenant,
   scEmployeePins,
+  scEmployees,
   scKioskDevices,
   scLocations,
   tenants,
@@ -110,6 +111,31 @@ async function loadRoster(tenantId: string): Promise<KioskPerson[]> {
   );
   const ids = pinRows.map((r) => r.appUserId);
   if (ids.length === 0) return [];
+
+  // Preferred display name is the employee's full_name (sc_employees,
+  // per-tenant). users.name is usually null for staff created via the People
+  // page who never set an Auth.js profile name — without this the kiosk
+  // roster falls back to showing their raw email address.
+  const empRows = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({
+        appUserId: scEmployees.appUserId,
+        fullName: scEmployees.fullName,
+      })
+      .from(scEmployees)
+      .where(
+        and(
+          eq(scEmployees.traceyTenantId, tenantId),
+          inArray(scEmployees.appUserId, ids),
+        ),
+      ),
+  );
+  const fullNameByUser = new Map(
+    empRows
+      .filter((e) => e.appUserId)
+      .map((e) => [e.appUserId as string, e.fullName] as const),
+  );
+
   const rows = await db
     .select({
       id: users.id,
@@ -122,7 +148,7 @@ async function loadRoster(tenantId: string): Promise<KioskPerson[]> {
   return rows
     .map((u) => ({
       id: u.id,
-      name: u.name ?? u.email ?? "—",
+      name: fullNameByUser.get(u.id) ?? u.name ?? u.email ?? "—",
       image: u.image,
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
