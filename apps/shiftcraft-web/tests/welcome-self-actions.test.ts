@@ -395,6 +395,54 @@ describe("selfUploadDocumentAction", () => {
     expect(result.status).toBe("error");
     expect(state.documents).toHaveLength(0);
   });
+
+  it("uploads several files at once, titling each from its file name", async () => {
+    const { selfUploadDocumentAction } = await load();
+    const f = new FormData();
+    // No title field → each document is named after its file.
+    f.append(
+      "file",
+      new File(["%PDF-1.4"], "RSA cert.pdf", { type: "application/pdf" }),
+    );
+    f.append(
+      "file",
+      new File(["data"], "licence.png", { type: "image/png" }),
+    );
+    const result = await selfUploadDocumentAction({ status: "idle" }, f);
+    expect(result.status).toBe("ok");
+    expect(state.documents).toHaveLength(2);
+    expect(state.documents.map((d) => d.title)).toEqual(["RSA cert", "licence"]);
+    expect(state.audits.filter((a) =>
+      a.action === "shiftcraft.welcome.document_uploaded",
+    )).toHaveLength(2);
+  });
+
+  it("ignores a supplied title when more than one file is picked", async () => {
+    const { selfUploadDocumentAction } = await load();
+    const f = new FormData();
+    f.append("title", "Shared title");
+    f.append("file", new File(["a"], "one.pdf", { type: "application/pdf" }));
+    f.append("file", new File(["b"], "two.pdf", { type: "application/pdf" }));
+    const result = await selfUploadDocumentAction({ status: "idle" }, f);
+    expect(result.status).toBe("ok");
+    expect(state.documents.map((d) => d.title)).toEqual(["one", "two"]);
+  });
+
+  it("uploads the valid files and skips the bad ones in a mixed batch", async () => {
+    const { selfUploadDocumentAction } = await load();
+    const big = new Uint8Array(6 * 1024 * 1024); // 6 MiB
+    const f = new FormData();
+    f.append("file", new File(["%PDF"], "good.pdf", { type: "application/pdf" }));
+    f.append("file", new File([big], "huge.pdf", { type: "application/pdf" }));
+    f.append("file", new File(["x"], "evil.exe", { type: "application/x-msdownload" }));
+    const result = await selfUploadDocumentAction({ status: "idle" }, f);
+    expect(result.status).toBe("ok");
+    expect(state.documents).toHaveLength(1);
+    expect(state.documents[0]?.title).toBe("good");
+    if (result.status === "ok") {
+      expect(result.message).toMatch(/Skipped 2/);
+    }
+  });
 });
 
 describe("completeOnboardingSelfAction", () => {

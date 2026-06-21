@@ -422,9 +422,20 @@ const ALLOWED_MIME = new Set([
 ]);
 
 const uploadSchema = z.object({
-  title: z.string().trim().min(1, "Pick a title").max(200),
+  // Optional now — when blank (or when several files are picked) each
+  // document is titled from its own file name. A supplied title only wins
+  // when exactly one file is uploaded.
+  title: z.string().trim().max(200).optional().or(z.literal("")),
   notes: z.string().trim().max(2000).optional().or(z.literal("")),
 });
+
+// Derive a human title from a file name: drop the extension, trim, clamp to
+// the column limit, and fall back to a generic label for edge cases like a
+// dotfile or an empty name.
+function titleFromFilename(name: string): string {
+  const base = name.replace(/\.[^./\\]+$/, "").trim();
+  return base.length > 0 ? base.slice(0, 200) : "Document";
+}
 
 export async function selfUploadDocumentAction(
   _prev: FormState,
@@ -449,50 +460,91 @@ export async function selfUploadDocumentAction(
       fieldErrors: parsed.error.flatten().fieldErrors,
     };
   }
+  const providedTitle = (parsed.data.title ?? "").trim();
+  const notes = emptyToNull(parsed.data.notes ?? "");
 
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) {
-    return { status: "error", message: "Pick a file to upload." };
+  // Multi-file: the form's <input multiple> sends one "file" entry per pick.
+  const files = formData
+    .getAll("file")
+    .filter((f): f is File => f instanceof File && f.size > 0);
+  if (files.length === 0) {
+    return { status: "error", message: "Pick at least one file to upload." };
   }
-  if (file.size > MAX_FILE_BYTES) {
-    return { status: "error", message: "Max file size is 5 MiB." };
+
+  // Validate each file independently so one bad file doesn't sink the batch.
+  const skipped: string[] = [];
+  const accepted: Array<{
+    title: string;
+    mimeType: string;
+    size: number;
+    bytes: Buffer;
+  }> = [];
+  for (const file of files) {
+    if (file.size > MAX_FILE_BYTES) {
+      skipped.push(`${file.name} (over 5 MiB)`);
+      continue;
+    }
+    if (!ALLOWED_MIME.has(file.type)) {
+      skipped.push(`${file.name} (unsupported type)`);
+      continue;
+    }
+    accepted.push({
+      // A typed title only applies when there's a single file — otherwise it
+      // would label every document the same, so we use each file's name.
+      title:
+        files.length === 1 && providedTitle
+          ? providedTitle
+          : titleFromFilename(file.name),
+      mimeType: file.type,
+      size: file.size,
+      bytes: Buffer.from(await file.arrayBuffer()),
+    });
   }
-  if (!ALLOWED_MIME.has(file.type)) {
+
+  if (accepted.length === 0) {
     return {
       status: "error",
-      message: "Only PDF / JPEG / PNG / DOC / DOCX are supported.",
+      message:
+        "Couldn't upload — only PDF / JPEG / PNG / DOC / DOCX up to 5 MiB are supported.",
     };
   }
 
-  const bytes = Buffer.from(await file.arrayBuffer());
-
-  await forTenant(ctx.tenantId).run((tx) =>
-    tx.insert(scDocuments).values({
-      traceyTenantId: ctx.tenantId,
-      scope: "team",
-      employeeId: ctx.employeeId,
-      title: parsed.data.title,
-      notes: emptyToNull(parsed.data.notes),
-      mimeType: file.type,
-      fileSize: file.size,
-      data: bytes,
-      uploadedByUserId: ctx.userId,
-    }),
-  );
-
-  await logAuditEvent({
-    action: "shiftcraft.welcome.document_uploaded",
-    targetKind: "sc_document",
-    details: {
-      employeeId: ctx.employeeId,
-      title: parsed.data.title,
-      mimeType: file.type,
-      size: file.size,
-    },
+  await forTenant(ctx.tenantId).run(async (tx) => {
+    for (const doc of accepted) {
+      await tx.insert(scDocuments).values({
+        traceyTenantId: ctx.tenantId,
+        scope: "team",
+        employeeId: ctx.employeeId,
+        title: doc.title,
+        notes,
+        mimeType: doc.mimeType,
+        fileSize: doc.size,
+        data: doc.bytes,
+        uploadedByUserId: ctx.userId,
+      });
+    }
   });
 
+  for (const doc of accepted) {
+    await logAuditEvent({
+      action: "shiftcraft.welcome.document_uploaded",
+      targetKind: "sc_document",
+      details: {
+        employeeId: ctx.employeeId,
+        title: doc.title,
+        mimeType: doc.mimeType,
+        size: doc.size,
+      },
+    });
+  }
+
   revalidatePath("/app/welcome");
-  return { status: "ok", message: "Uploaded." };
+  const okMsg =
+    accepted.length === 1 ? "Uploaded." : `Uploaded ${accepted.length} files.`;
+  const skipMsg = skipped.length
+    ? ` Skipped ${skipped.length}: ${skipped.join(", ")}.`
+    : "";
+  return { status: "ok", message: okMsg + skipMsg };
 }
 
 // ─── Onboarding task self-toggle ────────────────────────────────────

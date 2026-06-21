@@ -29,12 +29,11 @@ export function DocumentUploadForm() {
       className="grid gap-3 sm:grid-cols-2"
     >
       <div className="space-y-1.5">
-        <Label htmlFor="title">Document title</Label>
+        <Label htmlFor="title">Document title (optional)</Label>
         <Input
           id="title"
           name="title"
           placeholder="e.g. RSA certificate, Drivers licence"
-          required
           maxLength={200}
         />
         {state.status === "error" && state.fieldErrors?.title && (
@@ -55,19 +54,25 @@ export function DocumentUploadForm() {
       </div>
 
       <div className="space-y-1.5 sm:col-span-2">
-        <Label htmlFor="file">File (PDF / image / Word, max 5 MiB)</Label>
+        <Label htmlFor="file">Files (PDF / image / Word, max 5 MiB each)</Label>
         <Input
           id="file"
           name="file"
           type="file"
+          multiple
           accept="application/pdf,image/jpeg,image/png,image/webp,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           required
         />
+        <p className="text-xs text-ink-3">
+          Pick several files at once — hold Ctrl/⌘ or Shift to select more.
+          Each is saved as its own document; without a title above, the file
+          name is used.
+        </p>
       </div>
 
       <div className="sm:col-span-2 flex items-center gap-3">
         <Button type="submit" disabled={pending}>
-          {pending ? "Uploading…" : "Upload document"}
+          {pending ? "Uploading…" : "Upload documents"}
         </Button>
         {state.status === "ok" && (
           <p className="text-xs text-[var(--live)]">{state.message}</p>
