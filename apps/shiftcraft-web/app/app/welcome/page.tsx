@@ -163,7 +163,7 @@ export default async function WelcomePage() {
     <div className="mx-auto max-w-3xl space-y-6 px-6 py-10">
       <div>
         <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
-          Welcome, {employee.preferredName || employee.fullName.split(" ")[0]}
+          Welcome, {employee.firstName || employee.fullName.split(" ")[0]}
           <InfoPopover label="About the welcome flow">
             <p>
               Fill in your personal details and (optionally) payroll info,
@@ -193,7 +193,11 @@ export default async function WelcomePage() {
         </p>
         <PersonalForm
           defaults={{
-            preferredName: employee.preferredName,
+            firstName:
+              employee.firstName ?? (employee.fullName.split(" ")[0] || ""),
+            lastName:
+              employee.lastName ??
+              (employee.fullName.split(" ").slice(1).join(" ") || null),
             gender: employee.gender,
             dateOfBirth: employee.dateOfBirth,
             addressLine: employee.addressLine,

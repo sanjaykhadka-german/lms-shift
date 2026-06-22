@@ -12,7 +12,8 @@ import {
 const initial: FormState = { status: "idle" };
 
 interface Defaults {
-  preferredName: string | null;
+  firstName: string | null;
+  lastName: string | null;
   gender: string | null;
   dateOfBirth: string | null;
   addressLine: string | null;
@@ -30,13 +31,26 @@ export function PersonalForm({ defaults }: { defaults: Defaults }) {
   return (
     <form action={formAction} className="grid gap-4 sm:grid-cols-2">
       <div className="space-y-1.5">
-        <Label htmlFor="preferredName">Preferred name</Label>
+        <Label htmlFor="firstName">First name</Label>
         <Input
-          id="preferredName"
-          name="preferredName"
-          defaultValue={defaults.preferredName ?? ""}
-          placeholder="What people call you on the floor"
-          maxLength={80}
+          id="firstName"
+          name="firstName"
+          defaultValue={defaults.firstName ?? ""}
+          placeholder="e.g. Jane"
+          maxLength={60}
+          required
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="lastName">Last name</Label>
+        <Input
+          id="lastName"
+          name="lastName"
+          defaultValue={defaults.lastName ?? ""}
+          placeholder="e.g. Doe"
+          maxLength={60}
+          required
         />
       </div>
 

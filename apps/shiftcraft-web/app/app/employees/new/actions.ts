@@ -74,7 +74,8 @@ const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 type Weekday = (typeof WEEKDAYS)[number];
 
 const employeeSchema = z.object({
-  fullName: z.string().trim().min(1, "Name is required").max(120, "Too long"),
+  firstName: z.string().trim().min(1, "First name is required").max(60, "Too long"),
+  lastName: z.string().trim().min(1, "Last name is required").max(60, "Too long"),
   email: z
     .union([z.literal(""), z.string().trim().email("Invalid email")])
     .optional(),
@@ -188,7 +189,8 @@ export async function createEmployeeAction(
   formData: FormData,
 ): Promise<FormState> {
   const parsed = employeeSchema.safeParse({
-    fullName: formData.get("fullName"),
+    firstName: formData.get("firstName"),
+    lastName: formData.get("lastName"),
     email: formData.get("email") ?? "",
     mobile: formData.get("mobile") ?? "",
     department: formData.get("department") ?? "",
@@ -211,12 +213,15 @@ export async function createEmployeeAction(
       fieldErrors: parsed.error.flatten().fieldErrors,
     };
   }
+  // Canonical display name kept in sync on every save (the kiosk, schedule,
+  // search, exports, … all read full_name).
+  const fullName = `${parsed.data.firstName} ${parsed.data.lastName}`.trim();
 
   const membership = await currentMembership();
-  if (!membership) {
+  if (!membership || !isAtLeastManager(membership.role)) {
     return {
       status: "error",
-      message: "You must belong to a workspace to add employees.",
+      message: "You don't have permission to add employees.",
     };
   }
   const tenantId = membership.tenant.id;
@@ -280,7 +285,9 @@ export async function createEmployeeAction(
         .insert(scEmployees)
         .values({
           traceyTenantId: tenantId,
-          fullName: parsed.data.fullName,
+          fullName,
+          firstName: parsed.data.firstName,
+          lastName: parsed.data.lastName,
           email,
           mobile,
           departmentId,
@@ -326,7 +333,7 @@ export async function createEmployeeAction(
       {
         kind: "shiftcraft_employee_added",
         title: "New ShiftCraft employee — add to training?",
-        body: `${parsed.data.fullName} (${email}) was just added in ShiftCraft. Click to add them to the LMS so training can be assigned.`,
+        body: `${fullName} (${email}) was just added in ShiftCraft. Click to add them to the LMS so training can be assigned.`,
         actionUrl: "/app/admin/employees",
       },
       { excludeUserId: me?.id ?? undefined },
@@ -404,7 +411,7 @@ export async function createEmployeeAction(
   if (newEmployeeId) {
     await emitWebhook(tenantId, "employee.created", {
       employeeId: newEmployeeId,
-      fullName: parsed.data.fullName,
+      fullName,
       email,
       employmentType: parsed.data.employmentType,
       department,
@@ -422,7 +429,8 @@ export async function updateEmployeeAction(
   formData: FormData,
 ): Promise<FormState> {
   const parsed = employeeSchema.safeParse({
-    fullName: formData.get("fullName"),
+    firstName: formData.get("firstName"),
+    lastName: formData.get("lastName"),
     email: formData.get("email") ?? "",
     mobile: formData.get("mobile") ?? "",
     department: formData.get("department") ?? "",
@@ -445,12 +453,13 @@ export async function updateEmployeeAction(
       fieldErrors: parsed.error.flatten().fieldErrors,
     };
   }
+  const fullName = `${parsed.data.firstName} ${parsed.data.lastName}`.trim();
 
   const membership = await currentMembership();
-  if (!membership) {
+  if (!membership || !isAtLeastManager(membership.role)) {
     return {
       status: "error",
-      message: "You must belong to a workspace to edit employees.",
+      message: "You don't have permission to edit employees.",
     };
   }
   const tenantId = membership.tenant.id;
@@ -521,7 +530,9 @@ export async function updateEmployeeAction(
     await forTenant(tenantId).run(async (tx) => {
       const departmentId = await resolveDepartmentId(tx, tenantId, department);
       const updateSet: Partial<typeof scEmployees.$inferInsert> = {
-        fullName: parsed.data.fullName,
+        fullName,
+        firstName: parsed.data.firstName,
+        lastName: parsed.data.lastName,
         email,
         mobile,
         departmentId,
@@ -1224,7 +1235,7 @@ export async function deleteEmployeeAction(formData: FormData): Promise<void> {
   const id = String(formData.get("id") ?? "");
   if (!id) return;
   const membership = await currentMembership();
-  if (!membership) return;
+  if (!membership || !isAtLeastManager(membership.role)) return;
   // Pull the name so the audit log entry is meaningful after the row is gone.
   const [doomed] = await forTenant(membership.tenant.id).run((tx) =>
     tx

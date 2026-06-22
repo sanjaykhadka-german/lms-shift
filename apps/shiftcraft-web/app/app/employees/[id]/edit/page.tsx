@@ -45,6 +45,8 @@ export default async function EditEmployeePage({
         id: scEmployees.id,
         appUserId: scEmployees.appUserId,
         fullName: scEmployees.fullName,
+        firstName: scEmployees.firstName,
+        lastName: scEmployees.lastName,
         email: scEmployees.email,
         mobile: scEmployees.mobile,
         departmentName: scDepartments.name,
@@ -188,7 +190,12 @@ export default async function EditEmployeePage({
           mode="edit"
           employeeId={row.id}
           defaultValues={{
-            fullName: row.fullName,
+            // Prefer the structured columns; fall back to splitting full_name
+            // for any legacy row not yet backfilled.
+            firstName: row.firstName ?? (row.fullName.split(" ")[0] || ""),
+            lastName:
+              row.lastName ??
+              (row.fullName.split(" ").slice(1).join(" ") || null),
             email: row.email,
             mobile: row.mobile,
             department: row.departmentName,

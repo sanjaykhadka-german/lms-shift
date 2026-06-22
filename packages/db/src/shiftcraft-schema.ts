@@ -459,7 +459,14 @@ export const scEmployees = pgTable(
     appUserId: uuid("app_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
+    // Name is captured as first + last (Deputy-style). `full_name` is kept as
+    // the canonical "First Last" display string — written on every save and
+    // read by the kiosk, schedule, search, exports, etc. — so adding first/last
+    // didn't require touching those ~30 read sites. first/last are nullable for
+    // legacy rows backfilled by splitting full_name (per-tenant migration 0062).
     fullName: text("full_name").notNull(),
+    firstName: text("first_name"),
+    lastName: text("last_name"),
     email: text("email"),
     mobile: text("mobile"),
     // Department lives in its own table now — see scDepartments above.

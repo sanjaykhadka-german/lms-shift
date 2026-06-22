@@ -13,7 +13,8 @@ import {
 const initial: FormState = { status: "idle" };
 
 export interface EmployeeFormDefaults {
-  fullName: string;
+  firstName: string | null;
+  lastName: string | null;
   email: string | null;
   mobile: string | null;
   department: string | null;
@@ -108,19 +109,36 @@ export function EmployeeForm({
   return (
     <form action={formAction} className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-1.5 sm:col-span-2">
-          <Label htmlFor="fullName">Full name</Label>
+        <div className="space-y-1.5">
+          <Label htmlFor="firstName">First name</Label>
           <Input
-            id="fullName"
-            name="fullName"
-            defaultValue={v?.fullName ?? ""}
-            placeholder="e.g. Jane Doe"
+            id="firstName"
+            name="firstName"
+            defaultValue={v?.firstName ?? ""}
+            placeholder="e.g. Jane"
             required
-            aria-invalid={!!fieldError(state, "fullName")}
+            aria-invalid={!!fieldError(state, "firstName")}
           />
-          {fieldError(state, "fullName") && (
+          {fieldError(state, "firstName") && (
             <p className="text-xs text-[color:var(--destructive)]">
-              {fieldError(state, "fullName")}
+              {fieldError(state, "firstName")}
+            </p>
+          )}
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="lastName">Last name</Label>
+          <Input
+            id="lastName"
+            name="lastName"
+            defaultValue={v?.lastName ?? ""}
+            placeholder="e.g. Doe"
+            required
+            aria-invalid={!!fieldError(state, "lastName")}
+          />
+          {fieldError(state, "lastName") && (
+            <p className="text-xs text-[color:var(--destructive)]">
+              {fieldError(state, "lastName")}
             </p>
           )}
         </div>

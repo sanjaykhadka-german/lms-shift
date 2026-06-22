@@ -41,7 +41,12 @@ export default async function NewEmployeePage({
   const prefilled =
     email || fullName
       ? {
-          fullName: fullName ?? "",
+          // The "Add to roster" link still passes a single fullName; split it
+          // into the first/last fields the form now uses.
+          firstName: fullName ? fullName.split(" ")[0] || "" : "",
+          lastName: fullName
+            ? fullName.split(" ").slice(1).join(" ") || null
+            : null,
           email: email ?? null,
           mobile: null,
           department: null,

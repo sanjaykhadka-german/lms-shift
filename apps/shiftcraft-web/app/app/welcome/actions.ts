@@ -59,7 +59,8 @@ async function requireSelfEmployee(): Promise<SelfContext | null> {
 // ─── Personal details ────────────────────────────────────────────────
 
 const personalSchema = z.object({
-  preferredName: z.string().trim().max(80).optional().or(z.literal("")),
+  firstName: z.string().trim().min(1, "First name is required").max(60),
+  lastName: z.string().trim().min(1, "Last name is required").max(60),
   gender: z
     .string()
     .optional()
@@ -104,7 +105,8 @@ export async function selfUpdatePersonalAction(
     };
   }
   const parsed = personalSchema.safeParse({
-    preferredName: formData.get("preferredName") ?? "",
+    firstName: formData.get("firstName") ?? "",
+    lastName: formData.get("lastName") ?? "",
     gender: formData.get("gender") ?? "",
     dateOfBirth: formData.get("dateOfBirth") ?? "",
     addressLine: formData.get("addressLine") ?? "",
@@ -125,7 +127,10 @@ export async function selfUpdatePersonalAction(
     tx
       .update(scEmployees)
       .set({
-        preferredName: emptyToNull(parsed.data.preferredName),
+        firstName: parsed.data.firstName,
+        lastName: parsed.data.lastName,
+        // Keep the canonical display name in sync (read by kiosk, schedule, …).
+        fullName: `${parsed.data.firstName} ${parsed.data.lastName}`.trim(),
         gender: emptyToNull(parsed.data.gender),
         dateOfBirth: emptyToNull(parsed.data.dateOfBirth),
         addressLine: emptyToNull(parsed.data.addressLine),
