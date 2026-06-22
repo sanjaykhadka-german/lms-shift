@@ -281,11 +281,13 @@ export function KioskSignIn({
           className="h-14 w-full rounded-xl border border-line bg-[rgba(244,238,227,0.05)] px-4 text-lg text-[#f4eee3] placeholder:text-[#766b5e] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
         />
 
-        {/* Roster */}
-        <div className="relative">
+        {/* Roster. Flex row so the A–Z rail sits BESIDE the scroll area's
+            scrollbar instead of underneath it (the old absolute rail was
+            hidden behind the scrollbar on desktop/web). */}
+        <div className="flex gap-1.5">
           <div
             ref={scrollRef}
-            className="relative max-h-[55vh] overflow-y-auto pr-10"
+            className="relative max-h-[55vh] min-w-0 flex-1 overflow-y-auto"
           >
             {searching ? (
               searchRows.length === 0 ? (
@@ -328,11 +330,14 @@ export function KioskSignIn({
             )}
           </div>
 
-          {/* A–Z jump rail — only meaningful in the grouped (idle) view. */}
+          {/* A–Z jump rail — only meaningful in the grouped (idle) view. Sits
+              as its own column beside the list and stretches to the list
+              height, spreading the letters so all 27 stay visible on any
+              screen (tablet / mobile / web). */}
           {!searching && base.length > 0 ? (
             <nav
               aria-label="Jump to letter"
-              className="absolute right-0 top-0 flex flex-col items-center font-mono text-xs"
+              className="flex w-6 shrink-0 flex-col items-center justify-between self-stretch py-0.5 font-mono text-[10px] leading-none"
             >
               {LETTERS.map((letter) => {
                 const has = (groups.get(letter)?.length ?? 0) > 0;
@@ -344,8 +349,8 @@ export function KioskSignIn({
                     onClick={() => jumpTo(letter)}
                     className={
                       has
-                        ? "flex h-[26px] w-7 items-center justify-center text-[#a89c8c] transition hover:text-[var(--accent)]"
-                        : "flex h-[26px] w-7 items-center justify-center text-[#766b5e]/40"
+                        ? "flex w-full items-center justify-center py-px text-[#a89c8c] transition hover:text-[var(--accent)]"
+                        : "flex w-full items-center justify-center py-px text-[#766b5e]/40"
                     }
                   >
                     {letter}

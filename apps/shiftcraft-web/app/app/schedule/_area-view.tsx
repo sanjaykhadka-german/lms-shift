@@ -250,6 +250,11 @@ function ShiftChip({
     disabled: selectMode,
   });
 
+  // Dense 2-week view: the action row (Edit / Copy / +person) is hover-only,
+  // so it's unreachable on touch devices. Tapping the chip body toggles it
+  // open. (In 1-week view the row is always shown and this is unused.)
+  const [revealed, setRevealed] = useState(false);
+
   const pad = dense ? "px-1.5 py-0.5" : "px-2 py-1";
   // 2-week view shows a dept color bar on the left edge of the pill.
   const deptBar =
@@ -380,8 +385,15 @@ function ShiftChip({
       <div
         {...(started ? {} : drag.listeners)}
         {...(started ? {} : drag.attributes)}
+        onClick={dense ? () => setRevealed((v) => !v) : undefined}
         className={started ? "cursor-default" : "cursor-grab active:cursor-grabbing"}
-        title={started ? "This shift has already started — it can't be moved" : undefined}
+        title={
+          started
+            ? "This shift has already started — it can't be moved"
+            : dense
+              ? "Tap to show Edit / Copy / +person"
+              : undefined
+        }
       >
         {timeRange}
         {assignee}
@@ -390,7 +402,9 @@ function ShiftChip({
       <div
         className={`mt-0.5 items-center gap-2 ${
           dense
-            ? "hidden group-hover:flex group-focus-within:flex"
+            ? revealed
+              ? "flex"
+              : "hidden group-hover:flex group-focus-within:flex"
             : "flex"
         }`}
       >
