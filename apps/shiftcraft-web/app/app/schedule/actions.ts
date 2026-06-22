@@ -1623,7 +1623,7 @@ export async function copyShiftInPlaceAction(
   // momentarily overlaps the original; that's expected — the manager drags it
   // onto another day next (the move preserves the assignment).
   carryAssignee = false,
-): Promise<{ ok: boolean; message?: string }> {
+): Promise<{ ok: boolean; message?: string; warning?: string }> {
   const membership = await requireAdminMembership();
   const user = await currentUser();
 
@@ -1671,6 +1671,7 @@ export async function copyShiftInPlaceAction(
     };
   }
 
+  let carriedCount = 0;
   await forTenant(membership.tenant.id).run(async (tx) => {
     const [created] = await tx
       .insert(scShifts)
@@ -1708,12 +1709,24 @@ export async function copyShiftInPlaceAction(
             respondedAt: new Date(),
           })),
         );
+        carriedCount = assignees.length;
       }
     }
   });
 
   revalidatePath("/app/schedule");
   revalidatePath("/app/my-shifts");
+  // The copy lands at the SAME time as the original, so carrying the person
+  // means they're now on two overlapping shifts. That's intended only as a
+  // stepping stone to dragging the copy elsewhere — warn so it isn't left as
+  // a silent double-booking.
+  if (carriedCount > 0) {
+    return {
+      ok: true,
+      warning:
+        "Copied with the person — they're now on two shifts at this time. Drag the copy to another day to clear the double-booking.",
+    };
+  }
   return { ok: true };
 }
 

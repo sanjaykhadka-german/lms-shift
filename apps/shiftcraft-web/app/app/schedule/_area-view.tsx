@@ -717,8 +717,12 @@ export function AreaScheduleView({
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [menuOpen, setMenuOpen] = useState(false);
-  // Lightweight self-dismissing "toast" (no toast lib in this app).
-  const [flash, setFlash] = useState<string | null>(null);
+  // Lightweight self-dismissing "toast" (no toast lib in this app). Tone
+  // distinguishes a success ("ok", green, short) from a caution ("warn",
+  // amber, longer) such as a double-booking heads-up.
+  const [flash, setFlash] = useState<{ text: string; tone: "ok" | "warn" } | null>(
+    null,
+  );
 
   const clearSelection = () => {
     setSelected(new Set());
@@ -747,10 +751,10 @@ export function AreaScheduleView({
     return () => window.removeEventListener("keydown", onKey);
   }, [menuOpen, selected.size]);
 
-  // Auto-dismiss the toast.
+  // Auto-dismiss the toast. Warnings linger longer so they're not missed.
   useEffect(() => {
     if (!flash) return;
-    const t = setTimeout(() => setFlash(null), 3000);
+    const t = setTimeout(() => setFlash(null), flash.tone === "warn" ? 7000 : 3000);
     return () => clearTimeout(t);
   }, [flash]);
 
@@ -764,7 +768,10 @@ export function AreaScheduleView({
         setError(res.message ?? "Couldn't copy those shifts.");
         return;
       }
-      setFlash(`Copied ${res.copied} shift${res.copied === 1 ? "" : "s"}`);
+      setFlash({
+        text: `Copied ${res.copied} shift${res.copied === 1 ? "" : "s"}`,
+        tone: "ok",
+      });
       clearSelection();
       router.refresh();
     });
@@ -931,6 +938,7 @@ export function AreaScheduleView({
     startTransition(async () => {
       const res = await copyShiftInPlaceAction(id, carryPerson);
       if (!res.ok) setError(res.message ?? "Couldn't copy that shift.");
+      else if (res.warning) setFlash({ text: res.warning, tone: "warn" });
       router.refresh();
     });
   }
@@ -1080,8 +1088,14 @@ export function AreaScheduleView({
       )}
 
       {flash && (
-        <div className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-full border border-[color-mix(in_srgb,var(--live)_45%,transparent)] bg-[color-mix(in_srgb,var(--live)_12%,transparent)] px-4 py-1.5 text-sm font-medium text-[var(--live)] shadow-lg">
-          {flash}
+        <div
+          className={`fixed bottom-24 left-1/2 z-50 max-w-[90vw] -translate-x-1/2 rounded-full border px-4 py-1.5 text-center text-sm font-medium shadow-lg ${
+            flash.tone === "warn"
+              ? "border-[color-mix(in_srgb,var(--warn)_50%,transparent)] bg-[color-mix(in_srgb,var(--warn)_15%,transparent)] text-[var(--warn)]"
+              : "border-[color-mix(in_srgb,var(--live)_45%,transparent)] bg-[color-mix(in_srgb,var(--live)_12%,transparent)] text-[var(--live)]"
+          }`}
+        >
+          {flash.text}
         </div>
       )}
 
