@@ -6,6 +6,7 @@ import {
   forTenant,
   scAnnouncements,
   scClockEvents,
+  scEmployees,
   scKioskDevices,
   scLocations,
   scShiftAssignments,
@@ -76,6 +77,7 @@ export default async function KioskMePage() {
   // Everything else lives in the per-tenant schema.
   const [
     deviceRows,
+    employeeRows,
     locationRows,
     latestUserEventRows,
     todayTenantEvents,
@@ -87,6 +89,20 @@ export default async function KioskMePage() {
         .select({ requireSelfie: scKioskDevices.requireSelfie })
         .from(scKioskDevices)
         .where(eq(scKioskDevices.id, deviceClaim.deviceId))
+        .limit(1),
+    ),
+    // Preferred display name is the employee's full_name; users.name is often
+    // null for staff added via the People page (same as the kiosk roster).
+    forTenant(tenantId).run((tx) =>
+      tx
+        .select({ fullName: scEmployees.fullName })
+        .from(scEmployees)
+        .where(
+          and(
+            eq(scEmployees.traceyTenantId, tenantId),
+            eq(scEmployees.appUserId, appUserId),
+          ),
+        )
         .limit(1),
     ),
     forTenant(tenantId).run((tx) =>
@@ -232,7 +248,7 @@ export default async function KioskMePage() {
     <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-6 px-6 py-10">
       <PunchScreen
         user={{
-          name: user.name ?? user.email ?? "—",
+          name: employeeRows[0]?.fullName ?? user.name ?? user.email ?? "—",
           image: user.image,
         }}
         clockStatus={clockStatus}

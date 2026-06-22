@@ -136,7 +136,7 @@ export function GlobalSearch() {
   const offTemplates = offLocations + results.locations.length;
 
   return (
-    <div ref={containerRef} className="relative hidden md:block" style={{ minWidth: 260 }}>
+    <div ref={containerRef} className="relative hidden w-44 md:block lg:w-64">
       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3" />
       <Input
         type="search"

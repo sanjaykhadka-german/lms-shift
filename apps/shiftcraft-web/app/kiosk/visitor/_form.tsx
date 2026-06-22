@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useFormStatus } from "react-dom";
 import { SignaturePad } from "~/components/SignaturePad";
 import { EmployeePicker } from "./_employee_picker";
+import { SignOutNameInput } from "./_signout_name";
 import { visitorSignInAction, visitorSignOutAction } from "./actions";
 
 export interface SignedInVisitor {
@@ -190,24 +191,17 @@ export function VisitorForm({
                 <label className={LABEL} htmlFor="visitorNameOut">
                   Your name *
                 </label>
-                <input
-                  id="visitorNameOut"
-                  name="visitorNameOut"
-                  required
-                  maxLength={120}
-                  autoComplete="off"
-                  list="signed-in-names"
-                  placeholder="Type your name"
-                  className={INPUT}
+                <SignOutNameInput
+                  visitors={signedInVisitors.map((v) => ({
+                    name: v.visitorName,
+                    sub: `${
+                      v.visitorCompany ? `${v.visitorCompany} · ` : ""
+                    }visiting ${v.visitingPerson} (since ${fmtTime(
+                      v.signedInAt,
+                    )})`,
+                  }))}
+                  inputClassName={INPUT}
                 />
-                <datalist id="signed-in-names">
-                  {signedInVisitors.map((v) => (
-                    <option key={v.id} value={v.visitorName}>
-                      {v.visitorCompany ? `${v.visitorCompany} · ` : ""}visiting{" "}
-                      {v.visitingPerson} (since {fmtTime(v.signedInAt)})
-                    </option>
-                  ))}
-                </datalist>
               </div>
               <SignaturePad name="signOutSignature" label="Signature (optional)" />
               <SubmitButton tone="out">Sign out</SubmitButton>

@@ -72,19 +72,23 @@ export function TopBar({
 
   return (
     <header className="sticky top-0 z-30 hidden h-16 items-center gap-4 border-b border-line bg-[color-mix(in_srgb,var(--bone)_82%,transparent)] px-7 backdrop-blur-md md:flex">
-      <div className="min-w-0">
-        <h1 className="font-display text-[22px] font-semibold leading-none tracking-[-0.02em] text-ink">
+      <div className="min-w-0 flex-1">
+        <h1 className="truncate font-display text-[22px] font-semibold leading-none tracking-[-0.02em] text-ink">
           {title}
         </h1>
         {tenantName && (
-          <div className="mt-1 font-mono text-[11px] uppercase tracking-[0.08em] text-ink-3">
+          <div className="mt-1 truncate font-mono text-[11px] uppercase tracking-[0.08em] text-ink-3">
             {tenantName}
           </div>
         )}
       </div>
-      <div className="ml-auto flex items-center gap-3">
+      <div className="ml-auto flex shrink-0 items-center gap-3">
         <GlobalSearch />
-        <LiveClock />
+        {/* Clock is a nicety — hide it below lg so it doesn't crowd the search
+            + workspace name on a tablet-width header. */}
+        <div className="hidden lg:block">
+          <LiveClock />
+        </div>
         {bell}
         <ThemeToggle />
       </div>

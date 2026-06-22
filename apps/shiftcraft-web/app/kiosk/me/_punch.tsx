@@ -438,10 +438,13 @@ function SelfieModal({
           setReady(true);
         }
       } catch (err) {
+        const name = err instanceof Error ? err.name : "";
         setError(
-          err instanceof Error && err.name === "NotAllowedError"
+          name === "NotAllowedError"
             ? "Camera permission blocked."
-            : "Camera unavailable.",
+            : name === "NotFoundError" || name === "OverconstrainedError"
+              ? "No camera found on this device."
+              : "Camera unavailable.",
         );
       }
     }
@@ -485,18 +488,32 @@ function SelfieModal({
           </div>
           <h3 className="mt-1 font-display text-lg font-semibold">Quick selfie</h3>
         </div>
-        <div className="overflow-hidden rounded-md border border-[rgba(244,238,227,0.13)] bg-black">
+        <div className="relative overflow-hidden rounded-md border border-[rgba(244,238,227,0.13)] bg-black">
           {error ? (
-            <div className="flex aspect-[4/3] items-center justify-center p-4 text-center text-sm text-[#a89c8c]">
-              {error}
+            <div className="flex aspect-[4/3] flex-col items-center justify-center gap-2 p-6 text-center">
+              <p className="text-sm font-medium text-[color-mix(in_srgb,var(--warn)_60%,white)]">
+                {error}
+              </p>
+              <p className="text-xs text-[#766b5e]">
+                Allow camera access for this site in your browser, then reopen.
+                The selfie confirms who's clocking {event === "in" ? "in" : "out"}.
+              </p>
             </div>
           ) : (
-            <video
-              ref={videoRef}
-              playsInline
-              muted
-              className="aspect-[4/3] w-full bg-[rgba(244,238,227,0.04)] object-cover"
-            />
+            <>
+              {/* Mirror the preview so it reads like a mirror to the person. */}
+              <video
+                ref={videoRef}
+                playsInline
+                muted
+                className="aspect-[4/3] w-full -scale-x-100 bg-[rgba(244,238,227,0.04)] object-cover"
+              />
+              {!ready ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-sm text-[#a89c8c]">
+                  Allow camera access to take your photo…
+                </div>
+              ) : null}
+            </>
           )}
         </div>
         {error ? (
@@ -517,20 +534,16 @@ function SelfieModal({
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-3 gap-2">
+          // Selfie is required when this modal shows, so there's no "Skip" —
+          // the only way past without a photo is the camera-error branch above
+          // ("Punch anyway"), so a broken camera can't lock staff out.
+          <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={onCancel}
               className="rounded-md border border-[rgba(244,238,227,0.18)] px-3 py-2 text-sm text-[#a89c8c] hover:bg-[rgba(244,238,227,0.08)]"
             >
               Cancel
-            </button>
-            <button
-              type="button"
-              onClick={onSkip}
-              className="rounded-md bg-[rgba(244,238,227,0.08)] px-3 py-2 text-sm text-[#a89c8c] hover:bg-[rgba(244,238,227,0.12)]"
-            >
-              Skip
             </button>
             <button
               type="button"
