@@ -108,6 +108,13 @@ function normaliseHeader(h: string): string {
 const COL_ALIASES: Record<string, string> = {
   fullname: "fullName",
   name: "fullName",
+  firstname: "firstName",
+  first: "firstName",
+  givenname: "firstName",
+  lastname: "lastName",
+  last: "lastName",
+  surname: "lastName",
+  familyname: "lastName",
   email: "email",
   mobile: "mobile",
   phone: "mobile",
@@ -189,11 +196,11 @@ export async function importEmployeesAction(
   // Build column-index map from header row.
   const header = rows[0]!.map((h) => COL_ALIASES[normaliseHeader(h)] ?? "");
   const idxOf = (name: string) => header.indexOf(name);
-  if (idxOf("fullName") === -1) {
+  if (idxOf("fullName") === -1 && idxOf("firstName") === -1) {
     return {
       status: "error",
       message:
-        "CSV header must include 'fullName' (or 'name'). Optional columns: email, mobile, department, employmentType, hourlyRate.",
+        "CSV header must include 'fullName' (or 'name'), or 'firstName' (+ optional 'lastName'). Optional columns: email, mobile, department, employmentType, hourlyRate.",
     };
   }
 
@@ -232,7 +239,23 @@ export async function importEmployeesAction(
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i]!;
       const rowNumber = i + 1;
-      const fullName = (row[idxOf("fullName")] ?? "").trim();
+      // Name can arrive as first/last columns or a single fullName/name column.
+      // Either way we store the split parts AND the canonical full_name.
+      const fullNameCol =
+        idxOf("fullName") >= 0 ? (row[idxOf("fullName")] ?? "").trim() : "";
+      const firstNameCol =
+        idxOf("firstName") >= 0 ? (row[idxOf("firstName")] ?? "").trim() : "";
+      const lastNameCol =
+        idxOf("lastName") >= 0 ? (row[idxOf("lastName")] ?? "").trim() : "";
+      const firstName = firstNameCol || (fullNameCol.split(" ")[0] ?? "");
+      const lastName = firstNameCol
+        ? lastNameCol || null
+        : fullNameCol.split(" ").slice(1).join(" ") || null;
+      const fullName = firstNameCol
+        ? lastNameCol
+          ? `${firstNameCol} ${lastNameCol}`
+          : firstNameCol
+        : fullNameCol;
       const emailRaw =
         idxOf("email") >= 0 ? (row[idxOf("email")] ?? "").trim() : "";
       const email = emailRaw === "" ? null : emailRaw.toLowerCase();
@@ -258,7 +281,7 @@ export async function importEmployeesAction(
           email,
           fullName: null,
           status: "errored",
-          reason: "Missing fullName",
+          reason: "Missing name",
         });
         continue;
       }
@@ -321,6 +344,8 @@ export async function importEmployeesAction(
         await tx.insert(scEmployees).values({
           traceyTenantId: tenantId,
           fullName,
+          firstName,
+          lastName,
           email,
           mobile: mobile === "" ? null : mobile,
           departmentId,

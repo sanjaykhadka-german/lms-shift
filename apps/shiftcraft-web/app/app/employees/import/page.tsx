@@ -39,8 +39,15 @@ export default async function EmployeeImportPage() {
         </p>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
           <li>
+            <code className="rounded bg-muted px-1 font-mono text-xs">firstName</code>{" "}
+            +{" "}
+            <code className="rounded bg-muted px-1 font-mono text-xs">lastName</code>{" "}
+            — or a single{" "}
             <code className="rounded bg-muted px-1 font-mono text-xs">fullName</code>{" "}
-            <span className="text-[color:var(--destructive)]">required</span>
+            (a full name is split into first/last automatically).{" "}
+            <span className="text-[color:var(--destructive)]">
+              name required
+            </span>
           </li>
           <li>
             <code className="rounded bg-muted px-1 font-mono text-xs">email</code>{" "}
@@ -68,11 +75,11 @@ export default async function EmployeeImportPage() {
           </li>
         </ul>
         <div className="mt-4 overflow-x-auto rounded-md border border-border bg-muted/40 p-3 font-mono text-xs">
-          <div>fullName,email,mobile,department,employmentType,hourlyRate</div>
+          <div>firstName,lastName,email,mobile,department,employmentType,hourlyRate</div>
           <div>
-            Jane Doe,jane@example.com,0400 000 000,Butchery,full_time,28.50
+            Jane,Doe,jane@example.com,0400 000 000,Butchery,full_time,28.50
           </div>
-          <div>John Roe,,0400 111 222,Counter,casual,25.00</div>
+          <div>John,Roe,,0400 111 222,Counter,casual,25.00</div>
         </div>
       </section>
 
