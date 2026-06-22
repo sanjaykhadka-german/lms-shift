@@ -13,7 +13,7 @@ import {
   KIOSK_DEVICE_COOKIE,
   verifyDeviceCookie,
 } from "~/lib/kiosk/cookies";
-import { createNotifications } from "~/lib/notifications";
+import { createNotifications, notifyTenantAdmins } from "~/lib/notifications";
 
 // Signature blobs are PNG data URLs from the SignaturePad canvas. Cap the
 // decoded size so a tampered client can't post a huge blob; validate the PNG
@@ -144,19 +144,34 @@ export async function visitorSignInAction(formData: FormData): Promise<void> {
 
   // Best-effort: ping the employee being visited (in-app bell + web push) so
   // they know someone's waiting at reception. Skipped if they have no login.
+  const visitorLabel = `${visitorName}${
+    visitorCompany ? ` (${visitorCompany})` : ""
+  }`;
   if (employee.appUserId) {
     await createNotifications(deviceClaim.tenantId, [
       {
         recipientUserId: employee.appUserId,
         kind: "shiftcraft.visitor.sign_in",
         title: "Visitor at reception",
-        body: `${visitorName}${
-          visitorCompany ? ` (${visitorCompany})` : ""
-        } has signed in to see you.`,
+        body: `${visitorLabel} has signed in to see you.`,
         actionUrl: "/app",
       },
     ]);
   }
+  // Also alert managers/admins (the reception desk) so a visitor arrival
+  // always reaches someone with a login — e.g. when the visited employee is
+  // roster-only with no account. Exclude the visited employee so they don't
+  // get a duplicate when they're themselves an admin.
+  await notifyTenantAdmins(
+    deviceClaim.tenantId,
+    {
+      kind: "shiftcraft.visitor.sign_in",
+      title: "Visitor at reception",
+      body: `${visitorLabel} signed in to see ${employee.fullName}.`,
+      actionUrl: "/app/admin/visitors",
+    },
+    { excludeUserId: employee.appUserId ?? undefined },
+  );
 
   redirect("/kiosk/visitor?signed=in");
 }

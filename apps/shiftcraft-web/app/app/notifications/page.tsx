@@ -24,6 +24,7 @@ function fmtWhen(d: Date): string {
 const KIND_TONE: Record<string, string> = {
   shiftcraft_employee_added: "bg-[var(--accent-deep)] text-[var(--accent-ink)]",
   shiftcraft_shift_claimed: "bg-[var(--live)] text-white",
+  "shiftcraft.visitor.sign_in": "bg-[var(--accent-deep)] text-[var(--accent-ink)]",
 };
 
 function toneFor(kind: string): string {
@@ -125,7 +126,9 @@ function Section({
                     toneFor(r.kind)
                   }
                 >
-                  {r.kind.replace(/^shiftcraft_/, "").replace(/_/g, " ")}
+                  {/* kinds use either underscores (shiftcraft_shift_offered)
+                      or dots (shiftcraft.visitor.sign_in) — normalise both. */}
+                  {r.kind.replace(/^shiftcraft[._]/, "").replace(/[._]/g, " ")}
                 </span>
                 <span className="text-sm font-medium">{r.title}</span>
               </div>
