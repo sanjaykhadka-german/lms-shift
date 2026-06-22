@@ -126,7 +126,7 @@ export function SignaturePad({
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between">
-        <span className="font-mono text-xs uppercase tracking-[0.14em] text-[#a89c8c]">
+        <span className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-[#e6ddcf]">
           {label}
           {required ? " *" : ""}
         </span>

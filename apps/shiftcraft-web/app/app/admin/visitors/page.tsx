@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { and, count, desc, eq, gte } from "drizzle-orm";
+import { and, count, desc, eq, gte, lt, type SQL } from "drizzle-orm";
 import { forTenant, scVisitorSignins } from "@tracey/db";
 import { currentMembership } from "~/lib/auth/current";
 import { isAtLeastManager } from "~/lib/roles";
@@ -26,12 +26,46 @@ function fmtDateTime(d: Date | null): string {
   });
 }
 
-export default async function VisitorsAdminPage() {
+// Parse a YYYY-MM-DD query param into a local-midnight Date (null if absent
+// or malformed). Mirrors the export route so the on-screen filter and the
+// download agree on the range.
+function parseDay(raw: string | undefined): Date | null {
+  if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const d = new Date(`${raw}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+export default async function VisitorsAdminPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ start?: string; end?: string }>;
+}) {
   const membership = await currentMembership();
   if (!membership) redirect("/app");
   if (!isAtLeastManager(membership.role)) redirect("/app");
   const tenantId = membership.tenant.id;
   const today = startOfToday();
+
+  const { start: startRaw, end: endRaw } = await searchParams;
+  const start = parseDay(startRaw);
+  const endDay = parseDay(endRaw);
+  // `end` is inclusive in the UI → bump to next midnight for a `< end` compare.
+  const end = endDay ? new Date(endDay.getTime() + 86_400_000) : null;
+
+  // History conditions: tenant + optional signed-in date range.
+  const historyConds: SQL[] = [eq(scVisitorSignins.traceyTenantId, tenantId)];
+  if (start) historyConds.push(gte(scVisitorSignins.signedInAt, start));
+  if (end) historyConds.push(lt(scVisitorSignins.signedInAt, end));
+  const filtered = !!(start || end);
+
+  // Preserve the chosen range on the Export link so the download matches the
+  // table. (The export route reads the same start/end params.)
+  const exportQs = new URLSearchParams();
+  if (startRaw) exportQs.set("start", startRaw);
+  if (endRaw) exportQs.set("end", endRaw);
+  const exportHref = exportQs.toString()
+    ? `/app/admin/visitors/export?${exportQs.toString()}`
+    : "/app/admin/visitors/export";
 
   const [history, totalTodayRows, signedOutTodayRows] = await Promise.all([
     forTenant(tenantId).run((tx) =>
@@ -47,9 +81,9 @@ export default async function VisitorsAdminPage() {
           signedOutAt: scVisitorSignins.signedOutAt,
         })
         .from(scVisitorSignins)
-        .where(eq(scVisitorSignins.traceyTenantId, tenantId))
+        .where(and(...historyConds))
         .orderBy(desc(scVisitorSignins.signedInAt))
-        .limit(200),
+        .limit(500),
     ),
     forTenant(tenantId).run((tx) =>
       tx
@@ -100,14 +134,49 @@ export default async function VisitorsAdminPage() {
             </InfoPopover>
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Who's on site and the full visit history. Export to CSV for your
-            records.
+            Who's on site and the full visit history. Filter by date and export
+            to Excel (CSV) for your records.
           </p>
         </div>
         <Button asChild variant="outline" size="sm">
-          <a href="/app/admin/visitors/export">Export CSV</a>
+          <a href={exportHref}>Export Excel (CSV)</a>
         </Button>
       </div>
+
+      {/* Date-range filter — GET form back to this page. Filters the history
+          table below and is carried onto the Export link. */}
+      <form
+        method="get"
+        className="flex flex-wrap items-end gap-3 rounded-lg border border-border bg-card p-4 shadow-sm"
+      >
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="font-medium text-muted-foreground">From</span>
+          <input
+            type="date"
+            name="start"
+            defaultValue={startRaw ?? ""}
+            max={endRaw || undefined}
+            className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="font-medium text-muted-foreground">To</span>
+          <input
+            type="date"
+            name="end"
+            defaultValue={endRaw ?? ""}
+            min={startRaw || undefined}
+            className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          />
+        </label>
+        <Button asChild variant="outline" size="sm">
+          {/* Reset: clears the date inputs and shows all records again. */}
+          <a href="/app/admin/visitors">Reset</a>
+        </Button>
+        <Button type="submit" size="sm">
+          Apply
+        </Button>
+      </form>
 
       <section className="grid grid-cols-3 gap-3">
         {stats.map((s) => (
@@ -170,7 +239,11 @@ export default async function VisitorsAdminPage() {
           <h2 className="text-base font-semibold">
             Visit history{" "}
             <span className="text-xs font-normal text-muted-foreground">
-              (latest {history.length})
+              ({filtered ? "filtered, " : ""}
+              {history.length === 500
+                ? "showing 500 — narrow the dates or export for all"
+                : `${history.length} record${history.length === 1 ? "" : "s"}`}
+              )
             </span>
           </h2>
         </div>
