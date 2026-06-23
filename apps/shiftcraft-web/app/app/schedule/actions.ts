@@ -2478,6 +2478,104 @@ export async function moveShiftAction(
   return { ok: true };
 }
 
+// Item 3: move a shift to a DIFFERENT area (location + role), optionally also
+// shifting the day. Fired when a shift chip is dragged onto a cell in another
+// area row. Mirrors moveShiftAction's guards (admin, not-started, location
+// scope) but also reassigns locationId/role and allows deltaDays === 0 (a pure
+// area change on the same day). The scoped-manager check runs against BOTH the
+// source and destination location so a shift can't be moved out of / into a
+// location the manager doesn't own.
+const moveToAreaSchema = z.object({
+  shiftId: z.string().uuid(),
+  deltaDays: z.number().int(),
+  locationId: z.string().uuid(),
+  role: z.string().trim().min(1).max(80),
+});
+
+export async function moveShiftToAreaAction(input: {
+  shiftId: string;
+  deltaDays: number;
+  locationId: string;
+  role: string;
+}): Promise<{ ok: boolean; message?: string }> {
+  const parsed = moveToAreaSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, message: "Invalid move." };
+  const { shiftId, deltaDays, locationId, role } = parsed.data;
+
+  const membership = await requireAdminMembership();
+  const user = await currentUser();
+
+  const [shiftRow] = await forTenant(membership.tenant.id).run((tx) =>
+    tx
+      .select({
+        startsAt: scShifts.startsAt,
+        endsAt: scShifts.endsAt,
+        locationId: scShifts.locationId,
+      })
+      .from(scShifts)
+      .where(
+        and(
+          eq(scShifts.id, shiftId),
+          eq(scShifts.traceyTenantId, membership.tenant.id),
+        ),
+      )
+      .limit(1),
+  );
+  if (!shiftRow) return { ok: false, message: "Shift not found." };
+
+  if (hasStarted(shiftRow.startsAt)) {
+    return {
+      ok: false,
+      message: "This shift has already started and can't be moved.",
+    };
+  }
+
+  // AUDIT.md #13 — a scoped manager may only move shifts between their own
+  // locations. Check both source and destination.
+  if (user) {
+    const fromErr = await guardLocationScope(
+      membership.tenant.id,
+      user.id,
+      membership.role,
+      shiftRow.locationId,
+    );
+    if (fromErr) return { ok: false, message: fromErr.message };
+    const toErr = await guardLocationScope(
+      membership.tenant.id,
+      user.id,
+      membership.role,
+      locationId,
+    );
+    if (toErr) return { ok: false, message: toErr.message };
+  }
+
+  const ms = deltaDays * 86_400_000;
+  const newStart = new Date(shiftRow.startsAt.getTime() + ms);
+  const newEnd = new Date(shiftRow.endsAt.getTime() + ms);
+
+  await forTenant(membership.tenant.id).run((tx) =>
+    tx
+      .update(scShifts)
+      .set({
+        startsAt: newStart,
+        endsAt: newEnd,
+        locationId,
+        role,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(scShifts.id, shiftId),
+          eq(scShifts.traceyTenantId, membership.tenant.id),
+        ),
+      ),
+  );
+
+  revalidatePath("/app/schedule");
+  revalidatePath("/app/my-shifts");
+  return { ok: true };
+}
+
 // Save an existing shift as a reusable template (item: "save the template so
 // it can be used again"). Captures the shift's location, role, time-of-day and
 // notes; the template then appears in the "From template" picker on

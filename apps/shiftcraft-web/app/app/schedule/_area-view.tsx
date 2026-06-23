@@ -31,6 +31,7 @@ import {
   copyShiftInPlaceAction,
   createAndAssignViaDnd,
   moveShiftAction,
+  moveShiftToAreaAction,
 } from "./actions";
 
 // Date-bearing shape used by the (server-rendered) employee view.
@@ -241,7 +242,14 @@ function ShiftChip({
   // suppressed while selecting so a click reliably toggles selection.
   const drag = useDraggable({
     id: shiftId(shift.id),
-    data: { type: "shift", shiftId: shift.id, dayIdx },
+    // locationId + role let the drop handler detect a cross-area move (item 3).
+    data: {
+      type: "shift",
+      shiftId: shift.id,
+      dayIdx,
+      locationId: shift.locationId,
+      role: shift.role,
+    },
     disabled: started || selectMode,
   });
   const drop = useDroppable({
@@ -901,9 +909,17 @@ export function AreaScheduleView({
     if (a.data.current?.type === "shift" && over.data.current?.type === "cell") {
       const movedShiftId = a.data.current.shiftId as string;
       const sourceDayIdx = a.data.current.dayIdx as number;
+      const sourceLocationId = (a.data.current.locationId as string | null) ?? null;
+      const sourceRole = a.data.current.role as string;
       const targetDayIdx = over.data.current.dayIdx as number;
+      const targetLocationId = (over.data.current.locationId as string | null) ?? null;
+      const targetRole = over.data.current.role as string;
       const deltaDays = targetDayIdx - sourceDayIdx;
-      if (deltaDays === 0) return;
+      // Item 3: dropping on a different area row reassigns the shift's
+      // location + role (not just its day).
+      const areaChanged =
+        targetLocationId !== sourceLocationId || targetRole !== sourceRole;
+      if (deltaDays === 0 && !areaChanged) return;
 
       const targetDate = addDays(weekStart, targetDayIdx);
       targetDate.setHours(0, 0, 0, 0);
@@ -912,9 +928,29 @@ export function AreaScheduleView({
       const isPast = targetDate.getTime() < today.getTime();
 
       if (isPast) {
+        // Past-dated rosters are read-only (Kati #4); fall back to a same-area
+        // copy. Cross-area reassignment onto a past day isn't supported.
         startTransition(async () => {
           const res = await copyShiftByDeltaAction(movedShiftId, deltaDays);
           if (!res.ok) setError(res.message ?? "Couldn't copy that shift.");
+          router.refresh();
+        });
+        return;
+      }
+
+      if (areaChanged) {
+        if (!targetLocationId) {
+          setError("This area has no location — add one before scheduling here.");
+          return;
+        }
+        startTransition(async () => {
+          const res = await moveShiftToAreaAction({
+            shiftId: movedShiftId,
+            deltaDays,
+            locationId: targetLocationId,
+            role: targetRole,
+          });
+          if (!res.ok) setError(res.message ?? "Couldn't move that shift.");
           router.refresh();
         });
         return;
