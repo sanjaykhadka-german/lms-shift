@@ -2502,6 +2502,17 @@ export async function moveShiftAction(
   const newStart = new Date(shiftRow.startsAt.getTime() + ms);
   const newEnd = new Date(shiftRow.endsAt.getTime() + ms);
 
+  // Don't let a move land the shift's start in the past — e.g. dragging onto
+  // today at an earlier hour that has already passed (07:00 when it's 09:00).
+  // The day-cell drop guard only rejects whole past days; this catches the
+  // today-but-earlier case at time granularity.
+  if (hasStarted(newStart)) {
+    return {
+      ok: false,
+      message: "Can't move a shift to a start time that's already passed.",
+    };
+  }
+
   const clash = await findMoveDoubleBook(
     membership.tenant.id,
     shiftId,
@@ -2601,6 +2612,17 @@ export async function moveShiftToAreaAction(input: {
   const ms = deltaDays * 86_400_000;
   const newStart = new Date(shiftRow.startsAt.getTime() + ms);
   const newEnd = new Date(shiftRow.endsAt.getTime() + ms);
+
+  // Don't let a move land the shift's start in the past — e.g. dragging onto
+  // today at an earlier hour that has already passed (07:00 when it's 09:00).
+  // The day-cell drop guard only rejects whole past days; this catches the
+  // today-but-earlier case at time granularity.
+  if (hasStarted(newStart)) {
+    return {
+      ok: false,
+      message: "Can't move a shift to a start time that's already passed.",
+    };
+  }
 
   const clash = await findMoveDoubleBook(
     membership.tenant.id,
