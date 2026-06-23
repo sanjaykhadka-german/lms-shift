@@ -65,6 +65,8 @@ export function VisitorForm({
   // inputs). An empty signature was the most common cause of the bounce.
   const [hasSignature, setHasSignature] = useState(false);
   const [employeeId, setEmployeeId] = useState("");
+  // Sign-out signature is now mandatory too — gate the sign-out button on it.
+  const [hasSignOutSignature, setHasSignOutSignature] = useState(false);
 
   return (
     <div className="space-y-6">
@@ -111,14 +113,15 @@ export function VisitorForm({
           </div>
           <div>
             <label className={LABEL} htmlFor="visitorCompany">
-              Company / organisation
+              Company / organisation *
             </label>
             <input
               id="visitorCompany"
               name="visitorCompany"
+              required
               maxLength={120}
               autoComplete="organization"
-              placeholder="Optional"
+              placeholder="e.g. Acme Pty Ltd"
               className={INPUT}
             />
           </div>
@@ -152,13 +155,14 @@ export function VisitorForm({
           </div>
           <div>
             <label className={LABEL} htmlFor="visitReason">
-              Reason for visit
+              Reason for visit *
             </label>
             <input
               id="visitReason"
               name="visitReason"
+              required
               maxLength={300}
-              placeholder="Optional"
+              placeholder="e.g. Delivery, meeting, maintenance"
               className={INPUT}
             />
           </div>
@@ -203,8 +207,20 @@ export function VisitorForm({
                   inputClassName={INPUT}
                 />
               </div>
-              <SignaturePad name="signOutSignature" label="Signature (optional)" />
-              <SubmitButton tone="out">Sign out</SubmitButton>
+              <SignaturePad
+                name="signOutSignature"
+                label="Signature"
+                required
+                onInkChange={setHasSignOutSignature}
+              />
+              {!hasSignOutSignature ? (
+                <p className="text-xs text-[#a89c8c]">
+                  Please sign in the box above to enable sign-out.
+                </p>
+              ) : null}
+              <SubmitButton tone="out" disabled={!hasSignOutSignature}>
+                Sign out
+              </SubmitButton>
             </>
           )}
         </form>

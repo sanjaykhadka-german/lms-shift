@@ -13,6 +13,7 @@ import {
   KIOSK_DEVICE_COOKIE,
   verifyDeviceCookie,
 } from "~/lib/kiosk/cookies";
+import { maybeSweepStaleVisitors } from "~/lib/visitors/sweep";
 import { VisitorForm, type SignedInVisitor } from "./_form";
 
 export const metadata = { title: "Kiosk · Visitor" };
@@ -40,6 +41,10 @@ export default async function KioskVisitorPage({
       .limit(1),
   );
   if (!deviceRow?.allowVisitors) redirect("/kiosk");
+
+  // Best-effort: close any visitor still signed in 12h+ after arrival before we
+  // read the "currently signed in" list, so stale rows drop off naturally.
+  await maybeSweepStaleVisitors(tenantId);
 
   const [locationRows, signedIn, employees] = await Promise.all([
     forTenant(tenantId).run((tx) =>
@@ -140,8 +145,12 @@ export default async function KioskVisitorPage({
                 : error === "employee"
                   ? "Please choose who you're visiting from the list."
                   : error === "signature"
-                    ? "Please add your signature before signing in."
-                    : "Please fill in your full name and mobile number."}
+                    ? "Please add your signature."
+                    : error === "company"
+                      ? "Please enter the company or organisation you're from."
+                      : error === "reason"
+                        ? "Please enter a reason for your visit."
+                        : "Please fill in your full name and mobile number."}
             </p>
           ) : null}
 

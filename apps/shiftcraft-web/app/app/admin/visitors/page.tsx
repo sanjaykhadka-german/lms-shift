@@ -5,6 +5,7 @@ import { currentMembership } from "~/lib/auth/current";
 import { isAtLeastManager } from "~/lib/roles";
 import { Button } from "~/components/ui/button";
 import { InfoPopover } from "~/components/InfoPopover";
+import { maybeSweepStaleVisitors } from "~/lib/visitors/sweep";
 import { adminSignOutVisitorAction } from "./actions";
 
 export const metadata = { title: "Visitors · ShiftCraft" };
@@ -45,6 +46,10 @@ export default async function VisitorsAdminPage({
   if (!isAtLeastManager(membership.role)) redirect("/app");
   const tenantId = membership.tenant.id;
   const today = startOfToday();
+
+  // Best-effort: auto sign-out anyone still on site 12h+ after arrival before
+  // we read the lists below, so the "currently signed in" count is honest.
+  await maybeSweepStaleVisitors(tenantId);
 
   const { start: startRaw, end: endRaw } = await searchParams;
   const start = parseDay(startRaw);

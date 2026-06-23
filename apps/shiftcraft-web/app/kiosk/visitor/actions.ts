@@ -90,6 +90,14 @@ export async function visitorSignInAction(formData: FormData): Promise<void> {
   if (!visitorName || !visitorMobile) {
     redirect("/kiosk/visitor?error=missing");
   }
+  // Company and reason are mandatory too — report each specifically so the
+  // banner can say exactly what's missing.
+  if (!visitorCompany) {
+    redirect("/kiosk/visitor?error=company");
+  }
+  if (!visitReason) {
+    redirect("/kiosk/visitor?error=reason");
+  }
   if (!UUID_RE.test(visitingEmployeeId)) {
     redirect("/kiosk/visitor?error=employee");
   }
@@ -132,11 +140,11 @@ export async function visitorSignInAction(formData: FormData): Promise<void> {
       traceyTenantId: deviceClaim.tenantId,
       locationId: deviceClaim.locationId,
       visitorName,
-      visitorCompany: visitorCompany || null,
+      visitorCompany,
       visitorMobile,
       visitingPerson: employee.fullName,
       visitingEmployeeId: employee.id,
-      visitReason: visitReason || null,
+      visitReason,
       signInSignature: sig,
       source: "kiosk",
     }),
@@ -191,7 +199,9 @@ export async function visitorSignOutAction(formData: FormData): Promise<void> {
   const nameOut = field(formData, "visitorNameOut", 120);
   if (!nameOut) redirect("/kiosk/visitor?error=missing");
 
+  // Sign-out signature is mandatory (parity with sign-in).
   const sig = decodeSignature(String(formData.get("signOutSignature") ?? ""));
+  if (!sig) redirect("/kiosk/visitor?error=signature");
 
   // Match the typed name against still-signed-in visitors (case-insensitive),
   // most recent first so a repeat-visitor name resolves to their open visit.
@@ -220,7 +230,7 @@ export async function visitorSignOutAction(formData: FormData): Promise<void> {
       .update(scVisitorSignins)
       .set({
         signedOutAt: new Date(),
-        ...(sig ? { signOutSignature: sig } : {}),
+        signOutSignature: sig,
       })
       .where(
         and(
