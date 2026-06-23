@@ -222,6 +222,9 @@ importers:
       next-auth:
         specifier: 5.0.0-beta.25
         version: 5.0.0-beta.25(next@16.2.4(@playwright/test@1.59.1)(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(react@19.2.5)
+      pdfjs-dist:
+        specifier: 5.4.296
+        version: 5.4.296
       postgres:
         specifier: ^3.4.5
         version: 3.4.9

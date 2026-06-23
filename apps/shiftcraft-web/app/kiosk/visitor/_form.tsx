@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useFormStatus } from "react-dom";
 import { SignaturePad } from "~/components/SignaturePad";
 import { EmployeePicker } from "./_employee_picker";
+import { PdfViewer } from "./_pdf_viewer";
 import { SignOutNameInput } from "./_signout_name";
 import { visitorSignInAction, visitorSignOutAction } from "./actions";
 
@@ -385,11 +386,7 @@ export function VisitorForm({
                 </button>
               </div>
             </div>
-            <iframe
-              src="/visitors-policy.pdf"
-              title="Visitors Policy"
-              className="h-full w-full flex-1 bg-white"
-            />
+            <PdfViewer url="/visitors-policy.pdf" />
           </div>
         </div>
       ) : null}
