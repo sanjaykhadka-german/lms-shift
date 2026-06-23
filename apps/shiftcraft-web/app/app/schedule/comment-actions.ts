@@ -19,8 +19,10 @@ const commentSchema = z.object({
 });
 
 /**
- * Post a comment on a shift. Any tenant member can post; the action
- * stamps the author so the UI can show "by Lena · 3 minutes ago".
+ * Post a comment on a shift. Comments are an INTERNAL supervisor channel
+ * (whoever is moving/covering the shift) — only managers/admins may post,
+ * and they are never surfaced on the employee-facing /my-shifts view. The
+ * action stamps the author so the UI can show "by Lena · 3 minutes ago".
  *
  * Returns a CommentFormState so the form can clear on success — bound
  * via useActionState in the client component.
@@ -33,6 +35,13 @@ export async function postShiftCommentAction(
   if (!user) return { status: "error", message: "Not signed in." };
   const m = await currentMembership();
   if (!m) return { status: "error", message: "No workspace selected." };
+  // Internal channel — supervisors/admins only.
+  if (!isAtLeastManager(m.role)) {
+    return {
+      status: "error",
+      message: "Only supervisors can post internal comments.",
+    };
+  }
 
   const parsed = commentSchema.safeParse({
     shiftId: formData.get("shiftId"),

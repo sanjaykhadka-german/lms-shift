@@ -66,8 +66,8 @@ export function ShiftComments({
     <div className="space-y-4">
       {comments.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          No comments yet. Use the box below to leave a note for whoever
-          covers this shift.
+          No comments yet. Use the box below to leave an internal note for
+          whoever covers this shift — the employee never sees these.
         </p>
       ) : (
         <ul className="space-y-3">
@@ -123,7 +123,7 @@ export function ShiftComments({
           name="body"
           rows={2}
           maxLength={2000}
-          placeholder="Add a note for the team…"
+          placeholder="Add an internal note for supervisors…"
           className="flex w-full rounded-md border border-[color:var(--input)] bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
         />
         <div className="flex items-center gap-2">

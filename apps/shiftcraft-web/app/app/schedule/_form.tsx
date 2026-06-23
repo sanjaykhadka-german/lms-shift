@@ -433,16 +433,20 @@ export function ShiftForm({
       )}
 
       <div className="space-y-1.5 sm:col-span-2">
-        <Label htmlFor="notes">Notes (optional)</Label>
+        <Label htmlFor="notes">Note to employee (optional)</Label>
         <textarea
           ref={notesRef}
           id="notes"
           name="notes"
           defaultValue={defaultValues?.notes ?? ""}
           rows={3}
-          placeholder="Anything the assigned employee should know"
+          placeholder="Anything the assigned employee should know — they'll see this on their shift"
           className="flex w-full rounded-md border border-[color:var(--input)] bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
         />
+        <p className="text-xs text-muted-foreground">
+          The assigned employee sees this on their shifts page. For internal
+          supervisor-only notes, use Comments.
+        </p>
       </div>
 
       <div className="sm:col-span-2 flex items-center gap-3">

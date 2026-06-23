@@ -423,20 +423,23 @@ export async function EditShiftContent({
         )}
       </section>
 
-      <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
-        <h2 className="text-base font-semibold">Comments</h2>
-        <p className="mt-1 mb-4 text-xs text-muted-foreground">
-          Visible to everyone in {membership.tenant.name}. Anyone can post;
-          authors and admins can delete.
-        </p>
-        <ShiftComments
-          shiftId={shiftRow.id}
-          currentUserId={me.id}
-          isAdmin={isAdmin}
-          comments={comments}
-          onDelete={deleteShiftCommentAction}
-        />
-      </section>
+      {isAdmin && (
+        <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
+          <h2 className="text-base font-semibold">Comments</h2>
+          <p className="mt-1 mb-4 text-xs text-muted-foreground">
+            Internal — visible to supervisors and admins only, never to the
+            assigned employee. Use the shift's "Note to employee" field above
+            for anything staff should see.
+          </p>
+          <ShiftComments
+            shiftId={shiftRow.id}
+            currentUserId={me.id}
+            isAdmin={isAdmin}
+            comments={comments}
+            onDelete={deleteShiftCommentAction}
+          />
+        </section>
+      )}
 
       <section className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-5 shadow-sm">
         {(shiftRow.status !== "published" || shiftEditedSincePublish) && (
