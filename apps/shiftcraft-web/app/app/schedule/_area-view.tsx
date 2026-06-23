@@ -255,7 +255,9 @@ function ShiftChip({
   const drop = useDroppable({
     id: shiftId(shift.id),
     data: { type: "shift", shiftId: shift.id },
-    disabled: selectMode,
+    // A started/past shift can't have its roster changed (server rejects it
+    // too), so it rejects assign-drops outright — no drop, no error toast.
+    disabled: selectMode || started,
   });
 
   // Dense 2-week view: the action row (Edit / Copy / +person) is hover-only,
@@ -457,6 +459,7 @@ function DayCell({
   dense,
   locationId,
   role,
+  isPast,
   children,
 }: {
   areaKey: string;
@@ -467,11 +470,14 @@ function DayCell({
    *  an employee here can create a shift in the right area (Kati #2). */
   locationId: string | null;
   role: string;
+  /** Day is before today — reject drops (no past-dated rostering). */
+  isPast: boolean;
   children: ReactNode;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: cellId(areaKey, dayIdx),
     data: { type: "cell", dayIdx, locationId, role },
+    disabled: isPast,
   });
   return (
     <div
@@ -715,6 +721,16 @@ export function AreaScheduleView({
     const t = setInterval(() => setNowMs(Date.now()), 60_000);
     return () => clearInterval(t);
   }, []);
+  // Start-of-today (local), derived from the hydrated clock. Past day cells are
+  // made non-droppable so you can't drag anything onto a day that's already
+  // gone. Null until hydrated → cells stay droppable on the server render (no
+  // mismatch); dragging only happens client-side after hydration anyway.
+  let todayStartMs: number | null = null;
+  if (nowMs != null) {
+    const d = new Date(nowMs);
+    d.setHours(0, 0, 0, 0);
+    todayStartMs = d.getTime();
+  }
   const [active, setActive] = useState<
     | { type: "emp"; label: string }
     | { type: "shift"; label: string }
@@ -1080,7 +1096,13 @@ export function AreaScheduleView({
                   </span>
                 </div>
                 <div className="grid" style={gridCols}>
-                  {area.shiftsByDay.map((cell, idx) => (
+                  {area.shiftsByDay.map((cell, idx) => {
+                    const cellStart = addDays(weekStart, idx);
+                    cellStart.setHours(0, 0, 0, 0);
+                    const isPast =
+                      todayStartMs != null &&
+                      cellStart.getTime() < todayStartMs;
+                    return (
                     <DayCell
                       key={idx}
                       areaKey={area.key}
@@ -1088,6 +1110,7 @@ export function AreaScheduleView({
                       dense={dense}
                       locationId={area.locationId}
                       role={area.role}
+                      isPast={isPast}
                     >
                       {cell.map((s) => (
                         <ShiftChip
@@ -1103,7 +1126,8 @@ export function AreaScheduleView({
                         />
                       ))}
                     </DayCell>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ))
