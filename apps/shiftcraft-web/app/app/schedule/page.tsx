@@ -26,6 +26,7 @@ import {
 import { EmployeeScheduleView, type EmployeeRow } from "./_employee-view";
 import { PersistRange } from "./_persist-range";
 import { PublishMenu } from "./_publish-menu";
+import { RepublishBanner } from "./_republish-banner";
 import { copyDayToDateAction, repeatWeekAction } from "./actions";
 import { InfoPopover } from "~/components/InfoPopover";
 
@@ -448,6 +449,15 @@ export default async function SchedulePage({
     (s.status === "published" &&
       (s.publishedAt == null || s.updatedAt.getTime() > s.publishedAt.getTime()));
   const draftCount = shifts.filter((s) => needsPublish(s)).length;
+  // Subset of needsPublish: shifts that already went live and were then moved or
+  // amended (item 2). These are the urgent ones — staff have the stale version —
+  // so they get a dedicated re-publish banner separate from never-published drafts.
+  const editedSincePublishCount = shifts.filter(
+    (s) =>
+      s.status === "published" &&
+      (s.publishedAt == null ||
+        s.updatedAt.getTime() > s.publishedAt.getTime()),
+  ).length;
   const labourForecast = isAdmin
     ? await forecastWeek(membership.tenant.id, weekStart, weekEnd)
     : null;
@@ -915,6 +925,15 @@ export default async function SchedulePage({
             Clear filter
           </Link>
         </div>
+      )}
+
+      {isAdmin && (
+        <RepublishBanner
+          count={editedSincePublishCount}
+          weekStartIso={weekStart.toISOString()}
+          weekEndIso={weekEnd.toISOString()}
+          location={locationFilter || undefined}
+        />
       )}
 
       {view === "area" ? (

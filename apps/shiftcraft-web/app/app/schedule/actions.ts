@@ -670,6 +670,83 @@ export async function bulkPublishSelectedAreasAction(input: {
   return { ok: true, published: published.length };
 }
 
+// Re-publish ONLY shifts that were already published and then moved/amended
+// (updatedAt advanced past publishedAt). Unlike bulkPublish*, this deliberately
+// leaves never-published drafts untouched — its job is to push the *changed*
+// version of live shifts back out to staff (item 2: a moved/amended shift must
+// be re-published). Re-stamps publishedAt so the "edited since publish" flag
+// clears, fans out webhooks, and re-notifies accepted assignees.
+const republishSchema = z.object({
+  weekStartIso: z.string().min(1),
+  weekEndIso: z.string().min(1),
+  location: z.string().uuid().optional(),
+});
+
+export async function republishEditedShiftsAction(input: {
+  weekStartIso: string;
+  weekEndIso: string;
+  location?: string;
+}): Promise<{ ok: boolean; published: number; message?: string }> {
+  const parsed = republishSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, published: 0, message: "Nothing to re-publish." };
+  }
+  const { weekStartIso, weekEndIso, location } = parsed.data;
+
+  const membership = await currentMembership();
+  if (!membership) return { ok: false, published: 0, message: "Not signed in." };
+  if (!isAtLeastManager(membership.role)) {
+    return { ok: false, published: 0, message: "Only admins can publish shifts." };
+  }
+
+  const startsAtIso = new Date(weekStartIso).toISOString();
+  const endsAtIso = new Date(weekEndIso).toISOString();
+  // Single timestamp for both columns so updatedAt == publishedAt exactly and
+  // the "edited since publish" predicate goes false immediately after.
+  const now = new Date();
+  const conditions = [
+    eq(scShifts.traceyTenantId, membership.tenant.id),
+    // Published-and-edited only — never-published drafts are excluded here.
+    sql`(${scShifts.status} = 'published' and (${scShifts.publishedAt} is null or ${scShifts.updatedAt} > ${scShifts.publishedAt}))`,
+    sql`${scShifts.startsAt} >= ${startsAtIso}::timestamptz`,
+    sql`${scShifts.startsAt} < ${endsAtIso}::timestamptz`,
+  ];
+  if (location) conditions.push(eq(scShifts.locationId, location));
+
+  const published = await forTenant(membership.tenant.id).run((tx) =>
+    tx
+      .update(scShifts)
+      .set({ status: "published", publishedAt: now, updatedAt: now })
+      .where(and(...conditions))
+      .returning({
+        id: scShifts.id,
+        locationId: scShifts.locationId,
+        role: scShifts.role,
+        startsAt: scShifts.startsAt,
+        endsAt: scShifts.endsAt,
+      }),
+  );
+
+  for (const s of published) {
+    await emitWebhook(membership.tenant.id, "shift.published", {
+      shiftId: s.id,
+      locationId: s.locationId,
+      role: s.role,
+      startsAt: s.startsAt.toISOString(),
+      endsAt: s.endsAt.toISOString(),
+      bulk: true,
+    });
+  }
+  await notifyAcceptedAssignees(
+    membership.tenant.id,
+    published.map((s) => s.id),
+  );
+
+  revalidatePath("/app/schedule");
+  revalidatePath("/app/coverage-gaps");
+  return { ok: true, published: published.length };
+}
+
 /**
  * Duplicate every shift in [weekStart, weekStart+7d) forward by 7 days,
  * inserting the copies as drafts. Skips a source shift if the
