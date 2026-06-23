@@ -205,10 +205,16 @@ function PadButton({
 // no button to press — this just shows progress.
 function SubmitStatus() {
   const { pending } = useFormStatus();
-  if (!pending) return null;
+  // Always render so the form height is constant — mounting/unmounting this
+  // line was what made the pad jump when the PIN auto-submitted on the 4th
+  // digit. h-5 reserves the text-sm line box; we just toggle the text.
   return (
-    <p className="text-sm font-medium text-[#a89c8c]" role="status">
-      Checking…
+    <p
+      className="h-5 text-sm font-medium text-[#a89c8c]"
+      role="status"
+      aria-live="polite"
+    >
+      {pending ? "Checking…" : ""}
     </p>
   );
 }
