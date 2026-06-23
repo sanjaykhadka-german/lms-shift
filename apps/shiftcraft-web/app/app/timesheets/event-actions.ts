@@ -227,13 +227,13 @@ export async function addClockEventAction(formData: FormData): Promise<void> {
 // (all source='admin_edit') in chronological order, validating each against
 // the employee's stream and the approved-week lock. Sequential inserts so
 // each validateInsertion sees the previous punch we just added.
+// Breaks arrive as parallel breakStart[]/breakEnd[] inputs (0..N rows), read via
+// formData.getAll below — not part of the zod object (which covers the scalars).
 const fullEntrySchema = z.object({
   appUserId: z.string().uuid(),
   date: z.string().min(1), // YYYY-MM-DD
   clockIn: z.string().min(1), // HH:MM
   clockOut: z.string().min(1), // HH:MM
-  breakStart: z.string().optional().or(z.literal("")),
-  breakEnd: z.string().optional().or(z.literal("")),
   locationId: z.string().uuid().optional().or(z.literal("")),
   reason: z.string().trim().min(1, "Add a note.").max(200),
 });
@@ -251,8 +251,6 @@ export async function addTimesheetEntryAction(
     date: formData.get("date"),
     clockIn: formData.get("clockIn"),
     clockOut: formData.get("clockOut"),
-    breakStart: formData.get("breakStart") ?? "",
-    breakEnd: formData.get("breakEnd") ?? "",
     locationId: formData.get("locationId") ?? "",
     reason: formData.get("reason"),
   });
@@ -276,13 +274,21 @@ export async function addTimesheetEntryAction(
     return;
   }
 
-  // Build the punch sequence in chronological order.
-  const punches: Array<{ eventType: ScClockEventType; occurredAt: Date }> = [
-    { eventType: "in", occurredAt: inAt },
-  ];
-  const bs = emptyToNull(parsed.data.breakStart);
-  const be = emptyToNull(parsed.data.breakEnd);
-  if (bs && be) {
+  // Collect 0..N break segments from the parallel breakStart[]/breakEnd[]
+  // inputs. A shift may have no break, one break, or several (item 6) — the
+  // structure is in → break_start → break_end → … → out.
+  const breakStartRaw = formData.getAll("breakStart").map((v) => String(v));
+  const breakEndRaw = formData.getAll("breakEnd").map((v) => String(v));
+  const rowCount = Math.max(breakStartRaw.length, breakEndRaw.length);
+  const breaks: Array<{ bsAt: Date; beAt: Date }> = [];
+  for (let i = 0; i < rowCount; i++) {
+    const bs = emptyToNull(breakStartRaw[i]);
+    const be = emptyToNull(breakEndRaw[i]);
+    if (!bs && !be) continue; // a blank row — ignore
+    if (!bs || !be) {
+      console.warn("[addTimesheetEntryAction] break row needs both start and end");
+      return;
+    }
     const bsAt = combine(bs);
     const beAt = combine(be);
     if (
@@ -295,8 +301,24 @@ export async function addTimesheetEntryAction(
       console.warn("[addTimesheetEntryAction] break must sit inside the shift");
       return;
     }
-    punches.push({ eventType: "break_start", occurredAt: bsAt });
-    punches.push({ eventType: "break_end", occurredAt: beAt });
+    breaks.push({ bsAt, beAt });
+  }
+  // Order chronologically and reject overlapping breaks.
+  breaks.sort((a, b) => a.bsAt.getTime() - b.bsAt.getTime());
+  for (let i = 1; i < breaks.length; i++) {
+    if (breaks[i]!.bsAt.getTime() < breaks[i - 1]!.beAt.getTime()) {
+      console.warn("[addTimesheetEntryAction] breaks overlap");
+      return;
+    }
+  }
+
+  // Build the punch sequence in chronological order.
+  const punches: Array<{ eventType: ScClockEventType; occurredAt: Date }> = [
+    { eventType: "in", occurredAt: inAt },
+  ];
+  for (const b of breaks) {
+    punches.push({ eventType: "break_start", occurredAt: b.bsAt });
+    punches.push({ eventType: "break_end", occurredAt: b.beAt });
   }
   punches.push({ eventType: "out", occurredAt: outAt });
 
@@ -346,8 +368,7 @@ export async function addTimesheetEntryAction(
       date: parsed.data.date,
       clockIn: parsed.data.clockIn,
       clockOut: parsed.data.clockOut,
-      breakStart: bs,
-      breakEnd: be,
+      breaks: breaks.length,
       punches: insertedIds.length,
       reason: parsed.data.reason,
     },

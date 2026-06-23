@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { Button } from "~/components/ui/button";
 import { addTimesheetEntryAction } from "./event-actions";
@@ -10,12 +11,23 @@ interface Props {
   defaultDate: string; // YYYY-MM-DD
 }
 
-// Manager tool: enter a complete shift (start, finish, optional unpaid break)
-// for a teammate who never clocked in — e.g. an onboarding employee. Emits
-// the matching punches via addTimesheetEntryAction.
+// Manager tool: enter a complete shift (start, finish, and any number of breaks
+// — none, one, or several) for a teammate who never clocked in, e.g. an
+// onboarding employee. Emits the matching in / break_start / break_end / out
+// punches via addTimesheetEntryAction. Breaks are a dynamic list (item 6): the
+// structure is start → break → break → … → finish.
 export function AddEntryForm({ employees, locations, defaultDate }: Props) {
   const fieldCls =
     "h-9 rounded-md border border-[color:var(--input)] bg-transparent px-2 text-sm text-ink shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]";
+
+  // Each entry is just a stable key; the time values live in uncontrolled
+  // inputs named breakStart/breakEnd, read in order on the server via getAll.
+  const nextBreakId = useRef(1);
+  const [breakRows, setBreakRows] = useState<number[]>([]);
+  const addBreak = () =>
+    setBreakRows((rows) => [...rows, nextBreakId.current++]);
+  const removeBreak = (id: number) =>
+    setBreakRows((rows) => rows.filter((r) => r !== id));
 
   return (
     <details className="relative">
@@ -53,16 +65,46 @@ export function AddEntryForm({ employees, locations, defaultDate }: Props) {
             <input type="time" name="clockOut" required className={fieldCls} />
           </label>
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <label className="flex flex-col gap-1 text-xs text-ink-2">
-            Break start (optional)
-            <input type="time" name="breakStart" className={fieldCls} />
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-ink-2">
-            Break end (optional)
-            <input type="time" name="breakEnd" className={fieldCls} />
-          </label>
+
+        <div className="grid gap-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-ink-2">Breaks</span>
+            <button
+              type="button"
+              onClick={addBreak}
+              className="text-xs font-medium text-primary hover:underline"
+            >
+              + Add break
+            </button>
+          </div>
+          {breakRows.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground">
+              No break. Add one or more if the shift had them.
+            </p>
+          ) : (
+            breakRows.map((id, idx) => (
+              <div key={id} className="flex items-end gap-2">
+                <label className="flex flex-1 flex-col gap-1 text-[11px] text-ink-2">
+                  {idx === 0 ? "Break start" : `Break ${idx + 1} start`}
+                  <input type="time" name="breakStart" required className={fieldCls} />
+                </label>
+                <label className="flex flex-1 flex-col gap-1 text-[11px] text-ink-2">
+                  End
+                  <input type="time" name="breakEnd" required className={fieldCls} />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => removeBreak(id)}
+                  aria-label="Remove break"
+                  className="mb-1 px-1 text-xs text-muted-foreground hover:text-[color:var(--destructive)]"
+                >
+                  ✕
+                </button>
+              </div>
+            ))
+          )}
         </div>
+
         {locations.length > 0 && (
           <label className="flex flex-col gap-1 text-xs text-ink-2">
             Location (optional)
