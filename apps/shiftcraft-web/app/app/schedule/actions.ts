@@ -2405,6 +2405,47 @@ export async function createAndAssignViaDnd(
   return { ok: true };
 }
 
+// Double-booking guard for the MOVE paths. The assign paths already block an
+// overlap (Kati #8), but moving an already-assigned shift onto a day/time where
+// one of its accepted assignees is also rostered slipped through. Returns an
+// error message if any accepted assignee would clash at the new window (their
+// other shift, not this one), else null.
+async function findMoveDoubleBook(
+  tenantId: string,
+  shiftId: string,
+  newStart: Date,
+  newEnd: Date,
+): Promise<string | null> {
+  const assignees = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({ userId: scShiftAssignments.userId })
+      .from(scShiftAssignments)
+      .where(
+        and(
+          eq(scShiftAssignments.shiftId, shiftId),
+          eq(scShiftAssignments.status, "accepted"),
+        ),
+      ),
+  );
+  for (const a of assignees) {
+    const overlap = await findOverlappingAssignment(
+      tenantId,
+      a.userId,
+      newStart,
+      newEnd,
+      shiftId, // exclude the shift being moved so it doesn't self-clash
+    );
+    if (overlap) {
+      return `Can't move — that person is already rostered ${fmtShiftWindow(
+        overlap.startsAt,
+        overlap.endsAt,
+        overlap.locationName,
+      )} at this time.`;
+    }
+  }
+  return null;
+}
+
 // Drag-and-drop move: shift a shift's window by a whole number of days,
 // preserving its time-of-day and duration exactly (delta in days avoids any
 // timezone reconstruction). Dropping 7 days forward in the 2-week grid is how
@@ -2460,6 +2501,14 @@ export async function moveShiftAction(
   const ms = deltaDays * 86_400_000;
   const newStart = new Date(shiftRow.startsAt.getTime() + ms);
   const newEnd = new Date(shiftRow.endsAt.getTime() + ms);
+
+  const clash = await findMoveDoubleBook(
+    membership.tenant.id,
+    shiftId,
+    newStart,
+    newEnd,
+  );
+  if (clash) return { ok: false, message: clash };
 
   await forTenant(membership.tenant.id).run((tx) =>
     tx
@@ -2552,6 +2601,14 @@ export async function moveShiftToAreaAction(input: {
   const ms = deltaDays * 86_400_000;
   const newStart = new Date(shiftRow.startsAt.getTime() + ms);
   const newEnd = new Date(shiftRow.endsAt.getTime() + ms);
+
+  const clash = await findMoveDoubleBook(
+    membership.tenant.id,
+    shiftId,
+    newStart,
+    newEnd,
+  );
+  if (clash) return { ok: false, message: clash };
 
   await forTenant(membership.tenant.id).run((tx) =>
     tx
