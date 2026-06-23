@@ -358,6 +358,13 @@
       "when": 1782212791840,
       "tag": "0050_opposite_menace",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1782257165114,
+      "tag": "0051_sparkling_thundra",
+      "breakpoints": true
     }
   ]
 }

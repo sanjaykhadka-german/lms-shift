@@ -4,8 +4,10 @@ import { and, eq, sql } from "drizzle-orm";
 import { forTenant, scAreas, scLocations, scShifts } from "@tracey/db";
 import { currentMembership } from "~/lib/auth/current";
 import { isAtLeastManager } from "~/lib/roles";
+import { listActiveSkills, listAreaSkillIds } from "~/lib/skills";
 import { Button } from "~/components/ui/button";
 import { AreaForm } from "../../_form";
+import { AreaSkillsForm } from "../../_area-skills-form";
 import { deleteAreaAction } from "../../actions";
 
 export const metadata = { title: "Edit area · ShiftCraft" };
@@ -42,6 +44,11 @@ export default async function EditAreaPage({
   );
   if (!row) notFound();
 
+  const [skills, areaSkillIds] = await Promise.all([
+    listActiveSkills(tenantId),
+    listAreaSkillIds(tenantId, row.id),
+  ]);
+
   return (
     <div className="mx-auto max-w-2xl space-y-6 px-6 py-10">
       <div className="flex items-start justify-between gap-4">
@@ -73,6 +80,22 @@ export default async function EditAreaPage({
             name: row.name,
             color: row.color,
           }}
+        />
+      </section>
+
+      <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
+        <h2 className="text-sm font-semibold text-ink">
+          Required skills / training
+        </h2>
+        <p className="mt-1 mb-4 text-xs text-muted-foreground">
+          Mark the skills someone needs to work in this area. Rostering anyone
+          who's missing one shows a soft warning on the schedule — it never
+          blocks the assignment.
+        </p>
+        <AreaSkillsForm
+          areaId={row.id}
+          skills={skills}
+          selectedIds={areaSkillIds}
         />
       </section>
 

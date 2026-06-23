@@ -36,6 +36,7 @@ import { createNotifications, type NotificationInput } from "~/lib/notifications
 import { getNotifyChannel, wantsEmail, wantsInApp } from "~/lib/notify-prefs";
 import { emitWebhook } from "~/lib/webhooks";
 import { isAtLeastManager } from "~/lib/roles";
+import { findAreaTrainingGap } from "~/lib/skills";
 import {
   getManagedLocationIds,
   isLocationInScope,
@@ -240,6 +241,35 @@ function parseBreaks(raw: FormDataEntryValue | null): {
 // handle and the start-time input.
 function hasStarted(startsAt: Date): boolean {
   return startsAt.getTime() <= Date.now();
+}
+
+// Build the soft "not trained for this area" warning string for putting a user
+// on a shift (items 4 & 7), or null when there's nothing to flag. Never blocks.
+function fmtTrainingGap(
+  gap: { areaName: string; missing: string[] } | null,
+): string | null {
+  if (!gap) return null;
+  return `Heads up — not trained for ${gap.areaName}: missing ${gap.missing.join(", ")}.`;
+}
+
+async function trainingWarningForShift(
+  tenantId: string,
+  shiftId: string,
+  userId: string,
+): Promise<string | null> {
+  const [shift] = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({ locationId: scShifts.locationId, role: scShifts.role })
+      .from(scShifts)
+      .where(
+        and(eq(scShifts.id, shiftId), eq(scShifts.traceyTenantId, tenantId)),
+      )
+      .limit(1),
+  );
+  if (!shift) return null;
+  return fmtTrainingGap(
+    await findAreaTrainingGap(tenantId, shift.locationId, shift.role, userId),
+  );
 }
 
 // Kati's rostering feedback #4/#7 — the roster locks once a shift starts.
@@ -2296,11 +2326,18 @@ export async function assignEmployeeAction(
 export async function assignEmployeeViaDnd(
   shiftId: string,
   userId: string,
-): Promise<FormState> {
+): Promise<FormState & { warning?: string }> {
   const fd = new FormData();
   fd.set("shiftId", shiftId);
   fd.set("userId", userId);
-  return assignEmployeeAction({ status: "idle" }, fd);
+  const res = await assignEmployeeAction({ status: "idle" }, fd);
+  if (res.status === "error") return res;
+  // Soft training-gap warning (items 4 & 7) — assignment already succeeded.
+  const membership = await currentMembership();
+  const warning = membership
+    ? await trainingWarningForShift(membership.tenant.id, shiftId, userId)
+    : null;
+  return warning ? { ...res, warning } : res;
 }
 
 // Drag-and-drop create-and-assign (Kati's rostering feedback #2): dropping an
@@ -2319,7 +2356,7 @@ export async function createAndAssignViaDnd(
   role: string,
   userId: string | null,
   placeholderName: string | null,
-): Promise<{ ok: boolean; message?: string }> {
+): Promise<{ ok: boolean; message?: string; warning?: string }> {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateIso);
   if (!m) return { ok: false, message: "Invalid date." };
   if (!locationId) {
@@ -2400,9 +2437,16 @@ export async function createAndAssignViaDnd(
     }
   });
 
+  // Soft training-gap warning (items 4 & 7) for the just-created area shift.
+  const warning = userId
+    ? fmtTrainingGap(
+        await findAreaTrainingGap(membership.tenant.id, locationId, role, userId),
+      )
+    : null;
+
   revalidatePath("/app/schedule");
   revalidatePath("/app/my-shifts");
-  return { ok: true };
+  return warning ? { ok: true, warning } : { ok: true };
 }
 
 // Double-booking guard for the MOVE paths. The assign paths already block an
@@ -2557,7 +2601,7 @@ export async function moveShiftToAreaAction(input: {
   deltaDays: number;
   locationId: string;
   role: string;
-}): Promise<{ ok: boolean; message?: string }> {
+}): Promise<{ ok: boolean; message?: string; warning?: string }> {
   const parsed = moveToAreaSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "Invalid move." };
   const { shiftId, deltaDays, locationId, role } = parsed.data;
@@ -2650,9 +2694,33 @@ export async function moveShiftToAreaAction(input: {
       ),
   );
 
+  // Soft training-gap warning (items 4 & 7): flag the first accepted assignee
+  // who isn't trained for the NEW area. Doesn't block the move.
+  let warning: string | undefined;
+  const assignees = await forTenant(membership.tenant.id).run((tx) =>
+    tx
+      .select({ userId: scShiftAssignments.userId })
+      .from(scShiftAssignments)
+      .where(
+        and(
+          eq(scShiftAssignments.shiftId, shiftId),
+          eq(scShiftAssignments.status, "accepted"),
+        ),
+      ),
+  );
+  for (const a of assignees) {
+    const msg = fmtTrainingGap(
+      await findAreaTrainingGap(membership.tenant.id, locationId, role, a.userId),
+    );
+    if (msg) {
+      warning = msg;
+      break;
+    }
+  }
+
   revalidatePath("/app/schedule");
   revalidatePath("/app/my-shifts");
-  return { ok: true };
+  return warning ? { ok: true, warning } : { ok: true };
 }
 
 // Save an existing shift as a reusable template (item: "save the template so

@@ -4,7 +4,13 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import { forTenant, scAreas, scShifts, scShiftTemplates } from "@tracey/db";
+import {
+  forTenant,
+  scAreas,
+  scAreaSkills,
+  scShifts,
+  scShiftTemplates,
+} from "@tracey/db";
 import { currentMembership } from "~/lib/auth/current";
 import { logAuditEvent } from "~/lib/audit";
 import { isAtLeastManager } from "~/lib/roles";
@@ -209,6 +215,70 @@ export async function updateAreaAction(
   revalidatePath(`/app/areas/${id}/edit`);
   revalidatePath("/app/schedule");
   return { status: "ok", message: "Saved." };
+}
+
+// Replace the set of skills required to work in an area (items 4 & 7). Used by
+// the per-area "Required skills" picker on the edit page. Delete-then-insert is
+// fine here — the set is tiny and the unique index would otherwise need an
+// upsert dance. Empty selection clears all requirements.
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export async function setAreaSkillsAction(
+  areaId: string,
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const g = await requireManagerTenant();
+  if (!g.ok) return { status: "error", message: g.message };
+
+  const [area] = await forTenant(g.tenantId).run((tx) =>
+    tx
+      .select({ id: scAreas.id })
+      .from(scAreas)
+      .where(and(eq(scAreas.id, areaId), eq(scAreas.traceyTenantId, g.tenantId)))
+      .limit(1),
+  );
+  if (!area) return { status: "error", message: "Area not found." };
+
+  const skillIds = Array.from(
+    new Set(
+      formData
+        .getAll("skillIds")
+        .map(String)
+        .filter((v) => UUID_RE.test(v)),
+    ),
+  );
+
+  await forTenant(g.tenantId).run(async (tx) => {
+    await tx
+      .delete(scAreaSkills)
+      .where(
+        and(
+          eq(scAreaSkills.traceyTenantId, g.tenantId),
+          eq(scAreaSkills.areaId, areaId),
+        ),
+      );
+    if (skillIds.length > 0) {
+      await tx.insert(scAreaSkills).values(
+        skillIds.map((skillId) => ({
+          traceyTenantId: g.tenantId,
+          areaId,
+          skillId,
+        })),
+      );
+    }
+  });
+
+  await logAuditEvent({
+    action: "shiftcraft.area.skills_set",
+    targetKind: "sc_area",
+    targetId: areaId,
+    details: { count: skillIds.length },
+  });
+  revalidatePath(`/app/areas/${areaId}/edit`);
+  revalidatePath("/app/schedule");
+  return { status: "ok", message: "Required skills saved." };
 }
 
 // Delete an area (removes it from the managed vocabulary). Existing shifts keep

@@ -1851,6 +1851,29 @@ export const scEmployeeSkills = pgTable(
   ],
 );
 
+// sc_area_skills — per-area required skills/training (items 4 & 7). An area
+// can require any number of skills. When an employee is dragged onto a shift
+// in that area (or a shift is moved into it) without every required skill,
+// the roster shows a soft "not trained for this area" warning. It never
+// blocks — a manager may still roster them deliberately.
+export const scAreaSkills = pgTable(
+  "sc_area_skills",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    areaId: uuid("area_id").notNull(),
+    skillId: uuid("skill_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("sc_area_skills_uq").on(t.traceyTenantId, t.areaId, t.skillId),
+    index("sc_area_skills_area_idx").on(t.traceyTenantId, t.areaId),
+    index("sc_area_skills_skill_idx").on(t.traceyTenantId, t.skillId),
+  ],
+);
+
 // ─── Web push subscriptions (AUDIT.md #12) ──────────────────────────
 //
 // One row per (user, browser endpoint). A single user can have many —

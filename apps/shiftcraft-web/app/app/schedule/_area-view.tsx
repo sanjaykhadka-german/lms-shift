@@ -712,6 +712,9 @@ export function AreaScheduleView({
   }
   const [, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // Soft, non-blocking notice (e.g. "not trained for this area" — items 4 & 7).
+  // The action still succeeded; this is amber guidance, not a red failure.
+  const [warning, setWarning] = useState<string | null>(null);
   // Mount-time clock used to lock shifts that have started. Starts null so the
   // first client render matches the server (no hydration mismatch), then ticks
   // each minute so a shift locks as its start time passes.
@@ -871,6 +874,7 @@ export function AreaScheduleView({
   function handleDragEnd(event: DragEndEvent) {
     setActive(null);
     setError(null);
+    setWarning(null);
     const { active: a, over } = event;
     if (!over) return;
 
@@ -885,6 +889,7 @@ export function AreaScheduleView({
       startTransition(async () => {
         const res = await assignEmployeeViaDnd(targetShiftId, appUserId);
         if (res.status === "error") setError(res.message);
+        else if (res.warning) setWarning(res.warning);
         router.refresh();
       });
       return;
@@ -914,6 +919,7 @@ export function AreaScheduleView({
           appUserId ? null : empName,
         );
         if (!res.ok) setError(res.message ?? "Couldn't create that shift.");
+        else if (res.warning) setWarning(res.warning);
         router.refresh();
       });
       return;
@@ -967,6 +973,7 @@ export function AreaScheduleView({
             role: targetRole,
           });
           if (!res.ok) setError(res.message ?? "Couldn't move that shift.");
+          else if (res.warning) setWarning(res.warning);
           router.refresh();
         });
         return;
@@ -1005,6 +1012,11 @@ export function AreaScheduleView({
       {error && (
         <p className="mb-2 rounded-[var(--r-sm)] border border-[color-mix(in_srgb,var(--danger)_45%,transparent)] bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] px-3 py-1.5 text-xs font-medium text-[var(--danger)]">
           {error}
+        </p>
+      )}
+      {warning && (
+        <p className="mb-2 rounded-[var(--r-sm)] border border-[color-mix(in_srgb,var(--warn)_50%,transparent)] bg-[color-mix(in_srgb,var(--warn)_12%,transparent)] px-3 py-1.5 text-xs font-medium text-ink">
+          {warning}
         </p>
       )}
 

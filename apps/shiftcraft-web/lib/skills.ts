@@ -2,6 +2,9 @@ import "server-only";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import {
   forTenant,
+  scAreas,
+  scAreaSkills,
+  scEmployees,
   scEmployeeSkills,
   scSkills,
   type ScSkill,
@@ -101,6 +104,107 @@ export async function listSkillsForEmployee(
       ),
   );
   return rows.map((r) => r.skillId);
+}
+
+// ─── Per-area required skills (items 4 & 7) ─────────────────────────
+
+/** Skill IDs required to work in a given area. */
+export async function listAreaSkillIds(
+  tenantId: string,
+  areaId: string,
+): Promise<string[]> {
+  const rows = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({ skillId: scAreaSkills.skillId })
+      .from(scAreaSkills)
+      .where(
+        and(
+          eq(scAreaSkills.traceyTenantId, tenantId),
+          eq(scAreaSkills.areaId, areaId),
+        ),
+      ),
+  );
+  return rows.map((r) => r.skillId);
+}
+
+export interface AreaTrainingGap {
+  areaName: string;
+  /** Names of required skills the employee does NOT hold. */
+  missing: string[];
+}
+
+/**
+ * Soft training-gap check for rostering `appUserId` into the area identified
+ * by (locationId, role). Returns null — i.e. nothing to warn about — when the
+ * area has no required skills, no area row matches, the user isn't a linked
+ * employee, or they already hold every required skill. Never blocks; the
+ * caller surfaces the gap as a warning the manager can ignore.
+ */
+export async function findAreaTrainingGap(
+  tenantId: string,
+  locationId: string | null,
+  role: string,
+  appUserId: string,
+): Promise<AreaTrainingGap | null> {
+  if (!locationId) return null;
+  return forTenant(tenantId).run(async (tx) => {
+    const [area] = await tx
+      .select({ id: scAreas.id, name: scAreas.name })
+      .from(scAreas)
+      .where(
+        and(
+          eq(scAreas.traceyTenantId, tenantId),
+          eq(scAreas.locationId, locationId),
+          sql`lower(${scAreas.name}) = lower(${role})`,
+        ),
+      )
+      .limit(1);
+    if (!area) return null;
+
+    const required = await tx
+      .select({ skillId: scAreaSkills.skillId, name: scSkills.name })
+      .from(scAreaSkills)
+      .innerJoin(scSkills, eq(scSkills.id, scAreaSkills.skillId))
+      .where(
+        and(
+          eq(scAreaSkills.traceyTenantId, tenantId),
+          eq(scAreaSkills.areaId, area.id),
+        ),
+      );
+    if (required.length === 0) return null;
+
+    const [emp] = await tx
+      .select({ id: scEmployees.id })
+      .from(scEmployees)
+      .where(
+        and(
+          eq(scEmployees.traceyTenantId, tenantId),
+          eq(scEmployees.appUserId, appUserId),
+        ),
+      )
+      .limit(1);
+    if (!emp) return null; // not a linked employee — can't assess, don't warn
+
+    const held = new Set(
+      (
+        await tx
+          .select({ skillId: scEmployeeSkills.skillId })
+          .from(scEmployeeSkills)
+          .where(
+            and(
+              eq(scEmployeeSkills.traceyTenantId, tenantId),
+              eq(scEmployeeSkills.employeeId, emp.id),
+            ),
+          )
+      ).map((r) => r.skillId),
+    );
+
+    const missing = required
+      .filter((r) => !held.has(r.skillId))
+      .map((r) => r.name);
+    if (missing.length === 0) return null;
+    return { areaName: area.name, missing };
+  });
 }
 
 // Same shape as deriveSlugFromName in leave-types.ts. Duplicated
