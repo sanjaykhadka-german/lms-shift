@@ -150,7 +150,13 @@ export default async function KioskVisitorPage({
                       ? "Please enter the company or organisation you're from."
                       : error === "reason"
                         ? "Please enter a reason for your visit."
-                        : "Please fill in your full name and mobile number."}
+                        : error === "tools"
+                          ? "Please answer the tools question (and describe them if yes)."
+                          : error === "illness"
+                            ? "Please answer the illness question (and describe symptoms if yes)."
+                            : error === "policy"
+                              ? "Please read and agree to the Visitors Policy before signing in."
+                              : "Please fill in your full name and mobile number."}
             </p>
           ) : null}
 

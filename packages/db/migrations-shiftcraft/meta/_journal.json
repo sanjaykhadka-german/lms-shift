@@ -351,6 +351,13 @@
       "when": 1782103936386,
       "tag": "0049_narrow_rage",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1782212791840,
+      "tag": "0050_opposite_menace",
+      "breakpoints": true
     }
   ]
 }

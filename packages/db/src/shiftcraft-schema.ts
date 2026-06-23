@@ -1327,6 +1327,15 @@ export const scVisitorSignins = pgTable(
     signedOutAt: timestamp("signed_out_at", { withTimezone: true }),
     source: text("source").notNull().default("kiosk"),
     notes: text("notes"),
+    // Visitor-policy screening captured at sign-in (POL 1.4.1.2). Nullable so
+    // historical rows (which predate the questions) stay "not asked"; the kiosk
+    // form always writes explicit values for new sign-ins.
+    broughtTools: boolean("brought_tools"),
+    toolsDescription: text("tools_description"),
+    recentIllness: boolean("recent_illness"),
+    illnessDescription: text("illness_description"),
+    policyAgreed: boolean("policy_agreed"),
+    policyVersion: text("policy_version"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

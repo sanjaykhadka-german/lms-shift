@@ -23,6 +23,11 @@ import { createNotifications, notifyTenantAdmins } from "~/lib/notifications";
 const MAX_SIGNATURE_BYTES = 1024 * 1024;
 const PNG_DATA_URL_RE = /^data:image\/png;base64,(.+)$/i;
 
+// The visitors-policy document version a visitor agrees to at sign-in. Bump
+// this (and replace public/visitors-policy.pdf) when the policy is reissued so
+// historical sign-ins record which version was actually agreed to.
+const VISITORS_POLICY_VERSION = "POL 1.4.1.2 2026";
+
 function decodeSignature(raw: string): Buffer | null {
   const m = PNG_DATA_URL_RE.exec(raw);
   if (!m) return null;
@@ -84,6 +89,15 @@ export async function visitorSignInAction(formData: FormData): Promise<void> {
   const visitReason = field(formData, "visitReason", 300);
   const sig = decodeSignature(String(formData.get("signInSignature") ?? ""));
 
+  // Visitor-policy screening (POL 1.4.1.2). Toggles arrive as "yes"/"no";
+  // descriptions only matter when the answer is "yes". The policy checkbox
+  // submits "on" when ticked.
+  const broughtToolsRaw = String(formData.get("broughtTools") ?? "");
+  const recentIllnessRaw = String(formData.get("recentIllness") ?? "");
+  const toolsDescription = field(formData, "toolsDescription", 300);
+  const illnessDescription = field(formData, "illnessDescription", 300);
+  const policyAgreed = formData.get("policyAgreed") === "on";
+
   // Required fields: name, mobile, a chosen employee, and a signature. Report
   // the SPECIFIC missing field so the banner can say exactly what's wrong
   // (the old generic "missing" made failures impossible to diagnose).
@@ -97,6 +111,23 @@ export async function visitorSignInAction(formData: FormData): Promise<void> {
   }
   if (!visitReason) {
     redirect("/kiosk/visitor?error=reason");
+  }
+  // Screening: both toggles must be a clear yes/no, a "yes" needs a
+  // description, and the policy must be agreed before anyone can sign in.
+  if (
+    (broughtToolsRaw !== "yes" && broughtToolsRaw !== "no") ||
+    (broughtToolsRaw === "yes" && !toolsDescription)
+  ) {
+    redirect("/kiosk/visitor?error=tools");
+  }
+  if (
+    (recentIllnessRaw !== "yes" && recentIllnessRaw !== "no") ||
+    (recentIllnessRaw === "yes" && !illnessDescription)
+  ) {
+    redirect("/kiosk/visitor?error=illness");
+  }
+  if (!policyAgreed) {
+    redirect("/kiosk/visitor?error=policy");
   }
   if (!UUID_RE.test(visitingEmployeeId)) {
     redirect("/kiosk/visitor?error=employee");
@@ -147,6 +178,13 @@ export async function visitorSignInAction(formData: FormData): Promise<void> {
       visitReason,
       signInSignature: sig,
       source: "kiosk",
+      broughtTools: broughtToolsRaw === "yes",
+      toolsDescription: broughtToolsRaw === "yes" ? toolsDescription : null,
+      recentIllness: recentIllnessRaw === "yes",
+      illnessDescription:
+        recentIllnessRaw === "yes" ? illnessDescription : null,
+      policyAgreed: true,
+      policyVersion: VISITORS_POLICY_VERSION,
     }),
   );
 

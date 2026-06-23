@@ -11,7 +11,9 @@ import { currentMembership } from "~/lib/auth/current";
 import { isAtLeastManager } from "~/lib/roles";
 
 function csvCell(v: string | null): string {
-  const s = (v ?? "").replace(/\r?\n/g, " ");
+  let s = (v ?? "").replace(/\r?\n/g, " ");
+  // Neutralize CSV formula injection (leading = + - @).
+  if (/^[=+\-@]/.test(s)) s = `'${s}`;
   // Quote if it contains a comma, quote, or leading/trailing space.
   if (/[",]/.test(s) || s !== s.trim()) {
     return `"${s.replace(/"/g, '""')}"`;
@@ -21,6 +23,12 @@ function csvCell(v: string | null): string {
 
 function fmt(d: Date | null): string {
   return d ? d.toISOString() : "";
+}
+
+// Render a nullable screening boolean as Yes / No / "" (blank = not asked, for
+// historical rows that predate the screening fields).
+function yesNo(v: boolean | null): string {
+  return v === null ? "" : v ? "Yes" : "No";
 }
 
 function parseDay(raw: string | null): Date | null {
@@ -54,6 +62,12 @@ export async function GET(request: Request): Promise<NextResponse> {
         visitorMobile: scVisitorSignins.visitorMobile,
         visitingPerson: scVisitorSignins.visitingPerson,
         visitReason: scVisitorSignins.visitReason,
+        broughtTools: scVisitorSignins.broughtTools,
+        toolsDescription: scVisitorSignins.toolsDescription,
+        recentIllness: scVisitorSignins.recentIllness,
+        illnessDescription: scVisitorSignins.illnessDescription,
+        policyAgreed: scVisitorSignins.policyAgreed,
+        policyVersion: scVisitorSignins.policyVersion,
         signedInAt: scVisitorSignins.signedInAt,
         signedOutAt: scVisitorSignins.signedOutAt,
       })
@@ -68,6 +82,12 @@ export async function GET(request: Request): Promise<NextResponse> {
     "Mobile",
     "Visiting Person",
     "Visit Reason",
+    "Brought Tools",
+    "Tools Detail",
+    "Recent Illness",
+    "Illness Detail",
+    "Policy Agreed",
+    "Policy Version",
     "Signed In",
     "Signed Out",
     "Status",
@@ -81,6 +101,12 @@ export async function GET(request: Request): Promise<NextResponse> {
         csvCell(r.visitorMobile),
         csvCell(r.visitingPerson),
         csvCell(r.visitReason),
+        csvCell(yesNo(r.broughtTools)),
+        csvCell(r.toolsDescription),
+        csvCell(yesNo(r.recentIllness)),
+        csvCell(r.illnessDescription),
+        csvCell(yesNo(r.policyAgreed)),
+        csvCell(r.policyVersion),
         csvCell(fmt(r.signedInAt)),
         csvCell(fmt(r.signedOutAt)),
         csvCell(r.signedOutAt ? "Signed Out" : "Signed In"),

@@ -27,6 +27,40 @@ function fmtTime(iso: string): string {
   });
 }
 
+// Two-button No/Yes toggle. Mirrors the in/out tab styling. Writes the chosen
+// value into a hidden input so it submits with the form action.
+function YesNo({
+  name,
+  value,
+  onChange,
+}: {
+  name: string;
+  value: "" | "yes" | "no";
+  onChange: (v: "yes" | "no") => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {(["no", "yes"] as const).map((opt) => (
+        <button
+          key={opt}
+          type="button"
+          onClick={() => onChange(opt)}
+          className={`rounded-xl px-4 py-3 text-sm font-semibold capitalize transition ${
+            value === opt
+              ? opt === "yes"
+                ? "bg-[var(--danger)] text-white"
+                : "bg-[var(--live)] text-white"
+              : "bg-[rgba(244,238,227,0.06)] text-[#a89c8c] hover:bg-[rgba(244,238,227,0.1)]"
+          }`}
+        >
+          {opt}
+        </button>
+      ))}
+      <input type="hidden" name={name} value={value} />
+    </div>
+  );
+}
+
 function SubmitButton({
   children,
   tone,
@@ -67,6 +101,21 @@ export function VisitorForm({
   const [employeeId, setEmployeeId] = useState("");
   // Sign-out signature is now mandatory too — gate the sign-out button on it.
   const [hasSignOutSignature, setHasSignOutSignature] = useState(false);
+  // Visitor-policy screening (POL 1.4.1.2). Both toggles must be answered; a
+  // description is required when "yes"; the policy must be agreed to sign in.
+  const [broughtTools, setBroughtTools] = useState<"" | "yes" | "no">("");
+  const [toolsDescription, setToolsDescription] = useState("");
+  const [recentIllness, setRecentIllness] = useState<"" | "yes" | "no">("");
+  const [illnessDescription, setIllnessDescription] = useState("");
+  const [policyAgreed, setPolicyAgreed] = useState(false);
+  const [policyOpen, setPolicyOpen] = useState(false);
+
+  const screeningIncomplete =
+    !policyAgreed ||
+    broughtTools === "" ||
+    recentIllness === "" ||
+    (broughtTools === "yes" && !toolsDescription.trim()) ||
+    (recentIllness === "yes" && !illnessDescription.trim());
 
   return (
     <div className="space-y-6">
@@ -166,20 +215,97 @@ export function VisitorForm({
               className={INPUT}
             />
           </div>
+
+          {/* Tools / equipment */}
+          <div>
+            <span className={LABEL}>
+              Are you bringing any tools or equipment on site? *
+            </span>
+            <YesNo
+              name="broughtTools"
+              value={broughtTools}
+              onChange={setBroughtTools}
+            />
+            {broughtTools === "yes" ? (
+              <input
+                name="toolsDescription"
+                value={toolsDescription}
+                onChange={(e) => setToolsDescription(e.target.value)}
+                maxLength={300}
+                placeholder="Please describe the tools / equipment"
+                className={`${INPUT} mt-2`}
+              />
+            ) : null}
+          </div>
+
+          {/* Illness / sickness in the past 3 days */}
+          <div>
+            <span className={LABEL}>
+              Have you had any illness or sickness symptoms in the past 3 days? *
+            </span>
+            <YesNo
+              name="recentIllness"
+              value={recentIllness}
+              onChange={setRecentIllness}
+            />
+            {recentIllness === "yes" ? (
+              <input
+                name="illnessDescription"
+                value={illnessDescription}
+                onChange={(e) => setIllnessDescription(e.target.value)}
+                maxLength={300}
+                placeholder="Please describe your symptoms"
+                className={`${INPUT} mt-2`}
+              />
+            ) : null}
+          </div>
+
+          {/* Visitor policy agreement */}
+          <div className="rounded-xl border border-[rgba(244,238,227,0.18)] bg-[rgba(244,238,227,0.05)] p-4">
+            <p className="text-sm text-[#e6ddcf]">
+              Please read our{" "}
+              <button
+                type="button"
+                onClick={() => setPolicyOpen(true)}
+                className="font-semibold text-[var(--accent)] underline"
+              >
+                Visitors Policy
+              </button>{" "}
+              before signing in.
+            </p>
+            <label className="mt-3 flex items-start gap-3 text-sm text-[#f4eee3]">
+              <input
+                type="checkbox"
+                name="policyAgreed"
+                checked={policyAgreed}
+                onChange={(e) => setPolicyAgreed(e.target.checked)}
+                className="mt-0.5 h-5 w-5 shrink-0 rounded border-[rgba(244,238,227,0.3)] accent-[var(--live)]"
+              />
+              <span>
+                I have read and agree to the Visitors Policy. *
+              </span>
+            </label>
+          </div>
+
           <SignaturePad
             name="signInSignature"
             label="Signature"
             required
             onInkChange={setHasSignature}
           />
-          {!employeeId || !hasSignature ? (
+          {!employeeId || !hasSignature || screeningIncomplete ? (
             <p className="text-xs text-[#a89c8c]">
               {!employeeId
-                ? "Choose who you're visiting, then sign in the box above."
-                : "Please sign in the box above to enable sign-in."}
+                ? "Choose who you're visiting, then complete the questions and sign."
+                : screeningIncomplete
+                  ? "Answer the questions above, agree to the policy, then sign."
+                  : "Please sign in the box above to enable sign-in."}
             </p>
           ) : null}
-          <SubmitButton tone="in" disabled={!employeeId || !hasSignature}>
+          <SubmitButton
+            tone="in"
+            disabled={!employeeId || !hasSignature || screeningIncomplete}
+          >
             Sign in
           </SubmitButton>
         </form>
@@ -225,6 +351,48 @@ export function VisitorForm({
           )}
         </form>
       )}
+
+      {/* Visitors Policy popup — renders the PDF inline (browser viewer) so a
+          kiosk tablet never leaves the page or triggers a download. */}
+      {policyOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setPolicyOpen(false)}
+        >
+          <div
+            className="flex h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-line bg-[#1a1512] shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-4 bg-[var(--accent)] px-5 py-3 text-[var(--accent-ink)]">
+              <span className="font-display text-lg font-semibold">
+                Visitors Policy
+              </span>
+              <div className="flex items-center gap-2">
+                <a
+                  href="/visitors-policy.pdf"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-full bg-[#17130f] px-4 py-1.5 text-sm font-medium text-[#f4eee3] transition hover:bg-[#241e19]"
+                >
+                  Open / Download
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setPolicyOpen(false)}
+                  className="rounded-full bg-[#17130f] px-4 py-1.5 text-sm font-medium text-[#f4eee3] transition hover:bg-[#241e19]"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            <iframe
+              src="/visitors-policy.pdf"
+              title="Visitors Policy"
+              className="h-full w-full flex-1 bg-white"
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

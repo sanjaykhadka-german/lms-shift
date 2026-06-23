@@ -36,6 +36,43 @@ function parseDay(raw: string | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+// Screening flags from the kiosk sign-in (illness = safety; tools = on-site
+// equipment). Only renders when the visitor answered "yes"; the description is
+// shown on hover via title. Illness is highlighted (danger) for follow-up.
+function ScreeningFlags({
+  recentIllness,
+  illnessDescription,
+  broughtTools,
+  toolsDescription,
+}: {
+  recentIllness: boolean | null;
+  illnessDescription: string | null;
+  broughtTools: boolean | null;
+  toolsDescription: string | null;
+}) {
+  if (!recentIllness && !broughtTools) return null;
+  return (
+    <span className="ml-1 inline-flex flex-wrap gap-1 align-middle">
+      {recentIllness ? (
+        <span
+          title={illnessDescription ?? "Recent illness reported"}
+          className="inline-flex items-center rounded-full bg-[var(--danger)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white"
+        >
+          Illness
+        </span>
+      ) : null}
+      {broughtTools ? (
+        <span
+          title={toolsDescription ?? "Brought tools/equipment"}
+          className="inline-flex items-center rounded-full bg-[var(--ink-3)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white"
+        >
+          Tools
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 export default async function VisitorsAdminPage({
   searchParams,
 }: {
@@ -82,6 +119,10 @@ export default async function VisitorsAdminPage({
           visitorMobile: scVisitorSignins.visitorMobile,
           visitingPerson: scVisitorSignins.visitingPerson,
           visitReason: scVisitorSignins.visitReason,
+          broughtTools: scVisitorSignins.broughtTools,
+          toolsDescription: scVisitorSignins.toolsDescription,
+          recentIllness: scVisitorSignins.recentIllness,
+          illnessDescription: scVisitorSignins.illnessDescription,
           signedInAt: scVisitorSignins.signedInAt,
           signedOutAt: scVisitorSignins.signedOutAt,
         })
@@ -221,6 +262,12 @@ export default async function VisitorsAdminPage({
                         · {v.visitorCompany}
                       </span>
                     ) : null}
+                    <ScreeningFlags
+                      recentIllness={v.recentIllness}
+                      illnessDescription={v.illnessDescription}
+                      broughtTools={v.broughtTools}
+                      toolsDescription={v.toolsDescription}
+                    />
                   </div>
                   <div className="mt-0.5 text-xs text-muted-foreground">
                     visiting {v.visitingPerson} · {v.visitorMobile} · since{" "}
@@ -274,6 +321,12 @@ export default async function VisitorsAdminPage({
                     <td className="px-5 py-2.5">
                       <div className="font-medium text-ink">
                         {v.visitorName}
+                        <ScreeningFlags
+                          recentIllness={v.recentIllness}
+                          illnessDescription={v.illnessDescription}
+                          broughtTools={v.broughtTools}
+                          toolsDescription={v.toolsDescription}
+                        />
                       </div>
                       <div className="text-xs text-muted-foreground">
                         {v.visitorCompany ? `${v.visitorCompany} · ` : ""}
