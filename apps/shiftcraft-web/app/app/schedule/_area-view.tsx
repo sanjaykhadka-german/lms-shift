@@ -1128,9 +1128,12 @@ export function AreaScheduleView({
           </ul>
         </aside>
 
-        {/* Right: N-day area grid */}
-        <div className="min-w-0 flex-1 overflow-x-auto rounded-lg border border-border bg-card shadow-sm">
-          <div className="grid border-b border-border bg-muted/30" style={gridCols}>
+        {/* Right: N-day area grid. Caps height + scrolls internally so the day
+            header can stick to the top while a long roster scrolls under it.
+            overflow-auto (not -x) gives the vertical scroll context sticky needs;
+            horizontal scroll for the 2-week view is preserved. */}
+        <div className="min-w-0 flex-1 max-h-[70vh] overflow-auto rounded-lg border border-border bg-card shadow-sm">
+          <div className="sticky top-0 z-10 grid border-b border-border bg-[var(--paper-2)]" style={gridCols}>
             {dayHeaders.map((d, i) => {
               const holiday = holidayNames[i] ?? null;
               return (
