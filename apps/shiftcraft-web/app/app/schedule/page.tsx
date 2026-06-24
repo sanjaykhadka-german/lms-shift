@@ -28,7 +28,13 @@ import {
 import { currentMembership, requireUser } from "~/lib/auth/current";
 import { forecastWeek } from "~/lib/labour-forecast";
 import { getHolidaysForTenant } from "~/lib/holidays";
-import { getManagedLocationIds, scopeArray } from "~/lib/manager-scope";
+import {
+  getLeadAreaIds,
+  getManagedLocationIds,
+  resolveLeadAreas,
+  scopeArray,
+} from "~/lib/manager-scope";
+import { isLead } from "~/lib/roles";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
 import { WeeklyLabourForecast } from "~/components/WeeklyLabourForecast";
@@ -119,7 +125,23 @@ export default async function SchedulePage({
     me.id,
     membership.role,
   );
-  const scopeIds = scopeArray(scope);
+  let scopeIds = scopeArray(scope);
+  // A Lead views their team's schedule read-only, narrowed to the location(s)
+  // of their assigned area(s). No grants → empty scope → sees nothing (the
+  // location filter resolves to no rows). Leads never get edit affordances
+  // (isAdmin / isAtLeastManager are false for the "lead" role).
+  if (isLead(membership.role)) {
+    const areaIds = await getLeadAreaIds(
+      membership.tenant.id,
+      me.id,
+      membership.role,
+    );
+    const resolved = await resolveLeadAreas(
+      membership.tenant.id,
+      areaIds ?? new Set(),
+    );
+    scopeIds = Array.from(resolved.locationIds);
+  }
 
   const {
     week,

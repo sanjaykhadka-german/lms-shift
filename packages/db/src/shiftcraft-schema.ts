@@ -2016,6 +2016,46 @@ export const scManagerLocations = pgTable(
   ],
 );
 
+// ─── Lead area scopes (Access levels — "Lead" tier) ─────────────────
+//
+// Per-tenant assignment of a Lead (role='lead' on the tenant membership)
+// to one or more specific areas/teams (sc_areas). A Lead is an approve-only
+// team supervisor: they VIEW their team's schedule (read-only) and VIEW +
+// APPROVE their team's timesheets, scoped to exactly these areas. Unlike the
+// location-manager back-compat case, a Lead with NO rows sees NOTHING (never
+// everything) — same fail-closed rule as a Location Manager.
+//
+// Directly mirrors sc_manager_locations (above), keyed on area_id instead of
+// location_id. Side table for the same reason: the `app.members` row lives in
+// the shared `app` schema reused by other apps, so ShiftCraft-specific area
+// semantics stay in a per-tenant sc_* table, RLS-isolated.
+export const scLeadAreas = pgTable(
+  "sc_lead_areas",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    appUserId: uuid("app_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    areaId: uuid("area_id").notNull(),
+    grantedByUserId: uuid("granted_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("sc_lead_areas_user_area_uq").on(
+      t.traceyTenantId,
+      t.appUserId,
+      t.areaId,
+    ),
+    index("sc_lead_areas_user_idx").on(t.traceyTenantId, t.appUserId),
+    index("sc_lead_areas_area_idx").on(t.traceyTenantId, t.areaId),
+  ],
+);
+
 // ─── Outbound webhook subscriptions (AUDIT.md #10) ──────────────────
 //
 // One row per (tenant, event, target URL). Receivers register a URL +

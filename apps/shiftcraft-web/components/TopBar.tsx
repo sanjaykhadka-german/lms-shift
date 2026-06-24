@@ -37,7 +37,7 @@ const TITLES: Record<string, string> = {
   "/app/admin/documents-expiring": "Doc expiry digest",
   "/app/admin/kiosks": "Kiosks",
   "/app/admin/leave-types": "Leave types",
-  "/app/admin/manager-scopes": "Manager scopes",
+  "/app/admin/manager-scopes": "Access scopes",
   "/app/admin/payroll": "Payroll",
   "/app/admin/skills": "Skills",
   "/app/admin/webhooks": "Webhooks",

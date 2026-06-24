@@ -10,8 +10,38 @@ import {
 import { currentMembership, currentUser } from "~/lib/auth/current";
 import { logAuditEvent } from "~/lib/audit";
 import { addDays, fmtIsoDate, parseIsoDate, startOfWeek } from "~/lib/clock";
-import { isAtLeastManager } from "~/lib/roles";
+import { canApproveTimesheets, isAtLeastManager, isLead } from "~/lib/roles";
+import {
+  getLeadAreaIds,
+  getLeadTeamUserIds,
+  resolveLeadAreas,
+} from "~/lib/manager-scope";
 import { emitWebhook } from "~/lib/webhooks";
+
+// Approval power = managers (unrestricted, matching the view layer) OR a Lead
+// scoped to their area-team for that week. A Lead may only approve/dispute the
+// timesheets of employees rostered into one of their areas during the week —
+// every approval action funnels through here so the gate can't be bypassed by
+// posting an arbitrary employeeUserId.
+async function actorMayApproveEmployeeWeek(
+  role: string,
+  tenantId: string,
+  actorUserId: string,
+  employeeUserId: string,
+  weekStart: Date,
+): Promise<boolean> {
+  if (isAtLeastManager(role)) return true;
+  if (!isLead(role)) return false;
+  const areaIds = await getLeadAreaIds(tenantId, actorUserId, role);
+  const resolved = await resolveLeadAreas(tenantId, areaIds ?? new Set());
+  const team = await getLeadTeamUserIds(
+    tenantId,
+    resolved,
+    weekStart,
+    addDays(weekStart, 7),
+  );
+  return team.has(employeeUserId);
+}
 
 // The actions below are bound straight to <form action={...}>, so they
 // must return Promise<void>. Errors are logged server-side and the page
@@ -42,8 +72,8 @@ async function gateAndParse(
 ): Promise<{ ok: true; tenantId: string; me: string; payload: BasePayload } | { ok: false; message: string }> {
   const m = await currentMembership();
   if (!m) return { ok: false, message: "Not signed in." };
-  if (!isAtLeastManager(m.role)) {
-    return { ok: false, message: "Only managers can change approval state." };
+  if (!canApproveTimesheets(m.role)) {
+    return { ok: false, message: "You can't change approval state." };
   }
   const me = await currentUser();
   if (!me) return { ok: false, message: "Not signed in." };
@@ -54,6 +84,17 @@ async function gateAndParse(
   const weekParsed = parseWeekStartOrError(weekRaw);
   if (typeof weekParsed === "string") {
     return { ok: false, message: weekParsed };
+  }
+  if (
+    !(await actorMayApproveEmployeeWeek(
+      m.role,
+      m.tenant.id,
+      me.id,
+      employeeUserId,
+      weekParsed,
+    ))
+  ) {
+    return { ok: false, message: "That employee isn't in your team." };
   }
   return {
     ok: true,
@@ -213,8 +254,8 @@ async function gateAndParseBulk(
 > {
   const m = await currentMembership();
   if (!m) return { ok: false, message: "Not signed in." };
-  if (!isAtLeastManager(m.role)) {
-    return { ok: false, message: "Only managers can change approval state." };
+  if (!canApproveTimesheets(m.role)) {
+    return { ok: false, message: "You can't change approval state." };
   }
   const me = await currentUser();
   if (!me) return { ok: false, message: "Not signed in." };
@@ -224,12 +265,28 @@ async function gateAndParseBulk(
   if (typeof weekParsed === "string") {
     return { ok: false, message: weekParsed };
   }
-  const employeeUserIds = formData
+  let employeeUserIds = formData
     .getAll("userId")
     .map((v) => String(v).trim())
     .filter((v) => v.length > 0);
   if (employeeUserIds.length === 0) {
     return { ok: false, message: "No employees selected." };
+  }
+  // A Lead may only bulk-approve their own area-team for the week; silently
+  // drop anyone out of scope so a crafted payload can't reach other staff.
+  if (isLead(m.role)) {
+    const areaIds = await getLeadAreaIds(m.tenant.id, me.id, m.role);
+    const resolved = await resolveLeadAreas(m.tenant.id, areaIds ?? new Set());
+    const team = await getLeadTeamUserIds(
+      m.tenant.id,
+      resolved,
+      weekParsed,
+      addDays(weekParsed, 7),
+    );
+    employeeUserIds = employeeUserIds.filter((id) => team.has(id));
+    if (employeeUserIds.length === 0) {
+      return { ok: false, message: "No employees in your team selected." };
+    }
   }
   return {
     ok: true,
@@ -450,8 +507,8 @@ async function gateAndParseDay(
 > {
   const m = await currentMembership();
   if (!m) return { ok: false, message: "Not signed in." };
-  if (!isAtLeastManager(m.role)) {
-    return { ok: false, message: "Only managers can change approval state." };
+  if (!canApproveTimesheets(m.role)) {
+    return { ok: false, message: "You can't change approval state." };
   }
   const me = await currentUser();
   if (!me) return { ok: false, message: "Not signed in." };
@@ -462,6 +519,17 @@ async function gateAndParseDay(
   const workDate = parseIsoDate(workRaw);
   if (!workDate) return { ok: false, message: "Invalid date." };
   const weekStart = startOfWeek(workDate);
+  if (
+    !(await actorMayApproveEmployeeWeek(
+      m.role,
+      m.tenant.id,
+      me.id,
+      employeeUserId,
+      weekStart,
+    ))
+  ) {
+    return { ok: false, message: "That employee isn't in your team." };
+  }
   return {
     ok: true,
     tenantId: m.tenant.id,

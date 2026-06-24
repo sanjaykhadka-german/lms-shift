@@ -3,7 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { forTenant, scLocations, scManagerLocations } from "@tracey/db";
+import {
+  forTenant,
+  scAreas,
+  scLeadAreas,
+  scLocations,
+  scManagerLocations,
+} from "@tracey/db";
 import { currentMembership, requireUser } from "~/lib/auth/current";
 import { isAdmin as isOwnerLevel } from "~/lib/roles";
 import { logAuditEvent } from "~/lib/audit";
@@ -125,5 +131,93 @@ export async function clearScopeAction(formData: FormData): Promise<void> {
     details: { appUserId: userId },
   });
   revalidatePath("/app/admin/manager-scopes");
+  revalidatePath("/app/schedule");
+}
+
+// ─── Lead area scopes (Access levels — "Lead" tier) ─────────────────
+//
+// Same owner-only model as the location scopes above, but grants a Lead one
+// or more areas (sc_areas). A Lead with no areas sees nothing (fail-closed).
+
+const grantAreaSchema = z.object({
+  appUserId: z.string().uuid(),
+  areaId: z.string().uuid(),
+});
+
+export async function grantLeadAreaAction(formData: FormData): Promise<void> {
+  const parsed = grantAreaSchema.safeParse({
+    appUserId: formData.get("appUserId"),
+    areaId: formData.get("areaId"),
+  });
+  if (!parsed.success) return;
+  const membership = await requireOwner();
+  const me = await requireUser();
+  const tenantId = membership.tenant.id;
+
+  // Confirm the area belongs to this tenant before granting.
+  const [area] = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({ id: scAreas.id })
+      .from(scAreas)
+      .where(
+        and(
+          eq(scAreas.id, parsed.data.areaId),
+          eq(scAreas.traceyTenantId, tenantId),
+        ),
+      )
+      .limit(1),
+  );
+  if (!area) return;
+
+  await forTenant(tenantId).run((tx) =>
+    tx
+      .insert(scLeadAreas)
+      .values({
+        traceyTenantId: tenantId,
+        appUserId: parsed.data.appUserId,
+        areaId: parsed.data.areaId,
+        grantedByUserId: me.id,
+      })
+      .onConflictDoNothing(),
+  );
+
+  await logAuditEvent({
+    action: "shiftcraft.lead_scope.granted",
+    targetKind: "sc_lead_area",
+    details: parsed.data,
+  });
+  revalidatePath("/app/admin/manager-scopes");
+  revalidatePath("/app/timesheets");
+  revalidatePath("/app/schedule");
+}
+
+export async function revokeLeadAreaAction(formData: FormData): Promise<void> {
+  const parsed = grantAreaSchema.safeParse({
+    appUserId: formData.get("appUserId"),
+    areaId: formData.get("areaId"),
+  });
+  if (!parsed.success) return;
+  const membership = await requireOwner();
+  const tenantId = membership.tenant.id;
+
+  await forTenant(tenantId).run((tx) =>
+    tx
+      .delete(scLeadAreas)
+      .where(
+        and(
+          eq(scLeadAreas.traceyTenantId, tenantId),
+          eq(scLeadAreas.appUserId, parsed.data.appUserId),
+          eq(scLeadAreas.areaId, parsed.data.areaId),
+        ),
+      ),
+  );
+
+  await logAuditEvent({
+    action: "shiftcraft.lead_scope.revoked",
+    targetKind: "sc_lead_area",
+    details: parsed.data,
+  });
+  revalidatePath("/app/admin/manager-scopes");
+  revalidatePath("/app/timesheets");
   revalidatePath("/app/schedule");
 }

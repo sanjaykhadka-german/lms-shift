@@ -48,7 +48,7 @@ export const NAV_MODULES: NavModule[] = [
   { label: "Kiosks", href: "/app/admin/kiosks", adminOnly: true },
   { label: "Visitors", href: "/app/admin/visitors", adminOnly: true },
   { label: "Leave types", href: "/app/admin/leave-types", adminOnly: true },
-  { label: "Manager scopes", href: "/app/admin/manager-scopes", adminOnly: true },
+  { label: "Access scopes", href: "/app/admin/manager-scopes", adminOnly: true },
   { label: "Payroll (Xero)", href: "/app/admin/payroll", adminOnly: true },
   { label: "Skills", href: "/app/admin/skills", adminOnly: true },
   { label: "Webhooks", href: "/app/admin/webhooks", adminOnly: true },

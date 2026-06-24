@@ -12,7 +12,7 @@ import { logAuditEvent } from "~/lib/audit";
 
 const inviteSchema = z.object({
   email: z.string().trim().toLowerCase().email("Enter a valid email address."),
-  role: z.enum(["admin", "location_manager", "member"]),
+  role: z.enum(["admin", "location_manager", "lead", "member"]),
 });
 
 export type InviteState =
@@ -29,7 +29,7 @@ export async function createInvitationAction(
   if (!me || !membership || !isWorkspaceAdmin(membership.role)) {
     return {
       status: "error",
-      message: "Only Managers and Admins can invite teammates.",
+      message: "Only Admins can invite teammates.",
     };
   }
   const tenant = membership.tenant;

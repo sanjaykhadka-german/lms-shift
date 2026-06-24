@@ -8,7 +8,7 @@ import {
 } from "../../new/actions";
 import { Button } from "~/components/ui/button";
 
-type Role = "owner" | "admin" | "location_manager" | "member";
+type Role = "owner" | "admin" | "location_manager" | "lead" | "member";
 
 interface RoleCardProps {
   appUserId: string;
@@ -20,23 +20,30 @@ interface RoleCardProps {
 
 const INITIAL: RoleFormState = { status: "idle" };
 
-// Match lib/roles.ts → UI labels. Owner reads as "Admin", admin as
-// "Manager", member as "Employee" (Deputy-style tier names).
-const OPTIONS: Array<{ value: Role; label: string; desc: string }> = [
+// Match lib/roles.ts → UI labels (Admin / Site Manager / Lead / Employee).
+// owner + admin both read as "Admin"; the account owner is shown as a distinct
+// "Admin (account owner)" entry only when relevant so ownership stays explicit.
+const OWNER_OPTION = {
+  value: "owner" as Role,
+  label: "Admin (account owner)",
+  desc: "Full access including billing and ownership transfer. Only the account owner can grant or change this.",
+};
+
+const BASE_OPTIONS: Array<{ value: Role; label: string; desc: string }> = [
   {
-    value: "owner",
+    value: "admin",
     label: "Admin",
-    desc: "Full access including billing, member management, and everything a Manager can do.",
+    desc: "Full workspace administration — schedule, employees, approvals, reports, and settings across all sites. No billing.",
   },
   {
     value: "location_manager",
-    label: "Location Manager",
-    desc: "A Manager scoped to their assigned location(s) — runs the roster, timesheets, and people for those sites only. No billing, workspace settings, or other locations. Assign their locations under Manager scopes.",
+    label: "Site Manager",
+    desc: "An Admin scoped to their assigned site(s) — runs the roster, timesheets, and people for those locations only. No billing, workspace settings, or other sites. Assign their sites under Access scopes.",
   },
   {
-    value: "admin",
-    label: "Manager",
-    desc: "Day-to-day workspace management — schedule, employees, approvals, reports. No billing access.",
+    value: "lead",
+    label: "Lead",
+    desc: "Approve-only team supervisor scoped to their area(s) — views the team schedule and approves their team's timesheets. No roster edits or people management. Assign their areas under Access scopes.",
   },
   {
     value: "member",
@@ -46,9 +53,10 @@ const OPTIONS: Array<{ value: Role; label: string; desc: string }> = [
 ];
 
 const RANK: Record<Role, number> = {
-  owner: 2,
-  admin: 1,
-  location_manager: 1,
+  owner: 3,
+  admin: 2,
+  location_manager: 2,
+  lead: 1,
   member: 0,
 };
 
@@ -62,6 +70,13 @@ export function RoleCard({
   const [state, formAction] = useActionState(action, INITIAL);
 
   const viewerIsOwner = viewerRole === "owner";
+
+  // Show the "account owner" radio only when it's relevant: the person being
+  // edited already IS the owner, or an owner is editing and could transfer it.
+  const OPTIONS =
+    currentRole === "owner" || viewerIsOwner
+      ? [OWNER_OPTION, ...BASE_OPTIONS]
+      : BASE_OPTIONS;
 
   const isOptionDisabled = (target: Role): boolean => {
     // Mirrors server guard 1: only owners can move someone TO or FROM owner.

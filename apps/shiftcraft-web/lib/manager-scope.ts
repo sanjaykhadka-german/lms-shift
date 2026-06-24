@@ -1,6 +1,13 @@
 import "server-only";
-import { and, eq } from "drizzle-orm";
-import { forTenant, scManagerLocations } from "@tracey/db";
+import { and, eq, gte, inArray, lt, or } from "drizzle-orm";
+import {
+  forTenant,
+  scAreas,
+  scLeadAreas,
+  scManagerLocations,
+  scShiftAssignments,
+  scShifts,
+} from "@tracey/db";
 
 // ─── Manager location scope (AUDIT.md #13) ──────────────────────────
 //
@@ -72,4 +79,125 @@ export function isLocationInScope(
   if (scope === null) return true;
   if (!locationId) return false;
   return scope.has(locationId);
+}
+
+// ─── Lead area scope (Access levels — "Lead" tier) ──────────────────
+//
+// A Lead is an approve-only team supervisor scoped to one or more areas
+// (sc_areas) via sc_lead_areas. Unlike admins, a Lead is ALWAYS fail-closed:
+// zero grants → sees nothing.
+//
+//   role !== "lead"        → null  (not applicable; callers use the manager-
+//                                    location scope or own-self logic instead)
+//   role === "lead", 0 rows → empty Set (NO areas — sees nothing)
+//   role === "lead", N rows → Set<areaId>
+
+export type LeadScope = Set<string> | null;
+
+export async function getLeadAreaIds(
+  tenantId: string,
+  userId: string,
+  role: string,
+): Promise<LeadScope> {
+  if (role !== "lead") return null;
+  const rows = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({ areaId: scLeadAreas.areaId })
+      .from(scLeadAreas)
+      .where(
+        and(
+          eq(scLeadAreas.traceyTenantId, tenantId),
+          eq(scLeadAreas.appUserId, userId),
+        ),
+      ),
+  );
+  // Fail closed: a lead with no grants is locked to nothing, never everything.
+  return new Set(rows.map((r) => r.areaId));
+}
+
+// A Lead's areas resolved to the concrete shape used to filter shifts and
+// timesheets. Shifts/timesheets are keyed by (locationId + role-name), where
+// role-name is the denormalized sc_areas.name — there is no employee→area
+// column — so a Lead's reach is the set of (locationId, areaName) pairs of
+// their assigned areas. Returns `locationIds` for coarse location filtering
+// and `pairs` for the exact (location, area-name) match.
+export interface ResolvedLeadAreas {
+  areaIds: Set<string>;
+  locationIds: Set<string>;
+  pairs: { locationId: string; areaName: string }[];
+}
+
+export async function resolveLeadAreas(
+  tenantId: string,
+  areaIds: Set<string>,
+): Promise<ResolvedLeadAreas> {
+  if (areaIds.size === 0) {
+    return { areaIds, locationIds: new Set(), pairs: [] };
+  }
+  const rows = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({
+        id: scAreas.id,
+        locationId: scAreas.locationId,
+        name: scAreas.name,
+      })
+      .from(scAreas)
+      .where(
+        and(
+          eq(scAreas.traceyTenantId, tenantId),
+          inArray(scAreas.id, Array.from(areaIds)),
+        ),
+      ),
+  );
+  const locationIds = new Set<string>();
+  const pairs: { locationId: string; areaName: string }[] = [];
+  for (const r of rows) {
+    locationIds.add(r.locationId);
+    pairs.push({ locationId: r.locationId, areaName: r.name });
+  }
+  return { areaIds, locationIds, pairs };
+}
+
+// True if a (locationId, areaName) shift falls inside a Lead's resolved scope.
+export function isAreaPairInScope(
+  resolved: ResolvedLeadAreas,
+  locationId: string | null | undefined,
+  areaName: string | null | undefined,
+): boolean {
+  if (!locationId || !areaName) return false;
+  return resolved.pairs.some(
+    (p) => p.locationId === locationId && p.areaName === areaName,
+  );
+}
+
+// A Lead's "team" for a given week: the set of auth-user IDs who are assigned
+// to at least one shift in the Lead's area(s) during [weekStart, weekEnd).
+// Employees have no direct area column — area membership is expressed through
+// shift assignments (sc_shifts.location_id + sc_shifts.role = sc_areas.name) —
+// so the team is derived per-week from the published/draft roster.
+export async function getLeadTeamUserIds(
+  tenantId: string,
+  resolved: ResolvedLeadAreas,
+  weekStart: Date,
+  weekEnd: Date,
+): Promise<Set<string>> {
+  if (resolved.pairs.length === 0) return new Set();
+  const pairConds = resolved.pairs.map((p) =>
+    and(eq(scShifts.locationId, p.locationId), eq(scShifts.role, p.areaName)),
+  );
+  const rows = await forTenant(tenantId).run((tx) =>
+    tx
+      .selectDistinct({ userId: scShiftAssignments.userId })
+      .from(scShiftAssignments)
+      .innerJoin(scShifts, eq(scShifts.id, scShiftAssignments.shiftId))
+      .where(
+        and(
+          eq(scShifts.traceyTenantId, tenantId),
+          gte(scShifts.startsAt, weekStart),
+          lt(scShifts.startsAt, weekEnd),
+          or(...pairConds),
+        ),
+      ),
+  );
+  return new Set(rows.map((r) => r.userId));
 }

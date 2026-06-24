@@ -23,8 +23,14 @@ import {
 import { currentMembership, currentUser } from "~/lib/auth/current";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
-import { isAtLeastManager } from "~/lib/roles";
-import { getManagedLocationIds, scopeArray } from "~/lib/manager-scope";
+import { canApproveTimesheets, isAtLeastManager, isLead } from "~/lib/roles";
+import {
+  getLeadAreaIds,
+  getLeadTeamUserIds,
+  getManagedLocationIds,
+  resolveLeadAreas,
+  scopeArray,
+} from "~/lib/manager-scope";
 import {
   addDays,
   fmtHours,
@@ -240,10 +246,13 @@ export default async function TimesheetsPage({
   await maybeSweepStaleClockIns(tenantId);
 
   // `isAdmin` here means "manager — can manage timesheets" (approve, edit
-  // punches, Xero, anomalies). Owners, admins, and Location Managers all
-  // qualify. Location Managers are then narrowed to their own location(s)
-  // via viewScope below.
+  // punches, Xero, anomalies). Owners, admins, and Site Managers all
+  // qualify. Site Managers are then narrowed to their own location(s)
+  // via viewScope below. A Lead is NOT a manager (no editing) but CAN view +
+  // approve — `canApprove` carries that, scoped to their area-team below.
   const isAdmin = isAtLeastManager(role);
+  const canApprove = canApproveTimesheets(role);
+  const isLeadRole = isLead(role);
 
   // Who can VIEW the team's timesheets (read-only is enough). On top of
   // managers, a non-manager employee may be granted can_view_timesheets,
@@ -264,7 +273,9 @@ export default async function TimesheetsPage({
       .limit(1),
   );
   const grantedView = !isAdmin && (viewerEmp?.canViewTimesheets ?? false);
-  const canViewTeam = isAdmin || grantedView;
+  // Leads are team viewers by role (scoped to their area-team, resolved in the
+  // allMemberRows block below — an empty team simply shows nobody).
+  const canViewTeam = isAdmin || grantedView || isLeadRole;
 
   // Location filter for scoped viewers (null = all locations). Owners/admins
   // see everyone; a Location Manager is bounded to their assigned sites; a
@@ -339,7 +350,20 @@ export default async function TimesheetsPage({
       .from(members)
       .innerJoin(users, eq(users.id, members.userId))
       .where(eq(members.tenantId, tenantId));
-    if (viewScope === null) {
+    if (isLeadRole) {
+      // A Lead sees only their area-team for the displayed week: employees
+      // assigned to a shift in the Lead's area(s) during this week. No grants
+      // (or no shifts) → nobody.
+      const areaIds = await getLeadAreaIds(tenantId, user.id, role);
+      const resolved = await resolveLeadAreas(tenantId, areaIds ?? new Set());
+      const teamIds = await getLeadTeamUserIds(
+        tenantId,
+        resolved,
+        weekStart,
+        weekEnd,
+      );
+      allMemberRows = rows.filter((r) => teamIds.has(r.userId));
+    } else if (viewScope === null) {
       allMemberRows = rows;
     } else {
       // Narrow to employees whose home location is in scope. An empty scope
@@ -1560,7 +1584,7 @@ export default async function TimesheetsPage({
                           weekStartIso={weekStartIso}
                           status={r.approvalStatus}
                           notes={r.approvalNotes}
-                          canManage={isAtLeastManager(membership.role)}
+                          canManage={canApprove}
                           hasActivity={
                             r.totalWorkMs > 0 || r.totalBreakMs > 0
                           }
@@ -1588,7 +1612,7 @@ export default async function TimesheetsPage({
                           totalColumnCount={totalColumnCount}
                           approvalCell={approvalCell}
                           isAdmin={isAdmin}
-                          canManage={isAtLeastManager(membership.role)}
+                          canManage={canApprove}
                           showCost={anyCost}
                           showCheckbox={showCheckbox}
                           anomalies={r.anomalies}

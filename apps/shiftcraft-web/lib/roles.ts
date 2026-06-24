@@ -1,29 +1,36 @@
 import type { Role } from "@tracey/db";
 
-// ShiftCraft uses Deputy-style tier names (Admin / Manager / Employee) in
-// the UI on top of Tracey's underlying owner/admin/member roles. Mapping
-// is purely cosmetic — the auth/DB layer stays unchanged.
+// ShiftCraft presents four access levels in the UI — Admin / Site Manager /
+// Lead / Employee — on top of Tracey's underlying owner/admin/location_manager/
+// member roles. The mapping is purely cosmetic; the auth/DB layer is unchanged
+// and lms-web / planning-web keep their own owner/admin/member labels.
 //
-//   Tracey owner            → "Admin"            (full access incl. billing)
-//   Tracey admin            → "Manager"          (manage schedule, employees, tasks — all locations)
-//   Tracey location_manager → "Location Manager" (a Manager scoped to their assigned location(s);
-//                                                  no billing / workspace settings / manager-scopes)
-//   Tracey member           → "Employee"         (own-self actions only)
+//   Tracey owner            → "Admin"        (full access incl. billing/ownership)
+//   Tracey admin            → "Admin"        (full workspace administration)
+//   Tracey location_manager → "Site Manager" (Admin scoped to their site(s) via
+//                                              sc_manager_locations — no billing /
+//                                              workspace settings / role mgmt)
+//   Tracey lead             → "Lead"          (approve-only team supervisor,
+//                                              scoped to their area(s) via
+//                                              sc_lead_areas: view team schedule +
+//                                              view/approve team timesheets only)
+//   Tracey member           → "Employee"      (own-self actions only)
 //
-// Keeping the cosmetic layer here means lms-web / planning-web continue
-// using the same owner/admin/member labels they already do — no
-// cross-app schema or label coordination needed.
+// owner + admin both render as "Admin" (the two top tiers are folded into one
+// staff-visible level); owner stays the protected billing/account holder under
+// the hood (only owner can transfer ownership / change billing).
 
-export type FriendlyRole = "Admin" | "Location Manager" | "Manager" | "Employee";
+export type FriendlyRole = "Admin" | "Site Manager" | "Lead" | "Employee";
 
 export function friendlyRoleLabel(role: Role | string): FriendlyRole {
   switch (role) {
     case "owner":
-      return "Admin";
     case "admin":
-      return "Manager";
+      return "Admin";
     case "location_manager":
-      return "Location Manager";
+      return "Site Manager";
+    case "lead":
+      return "Lead";
     case "member":
     default:
       return "Employee";
@@ -45,40 +52,57 @@ export const ROLE_DESCRIPTIONS: Record<Role, RoleDescription> = {
     blurb:
       "Full access to the workspace including billing, members, and tenant settings.",
     can: [
-      "Everything a Manager can do",
+      "Everything in the workspace",
       "Change billing plan and seat count",
-      "Invite or remove members",
+      "Invite or remove members and set their access level",
       "Transfer ownership",
     ],
     cannot: [],
   },
   admin: {
-    label: "Manager",
+    label: "Admin",
     underlying: "admin",
     blurb:
-      "Day-to-day workspace management. Manage rosters, schedules, and tasks; cannot touch billing or membership.",
+      "Full workspace administration across all sites — rosters, timesheets, people, settings.",
     can: [
-      "Add / edit employees, locations, shifts",
-      "Approve time-off and shift swaps",
-      "Post announcements and tasks",
+      "Add / edit employees, locations, areas, shifts",
+      "Build, publish and assign the roster everywhere",
+      "Approve timesheets, time-off and shift swaps",
       "View Reports and export timesheets",
     ],
-    cannot: ["Change billing", "Invite or remove members"],
+    cannot: ["Change billing", "Transfer ownership"],
   },
   location_manager: {
-    label: "Location Manager",
+    label: "Site Manager",
     underlying: "location_manager",
     blurb:
-      "A Manager restricted to their assigned location(s). Runs the roster, timesheets, and people for those sites only — no billing, workspace settings, or cross-location access.",
+      "An Admin restricted to their assigned site(s). Runs the roster, timesheets, and people for those locations only — no billing, workspace settings, or cross-site access.",
     can: [
-      "Manage schedule, shifts and timesheets at their location(s)",
-      "Add / edit employees and approve time-off at their location(s)",
+      "Build / publish the roster and manage shifts at their site(s)",
+      "Approve timesheets and time-off at their site(s)",
+      "Add / edit employees at their site(s)",
       "Post announcements and tasks",
     ],
     cannot: [
-      "Access other locations",
+      "Access other sites",
       "Change billing or workspace settings",
-      "Manage manager scopes or membership",
+      "Manage access levels or scopes",
+    ],
+  },
+  lead: {
+    label: "Lead",
+    underlying: "lead",
+    blurb:
+      "A team supervisor scoped to their area(s). Views their team's schedule and approves their team's timesheets — but cannot build or publish the roster, or manage people and settings.",
+    can: [
+      "View their team's schedule (read-only)",
+      "View and approve their team's timesheets",
+    ],
+    cannot: [
+      "Build, publish or assign shifts",
+      "Add or edit employees",
+      "Access areas outside their assignment",
+      "Change settings or manage access levels",
     ],
   },
   member: {
@@ -92,24 +116,21 @@ export const ROLE_DESCRIPTIONS: Record<Role, RoleDescription> = {
       "Request time off and propose shift swaps",
       "See dashboard announcements and assigned tasks",
     ],
-    cannot: [
-      "Edit other employees",
-      "Modify the schedule",
-      "Approve time-off",
-    ],
+    cannot: ["Edit other employees", "Modify the schedule", "Approve timesheets"],
   },
 };
 
 /**
- * Numeric rank — useful for comparisons. owner=2, admin=1,
- * location_manager=1, member=0.
+ * Numeric rank within the MANAGER hierarchy — owner=2, admin=1,
+ * location_manager=1, lead=0, member=0.
  *
- * location_manager ranks at the Manager tier: it passes every
- * `isAtLeastManager` gate (the operational surfaces — schedule, timesheets,
- * people, etc.) but, being neither "owner" nor "admin", is automatically
- * excluded from owner-only checks (`isAdmin`) and from `isWorkspaceAdmin`
- * (billing / workspace settings). Its reach is then narrowed to its assigned
- * sites by the location-scope helpers in lib/manager-scope.ts.
+ * NOTE: `lead` deliberately ranks 0 (same as member) so it NEVER passes an
+ * `isAtLeastManager` gate. A Lead is an approve-only team supervisor, not a
+ * roster manager — its (narrower) powers are granted exclusively through the
+ * explicit `isLead` / `canApproveTimesheets` / `canViewTeam` predicates below,
+ * and scoped to its areas by lib/manager-scope.ts. Keeping lead out of the
+ * rank hierarchy is the core safety guarantee: it can't edit the roster or
+ * manage people even if a new surface reuses `isAtLeastManager`.
  */
 export function roleRank(role: Role | string): number {
   switch (role) {
@@ -118,12 +139,18 @@ export function roleRank(role: Role | string): number {
     case "admin":
     case "location_manager":
       return 1;
+    case "lead":
     case "member":
     default:
       return 0;
   }
 }
 
+/**
+ * Manager tier — owner, admin, or a (site-scoped) Site Manager. Gates the
+ * operational surfaces: roster build/publish/assign, employee CRUD, locations/
+ * areas, kiosk, etc. Leads and Employees are excluded.
+ */
 export function isAtLeastManager(role: Role | string): boolean {
   return roleRank(role) >= 1;
 }
@@ -134,15 +161,37 @@ export function isAdmin(role: Role | string): boolean {
 }
 
 /**
- * Full, non-scoped workspace administration — owner OR admin (Manager), but
- * NOT a location_manager. Use this to gate surfaces a Manager may reach that a
- * Location Manager must not: workspace settings, integration config, etc.
+ * Full, non-scoped workspace administration — owner OR admin, but NOT a Site
+ * Manager. Use this to gate surfaces a workspace Admin may reach that a Site
+ * Manager must not: workspace settings, integration config, access levels, etc.
  */
 export function isWorkspaceAdmin(role: Role | string): boolean {
   return role === "owner" || role === "admin";
 }
 
-/** True for the location-scoped Manager tier. */
+/** True for the site-scoped Admin tier ("Site Manager"). */
 export function isLocationManager(role: Role | string): boolean {
   return role === "location_manager";
+}
+
+/** True for the area-scoped, approve-only "Lead" tier. */
+export function isLead(role: Role | string): boolean {
+  return role === "lead";
+}
+
+/**
+ * Who may VIEW + APPROVE timesheets: every manager tier, plus a Lead (scoped
+ * to their area(s) by lib/manager-scope.ts). Use on the timesheets surfaces in
+ * place of `isAtLeastManager`.
+ */
+export function canApproveTimesheets(role: Role | string): boolean {
+  return isAtLeastManager(role) || isLead(role);
+}
+
+/**
+ * Who may VIEW a team's schedule/timesheets (read-only is enough): managers and
+ * Leads. Managers see their location scope; Leads see their area scope.
+ */
+export function canViewTeam(role: Role | string): boolean {
+  return isAtLeastManager(role) || isLead(role);
 }

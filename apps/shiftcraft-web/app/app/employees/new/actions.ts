@@ -871,7 +871,7 @@ export type RoleFormState =
   | { status: "error"; message: string };
 
 const roleSchema = z.object({
-  role: z.enum(["owner", "admin", "location_manager", "member"]),
+  role: z.enum(["owner", "admin", "location_manager", "lead", "member"]),
 });
 
 // Grant/revoke a non-manager employee's read access to the team timesheets

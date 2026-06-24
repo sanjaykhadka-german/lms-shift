@@ -42,7 +42,12 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "~/lib/utils";
-import { friendlyRoleLabel, isAtLeastManager, isWorkspaceAdmin } from "~/lib/roles";
+import {
+  friendlyRoleLabel,
+  isAtLeastManager,
+  isLead,
+  isWorkspaceAdmin,
+} from "~/lib/roles";
 import { Avatar } from "./Avatar";
 import { Logo } from "./Logo";
 import { ThemeToggle } from "./ThemeToggle";
@@ -59,6 +64,10 @@ type NavItem = {
   // Manager-gated item living in a section that isn't itself admin-only (e.g.
   // Timesheets pinned under Schedule in Overview). Hidden from regular staff.
   adminOnly?: boolean;
+  // Also visible to the approve-only "Lead" tier (which isn't a manager). Used
+  // alongside adminOnly so the item shows for managers AND leads, but not for
+  // regular employees. Leads reach it read/approve-scoped to their area-team.
+  approverOnly?: boolean;
 };
 
 type NavSection = {
@@ -73,7 +82,7 @@ const SECTIONS: NavSection[] = [
     items: [
       { href: "/app", label: "Dashboard", icon: LayoutDashboard },
       { href: "/app/schedule", label: "Schedule", icon: CalendarDays },
-      { href: "/app/timesheets", label: "Timesheets", icon: ClipboardList, adminOnly: true },
+      { href: "/app/timesheets", label: "Timesheets", icon: ClipboardList, adminOnly: true, approverOnly: true },
       { href: "/app/announcements", label: "Announcements", icon: Megaphone },
     ],
   },
@@ -124,7 +133,7 @@ const SECTIONS: NavSection[] = [
       { href: "/app/admin/visitors", label: "Visitors", icon: DoorOpen },
       { href: "/app/admin/awards", label: "Award rates", icon: Scale, ownerOnly: true },
       { href: "/app/admin/leave-types", label: "Leave types", icon: Tag },
-      { href: "/app/admin/manager-scopes", label: "Manager scopes", icon: ShieldCheck, ownerOnly: true },
+      { href: "/app/admin/manager-scopes", label: "Access scopes", icon: ShieldCheck, ownerOnly: true },
       { href: "/app/admin/payroll", label: "Payroll (Xero)", icon: Receipt, ownerOnly: true },
       { href: "/app/admin/skills", label: "Skills", icon: Sparkles },
       { href: "/app/admin/webhooks", label: "Webhooks", icon: Webhook, ownerOnly: true },
@@ -153,12 +162,17 @@ export function Sidebar({
   // inside it (billing, workspace settings, integrations) are filtered out.
   const canSeeAdmin = isAtLeastManager(role);
   const fullAdmin = isWorkspaceAdmin(role);
+  const leadRole = isLead(role);
   const sections = SECTIONS.filter((s) => !s.adminOnly || canSeeAdmin).map((s) => ({
     ...s,
-    items: s.items.filter(
-      (item) =>
-        (!item.ownerOnly || fullAdmin) && (!item.adminOnly || canSeeAdmin),
-    ),
+    items: s.items.filter((item) => {
+      if (item.ownerOnly && !fullAdmin) return false;
+      if (item.adminOnly && !canSeeAdmin) {
+        // A Lead isn't a manager, but approver items (Timesheets) still show.
+        return Boolean(item.approverOnly && leadRole);
+      }
+      return true;
+    }),
   }));
 
   // Mobile drawer state. Closes automatically on route change so the user
