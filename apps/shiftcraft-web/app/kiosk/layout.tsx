@@ -20,8 +20,14 @@ export const metadata: Metadata = {
   },
 };
 
+// Lock zoom on the kiosk surface only. On a budget digitiser an accidental
+// pinch / double-tap magnifies the page and shifts every key off-target — the
+// classic "missed key" failure. Scoped to /kiosk/* via this layout, so /app/*
+// keeps normal pinch-zoom. Acceptable a11y tradeoff for a fixed kiosk.
 export const viewport: Viewport = {
   themeColor: "#17130f",
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default function KioskLayout({
@@ -30,7 +36,7 @@ export default function KioskLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="dark min-h-screen bg-[#17130f] text-[#f4eee3] antialiased">
+    <div className="dark min-h-screen touch-manipulation overscroll-contain bg-[#17130f] text-[#f4eee3] antialiased [touch-action:manipulation] [overscroll-behavior:contain]">
       <RegisterServiceWorker />
       {children}
     </div>

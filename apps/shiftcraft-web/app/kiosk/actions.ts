@@ -31,7 +31,10 @@ import {
 // If we ever go multi-instance behind a load balancer we'd promote this
 // to a small Postgres row keyed on device_id.
 const RATE_LIMIT_WINDOW_MS = 60_000;
-const RATE_LIMIT_MAX = 5;
+// 8 (not 5) is a deliberate fat-finger allowance for the wall-mounted budget
+// tablet: honest mis-taps shouldn't lock out a real employee. This is purely a
+// UX/flood guard — bcrypt cost is the actual brute-force defence.
+const RATE_LIMIT_MAX = 8;
 // Loose UUID guard for the name-select flow's appUserId field.
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
