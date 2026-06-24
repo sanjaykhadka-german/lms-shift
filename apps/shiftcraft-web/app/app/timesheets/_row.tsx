@@ -441,7 +441,7 @@ export function TimesheetRow({
                         type="button"
                         onClick={() =>
                           setModalCtx({
-                            mode: "add",
+                            mode: "fullEntry",
                             appUserId: userId,
                             userName: name,
                             dateIso: d.dayIso,
@@ -449,7 +449,7 @@ export function TimesheetRow({
                         }
                         className="ml-auto rounded-md border border-dashed border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
                       >
-                        + Add punch
+                        + Add entry
                       </button>
                     ) : null}
                   </div>

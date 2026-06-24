@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useFormStatus } from "react-dom";
 import {
   addClockEventAction,
+  addTimesheetEntryAction,
   editClockEventAction,
   voidClockEventAction,
 } from "./event-actions";
@@ -37,7 +38,22 @@ export interface ModalAddContext {
   defaultEventType?: "in" | "out" | "break_start" | "break_end";
 }
 
-export type ModalContext = ModalEditContext | ModalAddContext;
+// Full-entry mode: enter a whole shift (clock in → any number of breaks →
+// clock out) for one employee on one day in a single popup, instead of adding
+// punches one at a time. Submits via addTimesheetEntryAction (same path as the
+// top-of-page "Add timesheet entry").
+export interface ModalFullEntryContext {
+  mode: "fullEntry";
+  appUserId: string;
+  userName: string;
+  /** YYYY-MM-DD — the day the entry is being added for. */
+  dateIso: string;
+}
+
+export type ModalContext =
+  | ModalEditContext
+  | ModalAddContext
+  | ModalFullEntryContext;
 
 interface Props {
   ctx: ModalContext | null;
@@ -86,7 +102,11 @@ export function EventEditModal({ ctx, onClose }: Props) {
       <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-2xl">
         <header className="mb-4">
           <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-            {ctx.mode === "edit" ? "Edit punch" : "Add punch"}
+            {ctx.mode === "edit"
+              ? "Edit punch"
+              : ctx.mode === "fullEntry"
+                ? "Add entry"
+                : "Add punch"}
           </div>
           <h2 className="mt-1 text-lg font-semibold">
             {ctx.mode === "edit"
@@ -97,6 +117,8 @@ export function EventEditModal({ ctx, onClose }: Props) {
 
         {ctx.mode === "edit" ? (
           <EditForm ctx={ctx} onClose={onClose} />
+        ) : ctx.mode === "fullEntry" ? (
+          <FullEntryForm ctx={ctx} onClose={onClose} />
         ) : (
           <AddForm ctx={ctx} onClose={onClose} />
         )}
@@ -268,6 +290,110 @@ function VoidButton({ onDone }: { onDone: () => void }) {
     >
       Confirm void
     </button>
+  );
+}
+
+// Whole-shift entry: clock in, 0..N breaks, clock out — one popup. Employee +
+// date are fixed from the row/day it was opened on; submits via
+// addTimesheetEntryAction (which reads the parallel breakStart[]/breakEnd[]
+// inputs). This is portaled to <body>, so a real <form> is fine here.
+function FullEntryForm({
+  ctx,
+  onClose,
+}: {
+  ctx: ModalFullEntryContext;
+  onClose: () => void;
+}) {
+  const nextBreakId = useRef(1);
+  const [breakRows, setBreakRows] = useState<number[]>([]);
+  const addBreak = () =>
+    setBreakRows((rows) => [...rows, nextBreakId.current++]);
+  const removeBreak = (id: number) =>
+    setBreakRows((rows) => rows.filter((r) => r !== id));
+
+  const inputCls =
+    "h-9 w-full rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary";
+
+  return (
+    <form
+      action={async (formData) => {
+        await addTimesheetEntryAction(formData);
+        onClose();
+      }}
+      className="space-y-4"
+    >
+      <input type="hidden" name="appUserId" value={ctx.appUserId} />
+      <input type="hidden" name="date" value={ctx.dateIso} />
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Start">
+          <input type="time" name="clockIn" required step={60} className={inputCls} />
+        </Field>
+        <Field label="Finish">
+          <input type="time" name="clockOut" required step={60} className={inputCls} />
+        </Field>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Breaks
+          </span>
+          <button
+            type="button"
+            onClick={addBreak}
+            className="text-xs font-medium text-primary hover:underline"
+          >
+            + Add break
+          </button>
+        </div>
+        {breakRows.length === 0 ? (
+          <p className="text-[11px] text-muted-foreground">
+            No break. Add one or more if the shift had them.
+          </p>
+        ) : (
+          breakRows.map((id, idx) => (
+            <div key={id} className="flex items-end gap-2">
+              <Field label={idx === 0 ? "Break start" : `Break ${idx + 1} start`}>
+                <input type="time" name="breakStart" required step={60} className={inputCls} />
+              </Field>
+              <Field label="End">
+                <input type="time" name="breakEnd" required step={60} className={inputCls} />
+              </Field>
+              <button
+                type="button"
+                onClick={() => removeBreak(id)}
+                aria-label="Remove break"
+                className="mb-2 px-1 text-sm text-muted-foreground hover:text-[var(--danger)]"
+              >
+                ✕
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+
+      <Field label="Reason">
+        <textarea
+          name="reason"
+          required
+          maxLength={200}
+          rows={2}
+          placeholder="e.g. onboarding — paper timesheet"
+          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+        />
+      </Field>
+
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted"
+        >
+          Cancel
+        </button>
+        <SubmitButton label="Add entry" pendingLabel="Adding…" />
+      </div>
+    </form>
   );
 }
 
