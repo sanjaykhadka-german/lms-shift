@@ -14,6 +14,7 @@ import {
   scShiftAssignments,
   scShifts,
   scTimesheetApprovals,
+  scTimesheetDayApprovals,
   scXeroEmployeeLinks,
   scXeroPayRuns,
   users,
@@ -67,15 +68,20 @@ type AnomalyKind =
   | "no_show";
 
 interface PerDayMeta {
+  /** ISO YYYY-MM-DD for this column — the per-day approval action's target. */
+  dayIso: string;
   /** Day is after today — render greyed, no value, not approvable. */
   isFuture: boolean;
   /** Day currently holds an open (still-clocked-in) segment. */
   isInProgress: boolean;
   /** Worked, clocked out, and not in the future — the only state where the
-   *  day's shift counts as complete (and, in Slice B, approvable). */
+   *  day's shift counts as complete (and is per-day approvable). */
   isComplete: boolean;
   /** Rostered for a past day but no punches recorded — a per-day no-show. */
   noShow: boolean;
+  /** Effective per-day approval: explicit day row, else inherited from the
+   *  week-level status. null = pending. */
+  approval: ScTimesheetApprovalStatus | null;
 }
 
 interface RowTotals {
@@ -559,6 +565,34 @@ export default async function TimesheetsPage({
     ]),
   );
 
+  // Per-day approvals for the visible week — keyed by "userId|YYYY-MM-DD". A day
+  // with an explicit row wins; days without one inherit the week-level status
+  // (so a plain whole-week approve shows every day green without materialising
+  // seven rows). work_date is a date column → Drizzle returns "YYYY-MM-DD".
+  const weekEndIso = fmtIsoDate(weekEnd);
+  const dayApprovalRows = await forTenant(tenantId).run((tx) =>
+    tx
+      .select({
+        employeeUserId: scTimesheetDayApprovals.employeeUserId,
+        workDate: scTimesheetDayApprovals.workDate,
+        status: scTimesheetDayApprovals.status,
+      })
+      .from(scTimesheetDayApprovals)
+      .where(
+        and(
+          eq(scTimesheetDayApprovals.traceyTenantId, tenantId),
+          sql`${scTimesheetDayApprovals.workDate} >= ${weekStartIso}::date`,
+          sql`${scTimesheetDayApprovals.workDate} < ${weekEndIso}::date`,
+        ),
+      ),
+  );
+  const dayApprovalByUserDate = new Map(
+    dayApprovalRows.map((r) => [
+      `${r.employeeUserId}|${r.workDate}`,
+      r.status as ScTimesheetApprovalStatus,
+    ]),
+  );
+
   // Activity log for the detail panel — only approve/dispute/reset events
   // for THIS week. Cheap query: targetKind narrows to ~tens of rows even
   // on big tenants, and the details->>'weekStart' filter scopes to this
@@ -950,16 +984,23 @@ export default async function TimesheetsPage({
     // is future when its index is past today's; no-show is only asserted for
     // days strictly before today (today's rostered shift may not have started
     // yet, so it isn't a no-show until the day has passed).
+    const weekStatusForRow = approvalByUser.get(m.userId)?.status ?? null;
     const perDayMeta: PerDayMeta[] = Array.from({ length: 7 }, (_, i) => {
+      const dayIso = fmtIsoDate(addDays(weekStart, i));
       const isFuture = i > todayIdx;
       const isPast = i < todayIdx;
       const isInProgress = openSegmentDayIdx === i;
       const worked = (perDay[i] ?? 0) > 0;
+      // Explicit per-day row wins; otherwise inherit the week-level status.
+      const approval =
+        dayApprovalByUserDate.get(`${m.userId}|${dayIso}`) ?? weekStatusForRow;
       return {
+        dayIso,
         isFuture,
         isInProgress,
         isComplete: worked && !isInProgress && !isFuture,
         noShow: isPast && (planned[i] ?? 0) > 0 && (perDay[i] ?? 0) === 0,
+        approval,
       };
     });
 
@@ -1515,6 +1556,10 @@ export default async function TimesheetsPage({
                           perDayActualDisplay={perDayActualDisplay}
                           perDayActualMs={r.perDay}
                           perDayMeta={r.perDayMeta}
+                          completedDaysCsv={r.perDayMeta
+                            .filter((d) => d.isComplete)
+                            .map((d) => d.dayIso)
+                            .join(",")}
                           totalWorkDisplay={fmtHours(r.totalWorkMs)}
                           totalBreakDisplay={fmtHours(r.totalBreakMs)}
                           costDisplay={fmtAud(r.costAud)}
@@ -1690,6 +1735,28 @@ function TimesheetLegend() {
           aria-hidden
         />
         ⏱ In progress
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span
+          className={swatch}
+          style={{
+            borderColor: "var(--live)",
+            background: "color-mix(in srgb, var(--live) 18%, transparent)",
+          }}
+          aria-hidden
+        />
+        ✓ Approved
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span
+          className={swatch}
+          style={{
+            borderColor: "var(--warn)",
+            background: "color-mix(in srgb, var(--warn) 18%, transparent)",
+          }}
+          aria-hidden
+        />
+        ! Disputed
       </span>
       <span className="inline-flex items-center gap-1.5">
         <span

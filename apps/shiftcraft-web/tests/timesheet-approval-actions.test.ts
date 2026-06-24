@@ -34,6 +34,13 @@ vi.mock("@tracey/db", () => ({
     weekStart: { __field: "weekStart" },
     status: { __field: "status" },
   },
+  scTimesheetDayApprovals: {
+    id: { __field: "id" },
+    traceyTenantId: { __field: "traceyTenantId" },
+    employeeUserId: { __field: "employeeUserId" },
+    workDate: { __field: "workDate" },
+    status: { __field: "status" },
+  },
   forTenant: (tid: string) => ({
     tenantId: tid,
     async run(fn: (tx: unknown) => Promise<unknown>) {
@@ -203,7 +210,8 @@ describe("clearTimesheetApprovalAction", () => {
     await clearTimesheetApprovalAction(
       fd({ employeeUserId: "emp-1", weekStart: "2026-05-11" }),
     );
-    expect(state.deletes).toBe(1);
+    // Two deletes: the week-level row + the week's per-day rows.
+    expect(state.deletes).toBe(2);
     expect(state.lastTenantId).toBe("tenant-A");
     const audit = state.audits.find(
       (a) => a.action === "shiftcraft.timesheet.dispute_cleared",
@@ -222,7 +230,7 @@ describe("clearTimesheetApprovalAction", () => {
     await clearTimesheetApprovalAction(
       fd({ employeeUserId: "emp-1", weekStart: "2026-05-11" }),
     );
-    expect(state.deletes).toBe(1);
+    expect(state.deletes).toBe(2);
     const audit = state.audits.find(
       (a) => a.action === "shiftcraft.timesheet.dispute_cleared",
     );
@@ -239,7 +247,7 @@ describe("clearTimesheetApprovalAction", () => {
         reason: "Missed lunch break needs adjusting",
       }),
     );
-    expect(state.deletes).toBe(1);
+    expect(state.deletes).toBe(2);
     const audit = state.audits.find(
       (a) => a.action === "shiftcraft.timesheet.reopened",
     );

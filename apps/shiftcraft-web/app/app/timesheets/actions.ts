@@ -2,10 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { and, eq, sql } from "drizzle-orm";
-import { forTenant, scTimesheetApprovals } from "@tracey/db";
+import {
+  forTenant,
+  scTimesheetApprovals,
+  scTimesheetDayApprovals,
+} from "@tracey/db";
 import { currentMembership, currentUser } from "~/lib/auth/current";
 import { logAuditEvent } from "~/lib/audit";
-import { fmtIsoDate, parseIsoDate, startOfWeek } from "~/lib/clock";
+import { addDays, fmtIsoDate, parseIsoDate, startOfWeek } from "~/lib/clock";
 import { isAtLeastManager } from "~/lib/roles";
 import { emitWebhook } from "~/lib/webhooks";
 
@@ -360,8 +364,9 @@ export async function clearTimesheetApprovalAction(
     return;
   }
 
-  await forTenant(g.tenantId).run((tx) =>
-    tx
+  const weekEndIso = fmtIsoDate(addDays(g.payload.weekStart, 7));
+  await forTenant(g.tenantId).run(async (tx) => {
+    await tx
       .delete(scTimesheetApprovals)
       .where(
         and(
@@ -370,8 +375,21 @@ export async function clearTimesheetApprovalAction(
           // weekStart is a date column; an ISO string compares cleanly.
           sql`${scTimesheetApprovals.weekStart} = ${weekStartIso}::date`,
         ),
-      ),
-  );
+      );
+    // Reopening a week also clears every per-day sign-off for it, so the
+    // grid resets to fully pending rather than leaving stale day rows that
+    // would re-roll the week back to approved on the next per-day touch.
+    await tx
+      .delete(scTimesheetDayApprovals)
+      .where(
+        and(
+          eq(scTimesheetDayApprovals.traceyTenantId, g.tenantId),
+          eq(scTimesheetDayApprovals.employeeUserId, g.payload.employeeUserId),
+          sql`${scTimesheetDayApprovals.workDate} >= ${weekStartIso}::date`,
+          sql`${scTimesheetDayApprovals.workDate} < ${weekEndIso}::date`,
+        ),
+      );
+  });
 
   await logAuditEvent({
     action: wasApproved
@@ -387,5 +405,338 @@ export async function clearTimesheetApprovalAction(
     },
   });
 
+  revalidatePath("/app/timesheets");
+}
+
+// ─── Per-day approvals ───
+//
+// Finer-grained sign-off: a manager approves / disputes / clears a single
+// work date. The week-level table above stays the source of truth for every
+// downstream consumer (Xero, schedule lock, leave balances, dashboard, CSV
+// export, digest, punch-edit lock); these actions roll their per-day state up
+// into it. The client passes `completedDays` — the ISO dates whose shifts are
+// complete (worked + clocked out, not in the future) for that employee-week,
+// straight off the rendered grid — so the rollup knows the denominator without
+// re-aggregating the clock stream here.
+//
+// Materialise-on-touch: the first per-day change to a week that was approved /
+// disputed at the week level expands that week status into explicit day rows
+// for every completed day, so one diverging day (e.g. disputing Tuesday on an
+// approved week) doesn't drag the others with it via inheritance.
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function parseCompletedDays(formData: FormData): string[] {
+  return String(formData.get("completedDays") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => ISO_DATE.test(s));
+}
+
+async function gateAndParseDay(
+  formData: FormData,
+): Promise<
+  | {
+      ok: true;
+      tenantId: string;
+      me: string;
+      employeeUserId: string;
+      workDateIso: string;
+      weekStartIso: string;
+      weekEndIso: string;
+      completedDays: string[];
+    }
+  | { ok: false; message: string }
+> {
+  const m = await currentMembership();
+  if (!m) return { ok: false, message: "Not signed in." };
+  if (!isAtLeastManager(m.role)) {
+    return { ok: false, message: "Only managers can change approval state." };
+  }
+  const me = await currentUser();
+  if (!me) return { ok: false, message: "Not signed in." };
+
+  const employeeUserId = String(formData.get("employeeUserId") ?? "").trim();
+  const workRaw = String(formData.get("workDate") ?? "").trim();
+  if (!employeeUserId) return { ok: false, message: "Missing employee." };
+  const workDate = parseIsoDate(workRaw);
+  if (!workDate) return { ok: false, message: "Invalid date." };
+  const weekStart = startOfWeek(workDate);
+  return {
+    ok: true,
+    tenantId: m.tenant.id,
+    me: me.id,
+    employeeUserId,
+    workDateIso: fmtIsoDate(workDate),
+    weekStartIso: fmtIsoDate(weekStart),
+    weekEndIso: fmtIsoDate(addDays(weekStart, 7)),
+    completedDays: parseCompletedDays(formData),
+  };
+}
+
+// Expand a week-level status into explicit day rows for every completed day
+// that doesn't already have one, so subsequent per-day edits are independent.
+async function materializeWeekIntoDays(
+  tx: Parameters<Parameters<ReturnType<typeof forTenant>["run"]>[0]>[0],
+  tenantId: string,
+  employeeUserId: string,
+  weekStartIso: string,
+  weekEndIso: string,
+  completedDays: string[],
+  actingUserId: string,
+): Promise<void> {
+  if (completedDays.length === 0) return;
+  const [weekRow] = await tx
+    .select({
+      status: scTimesheetApprovals.status,
+      notes: scTimesheetApprovals.notes,
+    })
+    .from(scTimesheetApprovals)
+    .where(
+      and(
+        eq(scTimesheetApprovals.traceyTenantId, tenantId),
+        eq(scTimesheetApprovals.employeeUserId, employeeUserId),
+        sql`${scTimesheetApprovals.weekStart} = ${weekStartIso}::date`,
+      ),
+    )
+    .limit(1);
+  if (!weekRow) return;
+  const existing = await tx
+    .select({ workDate: scTimesheetDayApprovals.workDate })
+    .from(scTimesheetDayApprovals)
+    .where(
+      and(
+        eq(scTimesheetDayApprovals.traceyTenantId, tenantId),
+        eq(scTimesheetDayApprovals.employeeUserId, employeeUserId),
+        sql`${scTimesheetDayApprovals.workDate} >= ${weekStartIso}::date`,
+        sql`${scTimesheetDayApprovals.workDate} < ${weekEndIso}::date`,
+      ),
+    );
+  const have = new Set(existing.map((r) => r.workDate));
+  for (const d of completedDays) {
+    if (have.has(d)) continue;
+    await tx
+      .insert(scTimesheetDayApprovals)
+      .values({
+        traceyTenantId: tenantId,
+        employeeUserId,
+        workDate: d,
+        status: weekRow.status,
+        notes: weekRow.notes,
+        approvedByUserId: actingUserId,
+      })
+      .onConflictDoNothing();
+  }
+}
+
+// Recompute the week-level rollup from the per-day rows: any completed day
+// disputed → week disputed; every completed day approved → week approved;
+// otherwise the week row is removed (pending). Returns the resulting status.
+async function rollupWeekFromDays(
+  tx: Parameters<Parameters<ReturnType<typeof forTenant>["run"]>[0]>[0],
+  tenantId: string,
+  employeeUserId: string,
+  weekStartIso: string,
+  weekEndIso: string,
+  completedDays: string[],
+  actingUserId: string,
+): Promise<"approved" | "disputed" | null> {
+  const dayRows = await tx
+    .select({
+      workDate: scTimesheetDayApprovals.workDate,
+      status: scTimesheetDayApprovals.status,
+      notes: scTimesheetDayApprovals.notes,
+    })
+    .from(scTimesheetDayApprovals)
+    .where(
+      and(
+        eq(scTimesheetDayApprovals.traceyTenantId, tenantId),
+        eq(scTimesheetDayApprovals.employeeUserId, employeeUserId),
+        sql`${scTimesheetDayApprovals.workDate} >= ${weekStartIso}::date`,
+        sql`${scTimesheetDayApprovals.workDate} < ${weekEndIso}::date`,
+      ),
+    );
+  const byDate = new Map(dayRows.map((r) => [r.workDate, r]));
+  const disputedNote = completedDays
+    .map((d) => byDate.get(d))
+    .find((r) => r?.status === "disputed")?.notes;
+  const anyDisputed = completedDays.some(
+    (d) => byDate.get(d)?.status === "disputed",
+  );
+  const allApproved =
+    completedDays.length > 0 &&
+    completedDays.every((d) => byDate.get(d)?.status === "approved");
+
+  if (anyDisputed) {
+    await upsertApproval(
+      tx,
+      tenantId,
+      employeeUserId,
+      weekStartIso,
+      "disputed",
+      actingUserId,
+      disputedNote ?? "Flagged by manager — please review punches.",
+    );
+    return "disputed";
+  }
+  if (allApproved) {
+    await upsertApproval(
+      tx,
+      tenantId,
+      employeeUserId,
+      weekStartIso,
+      "approved",
+      actingUserId,
+      null,
+    );
+    return "approved";
+  }
+  await tx
+    .delete(scTimesheetApprovals)
+    .where(
+      and(
+        eq(scTimesheetApprovals.traceyTenantId, tenantId),
+        eq(scTimesheetApprovals.employeeUserId, employeeUserId),
+        sql`${scTimesheetApprovals.weekStart} = ${weekStartIso}::date`,
+      ),
+    );
+  return null;
+}
+
+async function runDayAction(
+  g: Extract<Awaited<ReturnType<typeof gateAndParseDay>>, { ok: true }>,
+  change:
+    | { status: "approved" | "disputed"; notes: string | null }
+    | { clear: true },
+): Promise<"approved" | "disputed" | null> {
+  return forTenant(g.tenantId).run(async (tx) => {
+    await materializeWeekIntoDays(
+      tx,
+      g.tenantId,
+      g.employeeUserId,
+      g.weekStartIso,
+      g.weekEndIso,
+      g.completedDays,
+      g.me,
+    );
+    if ("clear" in change) {
+      await tx
+        .delete(scTimesheetDayApprovals)
+        .where(
+          and(
+            eq(scTimesheetDayApprovals.traceyTenantId, g.tenantId),
+            eq(scTimesheetDayApprovals.employeeUserId, g.employeeUserId),
+            sql`${scTimesheetDayApprovals.workDate} = ${g.workDateIso}::date`,
+          ),
+        );
+    } else {
+      await tx
+        .insert(scTimesheetDayApprovals)
+        .values({
+          traceyTenantId: g.tenantId,
+          employeeUserId: g.employeeUserId,
+          workDate: g.workDateIso,
+          status: change.status,
+          notes: change.notes,
+          approvedByUserId: g.me,
+        })
+        .onConflictDoUpdate({
+          target: [
+            scTimesheetDayApprovals.traceyTenantId,
+            scTimesheetDayApprovals.employeeUserId,
+            scTimesheetDayApprovals.workDate,
+          ],
+          set: {
+            status: change.status,
+            notes: change.notes,
+            approvedByUserId: g.me,
+            approvedAt: new Date(),
+            updatedAt: new Date(),
+          },
+        });
+    }
+    return rollupWeekFromDays(
+      tx,
+      g.tenantId,
+      g.employeeUserId,
+      g.weekStartIso,
+      g.weekEndIso,
+      g.completedDays,
+      g.me,
+    );
+  });
+}
+
+export async function approveDayAction(formData: FormData): Promise<void> {
+  const g = await gateAndParseDay(formData);
+  if (!g.ok) {
+    console.warn("[approveDayAction] refused:", g.message);
+    return;
+  }
+  const weekStatus = await runDayAction(g, { status: "approved", notes: null });
+  await logAuditEvent({
+    action: "shiftcraft.timesheet.day_approved",
+    targetKind: "sc_timesheet_day_approval",
+    targetId: `${g.employeeUserId}:${g.workDateIso}`,
+    details: {
+      employeeUserId: g.employeeUserId,
+      workDate: g.workDateIso,
+      weekStart: g.weekStartIso,
+      weekStatus,
+    },
+  });
+  if (weekStatus === "approved") {
+    await emitWebhook(g.tenantId, "timesheet.approved", {
+      weekStart: g.weekStartIso,
+      employeeUserId: g.employeeUserId,
+      approvedByUserId: g.me,
+    });
+  }
+  revalidatePath("/app/timesheets");
+}
+
+export async function disputeDayAction(formData: FormData): Promise<void> {
+  const g = await gateAndParseDay(formData);
+  if (!g.ok) {
+    console.warn("[disputeDayAction] refused:", g.message);
+    return;
+  }
+  const notes =
+    String(formData.get("notes") ?? "").trim().slice(0, 1000) ||
+    "Flagged by manager — please review this day's punches.";
+  const weekStatus = await runDayAction(g, { status: "disputed", notes });
+  await logAuditEvent({
+    action: "shiftcraft.timesheet.day_disputed",
+    targetKind: "sc_timesheet_day_approval",
+    targetId: `${g.employeeUserId}:${g.workDateIso}`,
+    details: {
+      employeeUserId: g.employeeUserId,
+      workDate: g.workDateIso,
+      weekStart: g.weekStartIso,
+      notes,
+      weekStatus,
+    },
+  });
+  revalidatePath("/app/timesheets");
+}
+
+export async function clearDayApprovalAction(formData: FormData): Promise<void> {
+  const g = await gateAndParseDay(formData);
+  if (!g.ok) {
+    console.warn("[clearDayApprovalAction] refused:", g.message);
+    return;
+  }
+  const weekStatus = await runDayAction(g, { clear: true });
+  await logAuditEvent({
+    action: "shiftcraft.timesheet.day_cleared",
+    targetKind: "sc_timesheet_day_approval",
+    targetId: `${g.employeeUserId}:${g.workDateIso}`,
+    details: {
+      employeeUserId: g.employeeUserId,
+      workDate: g.workDateIso,
+      weekStart: g.weekStartIso,
+      weekStatus,
+    },
+  });
   revalidatePath("/app/timesheets");
 }

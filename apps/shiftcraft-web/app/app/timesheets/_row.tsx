@@ -1,6 +1,16 @@
 "use client";
 
-import { useState, type CSSProperties, type ReactNode } from "react";
+import {
+  useState,
+  useTransition,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+import {
+  approveDayAction,
+  clearDayApprovalAction,
+  disputeDayAction,
+} from "./actions";
 import {
   EventEditModal,
   type ModalContext,
@@ -105,13 +115,20 @@ export interface RowProps {
   /** Per-day actual worked ms, Mon..Sun, length 7. Drives the heat tint. */
   perDayActualMs: number[];
   /** Per-day display/gating metadata, Mon..Sun, length 7. Drives greying of
-   *  future days, the in-progress pill, and per-day no-show tinting. */
+   *  future days, the in-progress pill, per-day no-show tinting, and the
+   *  per-day approve control + status tint on completed days. */
   perDayMeta: Array<{
+    dayIso: string;
     isFuture: boolean;
     isInProgress: boolean;
     isComplete: boolean;
     noShow: boolean;
+    approval: "approved" | "disputed" | null;
   }>;
+  /** CSV of this employee-week's completed (approvable) day ISO dates —
+   *  passed to the per-day approval actions so the week rollup knows the
+   *  denominator without re-aggregating the clock stream. */
+  completedDaysCsv: string;
   totalWorkDisplay: string;
   totalBreakDisplay: string;
   costDisplay: string;
@@ -167,6 +184,106 @@ export interface RowProps {
 // theme has no blue token) and used via color-mix so it tints, not shouts.
 const IN_PROGRESS_COLOR = "#2563eb";
 
+// Per-day approve / dispute control shown on a completed day cell. Approving
+// toggles back to pending on a second click; disputing opens a prompt for the
+// reason. Calls the server actions imperatively (no inner <form>, which the
+// bulk-selection <form> wrapper would reject as nested).
+function DayApproveToggle({
+  userId,
+  workDate,
+  completedDaysCsv,
+  status,
+}: {
+  userId: string;
+  workDate: string;
+  completedDaysCsv: string;
+  status: "approved" | "disputed" | null;
+}) {
+  const [pending, startTransition] = useTransition();
+  const run = (
+    action: (fd: FormData) => Promise<void>,
+    extra?: Record<string, string>,
+  ) => {
+    const fd = new FormData();
+    fd.append("employeeUserId", userId);
+    fd.append("workDate", workDate);
+    fd.append("completedDays", completedDaysCsv);
+    if (extra) for (const [k, v] of Object.entries(extra)) fd.append(k, v);
+    startTransition(async () => {
+      await action(fd);
+    });
+  };
+  const base =
+    "flex h-4 w-4 items-center justify-center rounded-[4px] border text-[9px] font-bold leading-none transition-colors disabled:opacity-50";
+  if (status === "approved") {
+    return (
+      <button
+        type="button"
+        disabled={pending}
+        title="Approved — click to clear"
+        onClick={() => run(clearDayApprovalAction)}
+        className={base}
+        style={{
+          borderColor: "var(--live)",
+          background: "var(--live)",
+          color: "#fff",
+        }}
+      >
+        ✓
+      </button>
+    );
+  }
+  if (status === "disputed") {
+    return (
+      <button
+        type="button"
+        disabled={pending}
+        title="Disputed — click to clear"
+        onClick={() => run(clearDayApprovalAction)}
+        className={base}
+        style={{
+          borderColor: "var(--warn)",
+          background: "var(--warn)",
+          color: "#fff",
+        }}
+      >
+        !
+      </button>
+    );
+  }
+  return (
+    <div className="flex items-center gap-0.5">
+      <button
+        type="button"
+        disabled={pending}
+        title="Approve this day"
+        onClick={() => run(approveDayAction)}
+        className={`${base} hover:bg-[var(--live)] hover:text-white`}
+        style={{ borderColor: "var(--live)", color: "var(--live)" }}
+      >
+        ✓
+      </button>
+      <button
+        type="button"
+        disabled={pending}
+        title="Dispute this day"
+        onClick={() => {
+          const reason = window.prompt(
+            "Dispute this day?\n\nAdd a note for the employee (optional):",
+            "",
+          );
+          if (reason == null) return;
+          run(disputeDayAction, { notes: reason.trim() });
+        }}
+        className={`${base} hover:bg-[var(--warn)] hover:text-white`}
+        style={{ borderColor: "var(--warn)", color: "var(--warn)" }}
+      >
+        !
+      </button>
+    </div>
+  );
+}
+
 // Informational anomalies (overtime / long shift) render quiet — they're
 // context, not a call to action. The actionable ones (no clock-out / no-show)
 // keep the danger treatment so the "· Fix" affordance stands out.
@@ -201,6 +318,7 @@ export function TimesheetRow({
   perDayActualDisplay,
   perDayActualMs,
   perDayMeta,
+  completedDaysCsv,
   totalWorkDisplay,
   totalBreakDisplay,
   costDisplay,
@@ -444,19 +562,62 @@ export function TimesheetRow({
             );
           }
 
-          // Worked-and-complete (or empty) — the existing heat tile. Tint scales
-          // with hours worked; alpha is a CSS var so globals.css can knock it
-          // down in dark mode (.heat-tile) without a hydration mismatch.
-          const hours = ms / 3_600_000;
-          const alpha = ms ? Math.min(hours / 24, 1) * 0.55 : 0;
+          // Completed shift: tint by per-day approval (green approved / amber
+          // disputed / heat when pending) and, for managers, show the per-day
+          // approve/dispute toggle. (#2, #5)
+          if (meta.isComplete) {
+            const hours = ms / 3_600_000;
+            const alpha = Math.min(hours / 24, 1) * 0.55;
+            const approved = meta.approval === "approved";
+            const disputed = meta.approval === "disputed";
+            const tinted = approved || disputed;
+            const accent = approved ? "var(--live)" : "var(--warn)";
+            return (
+              <td key={i} className="px-3 py-[13px] align-middle">
+                <div
+                  className={`flex min-h-[44px] flex-col items-center justify-center gap-1 rounded-[9px] border px-[3px] py-1.5 text-center ${tinted ? "" : "heat-tile"}`}
+                  style={
+                    tinted
+                      ? {
+                          borderColor: accent,
+                          background: `color-mix(in srgb, ${accent} 13%, transparent)`,
+                        }
+                      : ({
+                          borderColor: "var(--line-soft)",
+                          "--heat": alpha.toFixed(2),
+                        } as CSSProperties)
+                  }
+                >
+                  <span className="font-mono text-xs font-semibold tabular-nums text-ink">
+                    {actual}
+                  </span>
+                  {canManage ? (
+                    <DayApproveToggle
+                      userId={userId}
+                      workDate={meta.dayIso}
+                      completedDaysCsv={completedDaysCsv}
+                      status={meta.approval}
+                    />
+                  ) : tinted ? (
+                    <span
+                      className="text-[8px] font-semibold uppercase tracking-wider"
+                      style={{ color: accent }}
+                    >
+                      {approved ? "Approved" : "Disputed"}
+                    </span>
+                  ) : null}
+                </div>
+              </td>
+            );
+          }
+
+          // Empty day (no activity, not future / no-show / in-progress) — a
+          // plain dash tile.
           return (
             <td key={i} className="px-3 py-[13px] align-middle">
-              <div
-                className="heat-tile flex min-h-[44px] flex-col items-center justify-center rounded-[9px] border border-[var(--line-soft)] px-[3px] py-2 text-center"
-                style={{ "--heat": alpha.toFixed(2) } as CSSProperties}
-              >
+              <div className="flex min-h-[44px] flex-col items-center justify-center rounded-[9px] border border-[var(--line-soft)] px-[3px] py-2 text-center">
                 <span className="font-mono text-xs font-semibold tabular-nums text-ink">
-                  {ms ? actual : <span className="text-ink-3">—</span>}
+                  <span className="text-ink-3">—</span>
                 </span>
               </div>
             </td>

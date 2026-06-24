@@ -822,6 +822,55 @@ export const scTimesheetApprovals = pgTable(
   ],
 );
 
+// ─── Per-day timesheet approvals ───
+//
+// Finer-grained sibling of sc_timesheet_approvals: lets a manager sign off
+// (or dispute) an individual work date as its shift completes, rather than
+// only the whole week at once. The week-level table above remains the
+// source of truth for every downstream consumer (Xero export, schedule
+// lock, leave balances, dashboard, CSV export, digest, punch-edit lock);
+// the per-day actions roll their state up into it (all completed days
+// approved → week approved). This table only powers the timesheet grid's
+// per-day badges + approve controls. Same per-tenant clone pattern as its
+// week-level sibling (see migrations/per-tenant/0065).
+export const scTimesheetDayApprovals = pgTable(
+  "sc_timesheet_day_approvals",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    employeeUserId: uuid("employee_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    workDate: date("work_date").notNull(),
+    status: text("status").notNull().default("approved"),
+    notes: text("notes"),
+    approvedByUserId: uuid("approved_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    approvedAt: timestamp("approved_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("sc_timesheet_day_approvals_uq").on(
+      t.traceyTenantId,
+      t.employeeUserId,
+      t.workDate,
+    ),
+    index("sc_timesheet_day_approvals_tenant_date_idx").on(
+      t.traceyTenantId,
+      t.workDate,
+    ),
+    check(
+      "sc_timesheet_day_approvals_status_chk",
+      sql`${t.status} in ('approved','disputed')`,
+    ),
+  ],
+);
+
 // ─── Email-notification opt-outs ───
 //
 // Per-(user, kind) opt-out ledger. Presence of a row = "do not email
@@ -2141,6 +2190,7 @@ export type NewScShiftComment = typeof scShiftComments.$inferInsert;
 export type ScTimesheetApproval = typeof scTimesheetApprovals.$inferSelect;
 export type NewScTimesheetApproval = typeof scTimesheetApprovals.$inferInsert;
 export type ScTimesheetApprovalStatus = "approved" | "disputed";
+export type ScTimesheetDayApprovalStatus = "approved" | "disputed";
 export type ScShiftStatus = "draft" | "published" | "cancelled";
 export type ScDocumentSignature = typeof scDocumentSignatures.$inferSelect;
 export type NewScDocumentSignature = typeof scDocumentSignatures.$inferInsert;
