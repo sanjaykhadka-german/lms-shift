@@ -10,6 +10,7 @@ import {
   type ActivityEntry,
 } from "./_detail_panel";
 import { editBreakInlineAction } from "./event-actions";
+import { SelfieThumb } from "./_selfie-thumb";
 
 // datetime-local value (YYYY-MM-DDTHH:mm) in the browser's local tz from an ISO
 // string — mirrors the helper in _event_edit_modal so what's shown matches the
@@ -474,14 +475,7 @@ export function TimesheetRow({
                           }
                         >
                           {s.selfieEventId ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={`/api/kiosk-selfie/${s.selfieEventId}`}
-                              alt=""
-                              width={32}
-                              height={24}
-                              className="h-6 w-8 rounded-sm border border-border object-cover"
-                            />
+                            <SelfieThumb eventId={s.selfieEventId} />
                           ) : null}
                           <span className="text-[9px] uppercase tracking-wider opacity-70">
                             {s.kind === "work" ? "work" : "break"}

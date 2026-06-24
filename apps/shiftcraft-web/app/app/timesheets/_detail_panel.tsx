@@ -10,6 +10,7 @@ import {
   disputeTimesheetAction,
 } from "./actions";
 import type { AnomalyKind, RowDayDetail } from "./_row";
+import { SelfieThumb } from "./_selfie-thumb";
 
 // Deputy-style timesheet detail panel. Right-aligned overlay rendered via
 // portal so its <form> isn't nested inside the bulk-selection form on the
@@ -250,14 +251,7 @@ export function TimesheetDetailPanel(props: TimesheetDetailPanelProps) {
                             }
                           >
                             {s.selfieEventId ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={`/api/kiosk-selfie/${s.selfieEventId}`}
-                                alt=""
-                                width={32}
-                                height={24}
-                                className="h-6 w-8 rounded-sm border border-border object-cover"
-                              />
+                              <SelfieThumb eventId={s.selfieEventId} />
                             ) : null}
                             <span className="text-[9px] uppercase tracking-wider opacity-70">
                               {s.kind}
