@@ -1142,23 +1142,7 @@ export default async function TimesheetsPage({
     <div className="mx-auto max-w-6xl space-y-6 px-6 py-10">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
-            Timesheets
-            <InfoPopover label="About timesheets">
-              <p>
-                Per-employee weekly hours derived from the clock-event
-                stream. Managers approve or dispute each week before the
-                Xero export.
-              </p>
-              <p className="mt-1">
-                The award classifier splits each day&rsquo;s minutes into
-                ordinary, overtime, and penalty buckets using your tenant
-                award profile. Column headers carry their own &ldquo;i&rdquo;
-                explainers.
-              </p>
-            </InfoPopover>
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             {canViewTeam
               ? "Hours per employee for the selected week, auto-built from clock punches."
               : "Your hours for the selected week, auto-built from your clock punches."}
@@ -1473,9 +1457,6 @@ export default async function TimesheetsPage({
                       const perDayActualDisplay = r.perDay.map((ms) =>
                         ms > 0 ? fmtHours(ms) : "—",
                       );
-                      const perDayPlannedDisplay = r.plannedDailyMs.map((ms) =>
-                        ms > 0 ? fmtHours(ms) : "",
-                      );
                       // Enrich each PerDayDetailEntry with the pre-formatted
                       // planned / actual / Δ display strings the client row
                       // component renders verbatim.
@@ -1534,7 +1515,6 @@ export default async function TimesheetsPage({
                           perDayActualDisplay={perDayActualDisplay}
                           perDayActualMs={r.perDay}
                           perDayMeta={r.perDayMeta}
-                          perDayPlannedDisplay={perDayPlannedDisplay}
                           totalWorkDisplay={fmtHours(r.totalWorkMs)}
                           totalBreakDisplay={fmtHours(r.totalBreakMs)}
                           costDisplay={fmtAud(r.costAud)}

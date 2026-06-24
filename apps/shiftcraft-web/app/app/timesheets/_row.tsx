@@ -112,8 +112,6 @@ export interface RowProps {
     isComplete: boolean;
     noShow: boolean;
   }>;
-  /** Per-day planned hours, formatted ("8h" or "" when none). Length 7. */
-  perDayPlannedDisplay: string[];
   totalWorkDisplay: string;
   totalBreakDisplay: string;
   costDisplay: string;
@@ -203,7 +201,6 @@ export function TimesheetRow({
   perDayActualDisplay,
   perDayActualMs,
   perDayMeta,
-  perDayPlannedDisplay,
   totalWorkDisplay,
   totalBreakDisplay,
   costDisplay,
@@ -375,7 +372,6 @@ export function TimesheetRow({
           </div>
         </td>
         {perDayActualDisplay.map((actual, i) => {
-          const planned = perDayPlannedDisplay[i] ?? "";
           const ms = perDayActualMs[i] ?? 0;
           const meta = perDayMeta[i] ?? {
             isFuture: false,
@@ -395,11 +391,6 @@ export function TimesheetRow({
                   <span className="font-mono text-xs text-ink-3" aria-hidden>
                     ·
                   </span>
-                  {planned ? (
-                    <span className="font-mono text-[9px] text-ink-3">
-                      /{planned}
-                    </span>
-                  ) : null}
                 </div>
               </td>
             );
@@ -421,11 +412,6 @@ export function TimesheetRow({
                   <span className="text-[9px] font-semibold uppercase tracking-wider text-[var(--danger)]">
                     No show
                   </span>
-                  {planned ? (
-                    <span className="font-mono text-[9px] text-[var(--danger)]">
-                      /{planned}
-                    </span>
-                  ) : null}
                 </div>
               </td>
             );
@@ -472,11 +458,6 @@ export function TimesheetRow({
                 <span className="font-mono text-xs font-semibold tabular-nums text-ink">
                   {ms ? actual : <span className="text-ink-3">—</span>}
                 </span>
-                {planned ? (
-                  <span className="font-mono text-[9px] text-ink-3">
-                    /{planned}
-                  </span>
-                ) : null}
               </div>
             </td>
           );
