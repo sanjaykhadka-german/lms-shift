@@ -104,7 +104,11 @@ export function EventEditModal({ ctx, onClose }: Props) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-2xl">
+      <div
+        className={`w-full rounded-xl border border-border bg-card p-6 shadow-2xl ${
+          ctx.mode === "dayEntry" ? "max-w-lg" : "max-w-md"
+        }`}
+      >
         <header className="mb-4">
           <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
             {ctx.mode === "edit"
@@ -357,15 +361,17 @@ function DayEntryForm({
       ) : null}
       <div className="grid grid-cols-2 gap-3">
         <Field label="Start">
-          <TimeField12
+          <EntryTimeField
             name="clockIn"
+            dateIso={ctx.dateIso}
             required
             defaultValue={ctx.clockIn ?? ""}
           />
         </Field>
         <Field label="Finish">
-          <TimeField12
+          <EntryTimeField
             name="clockOut"
+            dateIso={ctx.dateIso}
             required
             defaultValue={ctx.clockOut ?? ""}
           />
@@ -391,31 +397,42 @@ function DayEntryForm({
           </p>
         ) : (
           breakRows.map((b, idx) => (
-            <div key={b.id} className="flex items-end gap-2">
-              <Field label={idx === 0 ? "Break start" : `Break ${idx + 1} start`}>
-                <TimeField12
-                  name="breakStart"
-                  required
-                  value={b.start}
-                  onChange={(v) => updateBreak(b.id, { start: v })}
-                />
-              </Field>
-              <Field label="End">
-                <TimeField12
-                  name="breakEnd"
-                  required
-                  value={b.end}
-                  onChange={(v) => updateBreak(b.id, { end: v })}
-                />
-              </Field>
-              <button
-                type="button"
-                onClick={() => removeBreak(b.id)}
-                aria-label="Remove break"
-                className="mb-2 px-1 text-sm text-muted-foreground hover:text-[var(--danger)]"
-              >
-                ✕
-              </button>
+            <div
+              key={b.id}
+              className="space-y-2 rounded-md border border-border/60 p-2"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {idx === 0 ? "Break" : `Break ${idx + 1}`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeBreak(b.id)}
+                  className="text-[11px] font-medium text-muted-foreground hover:text-[var(--danger)]"
+                >
+                  ✕ Remove
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Start">
+                  <EntryTimeField
+                    name="breakStart"
+                    dateIso={ctx.dateIso}
+                    required
+                    value={b.start}
+                    onChange={(v) => updateBreak(b.id, { start: v })}
+                  />
+                </Field>
+                <Field label="End">
+                  <EntryTimeField
+                    name="breakEnd"
+                    dateIso={ctx.dateIso}
+                    required
+                    value={b.end}
+                    onChange={(v) => updateBreak(b.id, { end: v })}
+                  />
+                </Field>
+              </div>
             </div>
           ))
         )}
@@ -449,34 +466,30 @@ function DayEntryForm({
   );
 }
 
-function pad2(n: number): string {
-  return String(n).padStart(2, "0");
+// Extract the "HH:MM" portion from a datetime-local value
+// ("YYYY-MM-DDTHH:MM"). Empty string when blank/invalid.
+function timePart(dt: string): string {
+  const i = dt.indexOf("T");
+  return i >= 0 ? dt.slice(i + 1, i + 6) : "";
 }
 
-// Parse a 24h "HH:MM" string into parts; null if blank/invalid.
-function parse24(v: string | undefined): { h: number; m: number } | null {
-  const m = /^(\d{1,2}):(\d{2})$/.exec(v ?? "");
-  if (!m) return null;
-  const h = Number(m[1]);
-  const min = Number(m[2]);
-  if (h > 23 || min > 59) return null;
-  return { h, m: min };
-}
-
-// 12-hour (AM/PM) time field. Native <input type="time"> follows the OS
-// locale (24h on en-AU), so we render explicit hour / minute / AM-PM selects
-// for a consistent AM/PM display everywhere, while submitting the same 24h
-// "HH:MM" string (via a hidden input) that the server actions parse. Works
-// both uncontrolled (name + defaultValue, for Start/Finish) and controlled
-// (value + onChange, for break rows).
-function TimeField12({
+// Time field for the whole-day entry form. Uses the SAME native
+// <input type="datetime-local"> the schedule page uses — which renders the
+// browser's AM/PM picker (24h native <input type="time"> looked different) —
+// but locks the date portion to the day being edited (min/max) and submits
+// just the "HH:MM" the server action parses, via a hidden input. Works both
+// uncontrolled (name + defaultValue, for Start/Finish) and controlled
+// (value + onChange, for break rows). All time values are 24h "HH:MM".
+function EntryTimeField({
   name,
+  dateIso,
   value,
   defaultValue,
   onChange,
   required,
 }: {
   name: string;
+  dateIso: string;
   value?: string;
   defaultValue?: string;
   onChange?: (v: string) => void;
@@ -485,68 +498,26 @@ function TimeField12({
   const isControlled = value !== undefined;
   const [internal, setInternal] = useState(defaultValue ?? "");
   const cur = isControlled ? value ?? "" : internal;
-  const parsed = parse24(cur);
-  const minStr = parsed ? pad2(parsed.m) : "";
-  const ampm: "AM" | "PM" = parsed && parsed.h >= 12 ? "PM" : "AM";
-  const h12Str = parsed ? String(((parsed.h + 11) % 12) + 1) : "";
-
-  const commit = (h12: string, min: string, ap: "AM" | "PM") => {
-    let out = "";
-    if (h12 !== "" && min !== "") {
-      let h = Number(h12) % 12;
-      if (ap === "PM") h += 12;
-      out = `${pad2(h)}:${pad2(Number(min))}`;
-    }
-    if (!isControlled) setInternal(out);
-    onChange?.(out);
+  const dtValue = cur ? `${dateIso}T${cur}` : "";
+  const commit = (dt: string) => {
+    const t = timePart(dt);
+    if (!isControlled) setInternal(t);
+    onChange?.(t);
   };
-
-  const selCls =
-    "h-9 rounded-md border border-border bg-background px-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary";
   return (
-    <div className="flex items-center gap-1">
-      <select
-        aria-label="Hour"
+    <>
+      <input
+        type="datetime-local"
+        step={60}
         required={required}
-        value={h12Str}
-        onChange={(e) => commit(e.target.value, minStr || "00", ampm)}
-        className={selCls}
-      >
-        <option value="">--</option>
-        {Array.from({ length: 12 }, (_, i) => i + 1).map((h) => (
-          <option key={h} value={h}>
-            {h}
-          </option>
-        ))}
-      </select>
-      <span className="text-sm text-muted-foreground">:</span>
-      <select
-        aria-label="Minute"
-        required={required}
-        value={minStr}
-        onChange={(e) => commit(h12Str || "12", e.target.value, ampm)}
-        className={selCls}
-      >
-        <option value="">--</option>
-        {Array.from({ length: 60 }, (_, i) => pad2(i)).map((m) => (
-          <option key={m} value={m}>
-            {m}
-          </option>
-        ))}
-      </select>
-      <select
-        aria-label="AM or PM"
-        value={ampm}
-        onChange={(e) =>
-          commit(h12Str || "12", minStr || "00", e.target.value as "AM" | "PM")
-        }
-        className={selCls}
-      >
-        <option value="AM">AM</option>
-        <option value="PM">PM</option>
-      </select>
+        value={dtValue}
+        min={`${dateIso}T00:00`}
+        max={`${dateIso}T23:59`}
+        onChange={(e) => commit(e.target.value)}
+        className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+      />
       <input type="hidden" name={name} value={cur} />
-    </div>
+    </>
   );
 }
 
