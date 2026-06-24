@@ -1182,28 +1182,49 @@ export default async function TimesheetsPage({
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-6 py-10">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="space-y-1">
+          <h2 className="font-display text-lg font-semibold tracking-[-0.01em] text-ink">
+            {`${weekStart.toLocaleDateString(undefined, {
+              weekday: "short",
+              day: "numeric",
+              month: "long",
+            })} – ${addDays(weekEnd, -1).toLocaleDateString(undefined, {
+              weekday: "short",
+              day: "numeric",
+              month: "long",
+            })}`}
+            <span className="ml-2 font-sans text-sm font-normal text-muted-foreground">
+              · {summary.onShift} on shift
+            </span>
+          </h2>
           <p className="text-sm text-muted-foreground">
             {canViewTeam
               ? "Hours per employee for the selected week, auto-built from clock punches."
               : "Your hours for the selected week, auto-built from your clock punches."}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        {/* Toolbar mirrors the schedule page: Date nav · Actions, split by a
+            hairline. (Range/view toggles don't apply — timesheets are weekly.) */}
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
           <Button asChild variant="outline" size="sm">
             <Link href={`/app/timesheets${qsFor({ week: fmtIsoDate(prevWeek) })}`}>
-              ← Previous
+              ← Prev
             </Link>
           </Button>
-          <span className="rounded-[var(--r-sm)] border border-line bg-[var(--paper-2)] px-3 py-1 font-display text-sm font-semibold tracking-[-0.01em] text-ink">
-            {weekLabel}
-          </span>
+          <Button asChild variant="outline" size="sm">
+            <Link
+              href={`/app/timesheets${qsFor({ week: fmtIsoDate(startOfWeek(now)) })}`}
+            >
+              Today
+            </Link>
+          </Button>
           <Button asChild variant="outline" size="sm">
             <Link href={`/app/timesheets${qsFor({ week: fmtIsoDate(nextWeek) })}`}>
               Next →
             </Link>
           </Button>
-          <Button asChild size="sm">
+          <span className="mx-1 h-6 w-px self-center bg-line" aria-hidden />
+          <Button asChild variant="outline" size="sm">
             <a href={exportHref}>Export CSV</a>
           </Button>
           {isAdmin && <CloseStaleClockInsButton />}
