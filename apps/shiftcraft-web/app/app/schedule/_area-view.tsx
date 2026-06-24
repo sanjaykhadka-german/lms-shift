@@ -685,11 +685,14 @@ export function AreaScheduleView({
   dayCount = 7,
   shifts: serShifts,
   employees,
+  holidayNames = [],
 }: {
   weekStartMs: number;
   dayCount?: number;
   shifts: AreaShiftSer[];
   employees: AreaEmployee[];
+  /** Public-holiday name per day index (Mon-indexed), or null (item 9). */
+  holidayNames?: Array<string | null>;
 }) {
   // Reconstruct Dates from the serializable props (see AreaShiftSer).
   const weekStart = new Date(weekStartMs);
@@ -851,6 +854,15 @@ export function AreaScheduleView({
   const weekDivider = (i: number) =>
     i === 7 ? "border-l-2 border-l-[var(--accent-deep)]" : "";
 
+  // Soft notice when a shift lands on a public-holiday day (item 9) — never
+  // blocks, just flags that penalty rates may apply. Null on a normal day.
+  const holidayNote = (dayIdx: number): string | null => {
+    const name = holidayNames[dayIdx] ?? null;
+    return name
+      ? `Heads up — that day is a public holiday (${name}). Penalty rates may apply.`
+      : null;
+  };
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor),
@@ -919,7 +931,7 @@ export function AreaScheduleView({
           appUserId ? null : empName,
         );
         if (!res.ok) setError(res.message ?? "Couldn't create that shift.");
-        else if (res.warning) setWarning(res.warning);
+        else setWarning(res.warning ?? holidayNote(targetDayIdx));
         router.refresh();
       });
       return;
@@ -973,7 +985,7 @@ export function AreaScheduleView({
             role: targetRole,
           });
           if (!res.ok) setError(res.message ?? "Couldn't move that shift.");
-          else if (res.warning) setWarning(res.warning);
+          else setWarning(res.warning ?? holidayNote(targetDayIdx));
           router.refresh();
         });
         return;
@@ -983,6 +995,7 @@ export function AreaScheduleView({
         applyMove({ shiftId: movedShiftId, deltaDays });
         const res = await moveShiftAction(movedShiftId, deltaDays);
         if (!res.ok) setError(res.message ?? "Couldn't move that shift.");
+        else setWarning(holidayNote(targetDayIdx));
         router.refresh();
       });
     }
@@ -1077,14 +1090,27 @@ export function AreaScheduleView({
         {/* Right: N-day area grid */}
         <div className="min-w-0 flex-1 overflow-x-auto rounded-lg border border-border bg-card shadow-sm">
           <div className="grid border-b border-border bg-muted/30" style={gridCols}>
-            {dayHeaders.map((d, i) => (
-              <div
-                key={d.toISOString()}
-                className={`border-r border-border px-2 py-2 text-xs font-semibold last:border-r-0 ${weekDivider(i)}`}
-              >
-                {fmtDayHeader(d)}
-              </div>
-            ))}
+            {dayHeaders.map((d, i) => {
+              const holiday = holidayNames[i] ?? null;
+              return (
+                <div
+                  key={d.toISOString()}
+                  className={`border-r border-border px-2 py-2 text-xs font-semibold last:border-r-0 ${weekDivider(i)} ${
+                    holiday
+                      ? "bg-[color-mix(in_srgb,var(--accent-deep)_12%,transparent)]"
+                      : ""
+                  }`}
+                  title={holiday ? `Public holiday: ${holiday}` : undefined}
+                >
+                  {fmtDayHeader(d)}
+                  {holiday ? (
+                    <span className="mt-0.5 block truncate text-[10px] font-medium leading-tight text-[var(--accent-deep)]">
+                      🎉 {holiday}
+                    </span>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
 
           {areas.length === 0 ? (

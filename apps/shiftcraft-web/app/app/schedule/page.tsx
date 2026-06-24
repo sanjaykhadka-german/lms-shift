@@ -14,6 +14,7 @@ import {
 } from "@tracey/db";
 import { currentMembership, requireUser } from "~/lib/auth/current";
 import { forecastWeek } from "~/lib/labour-forecast";
+import { getHolidaysForTenant } from "~/lib/holidays";
 import { getManagedLocationIds, scopeArray } from "~/lib/manager-scope";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
@@ -367,6 +368,22 @@ export default async function SchedulePage({
   // so navigating to a different week refreshes the counts.
   const weekStartIso = fmtIsoDate(weekStart);
   const weekEndInclusiveIso = fmtIsoDate(addDays(weekStart, dayCount - 1));
+
+  // Public holidays in the visible range (item 9). holidayNames[i] is the
+  // holiday name for day i (Mon-indexed) or null — drives the column marker on
+  // the grid and the soft "scheduling on a public holiday" warning on drop.
+  const holidaysInView = await getHolidaysForTenant(
+    membership.tenant.id,
+    weekStartIso,
+    weekEndInclusiveIso,
+  );
+  const holidayNames: Array<string | null> = Array.from(
+    { length: dayCount },
+    (_, i) => {
+      const iso = fmtIsoDate(addDays(weekStart, i));
+      return holidaysInView.find((h) => h.date === iso)?.name ?? null;
+    },
+  );
   const publishedCount = shifts.filter((s) => s.status === "published").length;
   const cancelledCount = shifts.filter((s) => s.status === "cancelled").length;
   const openShiftCount = shifts.filter(
@@ -947,6 +964,7 @@ export default async function SchedulePage({
             endsAtMs: s.endsAt.getTime(),
           })) as unknown as AreaShiftSer[]}
           employees={employees}
+          holidayNames={holidayNames}
         />
       ) : view === "employee" ? (
         <EmployeeScheduleView
@@ -958,16 +976,32 @@ export default async function SchedulePage({
           })) as unknown as AreaShift[]}
           employees={employees as EmployeeRow[]}
           assignmentsByShift={assignmentsByShift}
+          holidayNames={holidayNames}
         />
       ) : (
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {days.map((d) => (
+        {days.map((d) => {
+          const dayHoliday =
+            holidaysInView.find((h) => h.date === fmtIsoDate(d.date))?.name ??
+            null;
+          return (
           <section
             key={d.date.toISOString()}
             className="rounded-[var(--r-lg)] border border-line bg-[var(--paper)] shadow-[var(--shadow-sm)]"
           >
-            <div className="border-b border-line-soft px-4 py-2.5 font-display text-sm font-semibold tracking-[-0.01em] text-ink">
+            <div
+              className={`border-b border-line-soft px-4 py-2.5 font-display text-sm font-semibold tracking-[-0.01em] text-ink ${
+                dayHoliday
+                  ? "bg-[color-mix(in_srgb,var(--accent-deep)_12%,transparent)]"
+                  : ""
+              }`}
+            >
               {fmtDayHeader(d.date)}
+              {dayHoliday ? (
+                <span className="ml-2 text-[11px] font-medium text-[var(--accent-deep)]">
+                  🎉 {dayHoliday}
+                </span>
+              ) : null}
             </div>
             {d.shifts.length === 0 ? (
               <p className="px-4 py-3 text-xs text-ink-3">No shifts</p>
@@ -1022,7 +1056,8 @@ export default async function SchedulePage({
               </ul>
             )}
           </section>
-        ))}
+          );
+        })}
       </div>
       )}
 

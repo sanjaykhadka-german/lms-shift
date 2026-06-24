@@ -127,12 +127,15 @@ export function EmployeeScheduleView({
   shifts,
   employees,
   assignmentsByShift,
+  holidayNames = [],
 }: {
   weekStart: Date;
   dayCount?: number;
   shifts: AreaShift[];
   employees: EmployeeRow[];
   assignmentsByShift: Map<string, string[]>;
+  /** Public-holiday name per day index (Mon-indexed), or null (item 9). */
+  holidayNames?: Array<string | null>;
 }) {
   const dayHeaders = Array.from({ length: dayCount }, (_, i) =>
     addDays(weekStart, i),
@@ -163,14 +166,27 @@ export function EmployeeScheduleView({
         <div className="border-r border-border px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Employee
         </div>
-        {dayHeaders.map((d, i) => (
-          <div
-            key={d.toISOString()}
-            className={`border-r border-border px-2 py-2 text-xs font-semibold last:border-r-0 ${weekDivider(i)}`}
-          >
-            {fmtDayHeader(d)}
-          </div>
-        ))}
+        {dayHeaders.map((d, i) => {
+          const holiday = holidayNames[i] ?? null;
+          return (
+            <div
+              key={d.toISOString()}
+              className={`border-r border-border px-2 py-2 text-xs font-semibold last:border-r-0 ${weekDivider(i)} ${
+                holiday
+                  ? "bg-[color-mix(in_srgb,var(--accent-deep)_12%,transparent)]"
+                  : ""
+              }`}
+              title={holiday ? `Public holiday: ${holiday}` : undefined}
+            >
+              {fmtDayHeader(d)}
+              {holiday ? (
+                <span className="mt-0.5 block truncate text-[10px] font-medium leading-tight text-[var(--accent-deep)]">
+                  🎉 {holiday}
+                </span>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
 
       {!anyShifts ? (
