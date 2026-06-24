@@ -66,12 +66,26 @@ type AnomalyKind =
   | "no_clockout"
   | "no_show";
 
+interface PerDayMeta {
+  /** Day is after today — render greyed, no value, not approvable. */
+  isFuture: boolean;
+  /** Day currently holds an open (still-clocked-in) segment. */
+  isInProgress: boolean;
+  /** Worked, clocked out, and not in the future — the only state where the
+   *  day's shift counts as complete (and, in Slice B, approvable). */
+  isComplete: boolean;
+  /** Rostered for a past day but no punches recorded — a per-day no-show. */
+  noShow: boolean;
+}
+
 interface RowTotals {
   userId: string;
   name: string;
   email: string;
   /** workMs per day index 0..6 (Mon..Sun). */
   perDay: number[];
+  /** Per-day display/gating metadata, Mon..Sun, length 7. */
+  perDayMeta: PerDayMeta[];
   totalWorkMs: number;
   totalBreakMs: number;
   approvalStatus: ScTimesheetApprovalStatus | null;
@@ -265,6 +279,19 @@ export default async function TimesheetsPage({
   const weekEnd = addDays(weekStart, 7);
   const prevWeek = addDays(weekStart, -7);
   const nextWeek = addDays(weekStart, 7);
+
+  // "Now" anchors two behaviours, computed once so every row shares one
+  // reference point within a render: (1) an open (still-clocked-in) punch is
+  // capped at now rather than the end of the week, and (2) days after today
+  // render greyed and non-approvable. todayIdx is the day index of today
+  // within the displayed week: <0 when the week is entirely in the future,
+  // >6 when entirely in the past, else 0..6 (Mon..Sun).
+  const now = new Date();
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+  const todayIdx = Math.floor(
+    (todayStart.getTime() - weekStart.getTime()) / 86_400_000,
+  );
 
   // Build query-string preserving the active filters so week navigation
   // and the Clear button don't drop a selection. Pass `null` for an
@@ -792,7 +819,21 @@ export default async function TimesheetsPage({
     // too — that's where the missing clock-out belongs (the "Fix" target).
     const hadOpenAtWeekEnd = open !== null;
     const openPunchDayIso = open ? fmtIsoDate(open.startedAt) : null;
-    if (open) closeOpen(weekEnd, null);
+    // An open punch (clocked in, never out) is capped at "now", not the end of
+    // the week. Force-closing at weekEnd smeared a single open segment across
+    // every remaining day — dumping ~24h onto each, including future Sat/Sun.
+    // Capping at now contributes only real elapsed time; future days stay 0.
+    // The day that holds the cap is the in-progress day, surfaced so the row
+    // can show live-so-far + an "In progress" pill and suppress its approve.
+    let openSegmentDayIdx: number | null = null;
+    if (open) {
+      const cap = now < weekEnd ? now : weekEnd;
+      const capIdx = Math.floor(
+        (cap.getTime() - weekStart.getTime()) / 86_400_000,
+      );
+      openSegmentDayIdx = capIdx >= 0 && capIdx <= 6 ? capIdx : null;
+      closeOpen(cap, null);
+    }
 
     const perDay = Array.from({ length: 7 }, () => 0);
     // chunksByDay carries metadata; one entry per (segment × day-split).
@@ -904,6 +945,24 @@ export default async function TimesheetsPage({
 
     const plannedTotalMs = planned.reduce((sum, ms) => sum + ms, 0);
 
+    // Per-day display/gating metadata. Drives greying of future days, the
+    // in-progress pill, per-day no-show chips, and approval gating (#4). A day
+    // is future when its index is past today's; no-show is only asserted for
+    // days strictly before today (today's rostered shift may not have started
+    // yet, so it isn't a no-show until the day has passed).
+    const perDayMeta: PerDayMeta[] = Array.from({ length: 7 }, (_, i) => {
+      const isFuture = i > todayIdx;
+      const isPast = i < todayIdx;
+      const isInProgress = openSegmentDayIdx === i;
+      const worked = (perDay[i] ?? 0) > 0;
+      return {
+        isFuture,
+        isInProgress,
+        isComplete: worked && !isInProgress && !isFuture,
+        noShow: isPast && (planned[i] ?? 0) > 0 && (perDay[i] ?? 0) === 0,
+      };
+    });
+
     // Anomaly derivation — pure functions of the totals above.
     const anomalies: AnomalyKind[] = [];
     if (totalWork > 40 * 3_600_000) anomalies.push("overtime_week");
@@ -987,6 +1046,7 @@ export default async function TimesheetsPage({
       costAud,
       hourlyRate: rate,
       perDayDetail,
+      perDayMeta,
       plannedDailyMs: planned,
       plannedTotalMs,
       anomalies,
@@ -1304,7 +1364,9 @@ export default async function TimesheetsPage({
                 No clock activity recorded for this week.
               </p>
             ) : (
-              <div className="overflow-x-auto">
+              <>
+                <TimesheetLegend />
+                <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-muted/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
                     <tr>
@@ -1442,6 +1504,13 @@ export default async function TimesheetsPage({
                           segments: d.segments,
                         };
                       });
+                      // #4 — the whole-week approve control only appears once at
+                      // least one day's shift is complete (worked + clocked out
+                      // + not in the future). An in-progress or all-future week
+                      // shows the Pending badge but no Approve button.
+                      const hasApprovableActivity = r.perDayMeta.some(
+                        (d) => d.isComplete,
+                      );
                       const approvalCell = (
                         <ApprovalCell
                           userId={r.userId}
@@ -1452,6 +1521,7 @@ export default async function TimesheetsPage({
                           hasActivity={
                             r.totalWorkMs > 0 || r.totalBreakMs > 0
                           }
+                          hasApprovableActivity={hasApprovableActivity}
                         />
                       );
                       return (
@@ -1463,6 +1533,7 @@ export default async function TimesheetsPage({
                           deptLabel={deptLabel}
                           perDayActualDisplay={perDayActualDisplay}
                           perDayActualMs={r.perDay}
+                          perDayMeta={r.perDayMeta}
                           perDayPlannedDisplay={perDayPlannedDisplay}
                           totalWorkDisplay={fmtHours(r.totalWorkMs)}
                           totalBreakDisplay={fmtHours(r.totalBreakMs)}
@@ -1500,7 +1571,8 @@ export default async function TimesheetsPage({
                     })}
                   </tbody>
                 </table>
-              </div>
+                </div>
+              </>
             )}
           </section>
         );
@@ -1520,9 +1592,11 @@ export default async function TimesheetsPage({
       <p className="text-[11px] text-muted-foreground">
         Hours are derived from the append-only clock-event stream. Overnight
         shifts are split at midnight so each day's total is contained within
-        that calendar date. Managers can approve, dispute, or reset each
-        employee's week — the status column reflects the latest state and
-        is included in the CSV export.
+        that calendar date. A still-clocked-in shift shows live time so far
+        (blue, ⏱) and can't be approved until it's clocked out; days that
+        haven't happened yet are greyed. Managers can approve, dispute, or
+        reset each employee's week — the status column reflects the latest
+        state and is included in the CSV export.
       </p>
     </div>
   );
@@ -1535,6 +1609,7 @@ function ApprovalCell({
   notes,
   canManage,
   hasActivity,
+  hasApprovableActivity,
 }: {
   userId: string;
   weekStartIso: string;
@@ -1542,6 +1617,8 @@ function ApprovalCell({
   notes: string | null;
   canManage: boolean;
   hasActivity: boolean;
+  /** #4 — at least one day's shift is complete, so approving is meaningful. */
+  hasApprovableActivity: boolean;
 }) {
   const badge =
     status === "approved" ? (
@@ -1588,7 +1665,7 @@ function ApprovalCell({
         userId={userId}
         weekStartIso={weekStartIso}
         status={status}
-        hasActivity={hasActivity}
+        hasActivity={hasApprovableActivity}
       />
     </div>
   );
@@ -1601,6 +1678,64 @@ const STATUS_PILL_LABEL: Record<StatusFilter, string> = {
   disputed: "Disputed",
   no_activity: "No activity",
 };
+
+// Colour key for the per-day cells. Mirrors the tile styling in _row.tsx so a
+// manager can decode the grid at a glance (#5). Status (approved / disputed /
+// pending) is labelled in the Status column's badges, so this covers day state.
+function TimesheetLegend() {
+  const swatch = "inline-block h-3 w-3 rounded-[3px] border";
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border bg-muted/20 px-4 py-2 text-[11px] text-muted-foreground">
+      <span className="font-mono font-medium uppercase tracking-wider text-ink-3">
+        Day key
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span
+          className={swatch}
+          style={{
+            borderColor: "var(--line-soft)",
+            background: "rgba(217,131,36,0.45)",
+          }}
+          aria-hidden
+        />
+        Worked (deeper = more hours)
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span
+          className={swatch}
+          style={{
+            borderColor: "#2563eb",
+            background: "color-mix(in srgb, #2563eb 18%, transparent)",
+          }}
+          aria-hidden
+        />
+        ⏱ In progress
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span
+          className={swatch}
+          style={{
+            borderColor: "var(--danger)",
+            background: "color-mix(in srgb, var(--danger) 18%, transparent)",
+          }}
+          aria-hidden
+        />
+        No-show (rostered, absent)
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span
+          className={`${swatch} border-dashed opacity-60`}
+          style={{
+            borderColor: "var(--line-soft)",
+            background: "var(--paper-2)",
+          }}
+          aria-hidden
+        />
+        Upcoming
+      </span>
+    </div>
+  );
+}
 
 function StatCard({
   label,

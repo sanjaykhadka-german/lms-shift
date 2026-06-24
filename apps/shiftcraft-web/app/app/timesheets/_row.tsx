@@ -104,6 +104,14 @@ export interface RowProps {
   perDayActualDisplay: string[];
   /** Per-day actual worked ms, Mon..Sun, length 7. Drives the heat tint. */
   perDayActualMs: number[];
+  /** Per-day display/gating metadata, Mon..Sun, length 7. Drives greying of
+   *  future days, the in-progress pill, and per-day no-show tinting. */
+  perDayMeta: Array<{
+    isFuture: boolean;
+    isInProgress: boolean;
+    isComplete: boolean;
+    noShow: boolean;
+  }>;
   /** Per-day planned hours, formatted ("8h" or "" when none). Length 7. */
   perDayPlannedDisplay: string[];
   totalWorkDisplay: string;
@@ -156,6 +164,11 @@ export interface RowProps {
   xeroExport: { state: "exported" | "failed"; detail: string | null } | null;
 }
 
+// In-progress accent — a blue distinct from the green/amber/red status palette
+// so a still-clocked-in day reads as "live, not yet final". Hardcoded (the
+// theme has no blue token) and used via color-mix so it tints, not shouts.
+const IN_PROGRESS_COLOR = "#2563eb";
+
 // Informational anomalies (overtime / long shift) render quiet — they're
 // context, not a call to action. The actionable ones (no clock-out / no-show)
 // keep the danger treatment so the "· Fix" affordance stands out.
@@ -189,6 +202,7 @@ export function TimesheetRow({
   deptLabel,
   perDayActualDisplay,
   perDayActualMs,
+  perDayMeta,
   perDayPlannedDisplay,
   totalWorkDisplay,
   totalBreakDisplay,
@@ -362,10 +376,91 @@ export function TimesheetRow({
         </td>
         {perDayActualDisplay.map((actual, i) => {
           const planned = perDayPlannedDisplay[i] ?? "";
-          // Heat tint scales with hours worked: a full day glows amber, a light
-          // day stays pale. Alpha is set as a CSS var so globals.css can knock
-          // it down in dark mode (see .heat-tile) without a hydration mismatch.
           const ms = perDayActualMs[i] ?? 0;
+          const meta = perDayMeta[i] ?? {
+            isFuture: false,
+            isInProgress: false,
+            isComplete: false,
+            noShow: false,
+          };
+
+          // Future day: greyed + locked, no value — clearly "not yet". (#1)
+          if (meta.isFuture) {
+            return (
+              <td key={i} className="px-3 py-[13px] align-middle">
+                <div
+                  className="flex min-h-[44px] flex-col items-center justify-center rounded-[9px] border border-dashed border-[var(--line-soft)] bg-[var(--paper-2)] px-[3px] py-2 text-center opacity-50"
+                  title="Upcoming — this day hasn't happened yet"
+                >
+                  <span className="font-mono text-xs text-ink-3" aria-hidden>
+                    ·
+                  </span>
+                  {planned ? (
+                    <span className="font-mono text-[9px] text-ink-3">
+                      /{planned}
+                    </span>
+                  ) : null}
+                </div>
+              </td>
+            );
+          }
+
+          // No-show: rostered but no punches on a day that has passed. (#3)
+          if (meta.noShow) {
+            return (
+              <td key={i} className="px-3 py-[13px] align-middle">
+                <div
+                  className="flex min-h-[44px] flex-col items-center justify-center rounded-[9px] border px-[3px] py-2 text-center"
+                  style={{
+                    borderColor: "var(--danger)",
+                    background:
+                      "color-mix(in srgb, var(--danger) 12%, transparent)",
+                  }}
+                  title="Rostered but no clock-in recorded — no-show"
+                >
+                  <span className="text-[9px] font-semibold uppercase tracking-wider text-[var(--danger)]">
+                    No show
+                  </span>
+                  {planned ? (
+                    <span className="font-mono text-[9px] text-[var(--danger)]">
+                      /{planned}
+                    </span>
+                  ) : null}
+                </div>
+              </td>
+            );
+          }
+
+          // In progress: still clocked in. Show live-so-far + a "Live" pill;
+          // the approve affordance stays hidden until the shift completes. (#4)
+          if (meta.isInProgress) {
+            return (
+              <td key={i} className="px-3 py-[13px] align-middle">
+                <div
+                  className="flex min-h-[44px] flex-col items-center justify-center rounded-[9px] border px-[3px] py-2 text-center"
+                  style={{
+                    borderColor: IN_PROGRESS_COLOR,
+                    background: `color-mix(in srgb, ${IN_PROGRESS_COLOR} 12%, transparent)`,
+                  }}
+                  title="Clocked in — shift in progress (live so far)"
+                >
+                  <span className="font-mono text-xs font-semibold tabular-nums text-ink">
+                    {ms ? actual : "0:00"}
+                  </span>
+                  <span
+                    className="text-[8px] font-semibold uppercase tracking-wider"
+                    style={{ color: IN_PROGRESS_COLOR }}
+                  >
+                    ⏱ Live
+                  </span>
+                </div>
+              </td>
+            );
+          }
+
+          // Worked-and-complete (or empty) — the existing heat tile. Tint scales
+          // with hours worked; alpha is a CSS var so globals.css can knock it
+          // down in dark mode (.heat-tile) without a hydration mismatch.
           const hours = ms / 3_600_000;
           const alpha = ms ? Math.min(hours / 24, 1) * 0.55 : 0;
           return (
