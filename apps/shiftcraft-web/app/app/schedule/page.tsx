@@ -1,9 +1,21 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { and, asc, between, count, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  between,
+  count,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  lte,
+  sql,
+} from "drizzle-orm";
 import {
   forTenant,
+  scClockEvents,
   scEmployees,
   scLocations,
   scShiftAssignments,
@@ -358,6 +370,82 @@ export default async function SchedulePage({
       const arr = assignmentsByShift.get(a.shiftId) ?? [];
       arr.push(a.userId);
       assignmentsByShift.set(a.shiftId, arr);
+    }
+  }
+
+  // ─── Roster no-show detection (item 10) ───
+  // A published shift that has fully ended and had an accepted assignee, but
+  // whose assignee never clocked in around the shift window, is flagged on the
+  // grid. Mirrors the timesheets no_show signal (scheduled, nothing worked) but
+  // per-shift. Bounded to the visible *past* shifts so it's one extra query.
+  const nowMs = Date.now();
+  const noShowShiftIds = new Set<string>();
+  const pastPublished = shifts.filter(
+    (s) => s.status === "published" && s.endsAt.getTime() < nowMs,
+  );
+  if (pastPublished.length > 0) {
+    const ids = pastPublished.map((s) => s.id);
+    const accepted = await ctx.run((tx) =>
+      tx
+        .select({
+          shiftId: scShiftAssignments.shiftId,
+          userId: scShiftAssignments.userId,
+        })
+        .from(scShiftAssignments)
+        .where(
+          and(
+            eq(scShiftAssignments.status, "accepted"),
+            inArray(scShiftAssignments.shiftId, ids),
+          ),
+        ),
+    );
+    const assigneesByShift = new Map<string, string[]>();
+    for (const a of accepted) {
+      const arr = assigneesByShift.get(a.shiftId) ?? [];
+      arr.push(a.userId);
+      assigneesByShift.set(a.shiftId, arr);
+    }
+    const userIds = Array.from(new Set(accepted.map((a) => a.userId)));
+    const inByUser = new Map<string, number[]>();
+    if (userIds.length > 0) {
+      const padMs = 12 * 60 * 60 * 1000;
+      const fromD = new Date(weekStart.getTime() - padMs);
+      const toD = new Date(weekEnd.getTime() + padMs);
+      const ins = await ctx.run((tx) =>
+        tx
+          .select({
+            appUserId: scClockEvents.appUserId,
+            occurredAt: scClockEvents.occurredAt,
+          })
+          .from(scClockEvents)
+          .where(
+            and(
+              eq(scClockEvents.eventType, "in"),
+              isNull(scClockEvents.voidedAt),
+              inArray(scClockEvents.appUserId, userIds),
+              gte(scClockEvents.occurredAt, fromD),
+              lte(scClockEvents.occurredAt, toD),
+            ),
+          ),
+      );
+      for (const e of ins) {
+        const arr = inByUser.get(e.appUserId) ?? [];
+        arr.push(e.occurredAt.getTime());
+        inByUser.set(e.appUserId, arr);
+      }
+    }
+    // A clock-in within ±12h of the shift start counts as "turned up" (matches
+    // the auto clock-out shift-matching window).
+    const WINDOW_MS = 12 * 60 * 60 * 1000;
+    for (const s of pastPublished) {
+      const assignees = assigneesByShift.get(s.id) ?? [];
+      if (assignees.length === 0) continue; // open shift — nobody to no-show
+      const worked = assignees.some((uid) =>
+        (inByUser.get(uid) ?? []).some(
+          (t) => Math.abs(t - s.startsAt.getTime()) <= WINDOW_MS,
+        ),
+      );
+      if (!worked) noShowShiftIds.add(s.id);
     }
   }
 
@@ -960,6 +1048,7 @@ export default async function SchedulePage({
           shifts={shifts.map((s) => ({
             ...s,
             needsPublish: needsPublish(s),
+            noShow: noShowShiftIds.has(s.id),
             startsAtMs: s.startsAt.getTime(),
             endsAtMs: s.endsAt.getTime(),
           })) as unknown as AreaShiftSer[]}
@@ -973,6 +1062,7 @@ export default async function SchedulePage({
           shifts={shifts.map((s) => ({
             ...s,
             needsPublish: needsPublish(s),
+            noShow: noShowShiftIds.has(s.id),
           })) as unknown as AreaShift[]}
           employees={employees as EmployeeRow[]}
           assignmentsByShift={assignmentsByShift}

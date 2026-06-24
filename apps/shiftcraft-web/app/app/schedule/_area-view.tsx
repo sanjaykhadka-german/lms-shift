@@ -50,6 +50,10 @@ export interface AreaShift {
    *  published shift edited since it last went live). Drives the "edited"
    *  badge; computed server-side. */
   needsPublish: boolean;
+  /** True when this past, published shift had an accepted assignee who never
+   *  clocked in around the shift window — a no-show (item 10). Computed
+   *  server-side. */
+  noShow?: boolean;
   locationName: string | null;
   locationColor: string | null;
   acceptedCount: number;
@@ -321,13 +325,21 @@ function ShiftChip({
   );
 
   const assignee = (
-    <div
-      className={`truncate ${dense ? "text-[10px] leading-tight" : ""} ${
-        shift.assigneeName ? "" : "text-muted-foreground"
-      }`}
-      title={shift.assigneeName ?? "Unassigned"}
-    >
-      {shift.assigneeName ?? "Unassigned"}
+    <div className={`flex items-center gap-1 ${dense ? "text-[10px] leading-tight" : ""}`}>
+      <span
+        className={`truncate ${shift.assigneeName ? "" : "text-muted-foreground"}`}
+        title={shift.assigneeName ?? "Unassigned"}
+      >
+        {shift.assigneeName ?? "Unassigned"}
+      </span>
+      {shift.noShow ? (
+        <span
+          className="shrink-0 rounded-full bg-[var(--danger)] px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-white"
+          title="Scheduled but never clocked in around this shift — no-show"
+        >
+          No-show
+        </span>
+      ) : null}
     </div>
   );
 

@@ -261,6 +261,14 @@ export function EmployeeScheduleView({
                           edited
                         </span>
                       ) : null}
+                      {s.noShow ? (
+                        <span
+                          className={`${s.needsPublish && s.status === "published" ? "ml-1" : "ml-auto"} shrink-0 rounded-full bg-[var(--danger)] px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-white`}
+                          title="Scheduled but never clocked in around this shift — no-show"
+                        >
+                          No-show
+                        </span>
+                      ) : null}
                     </div>
                     <div className="truncate text-muted-foreground">
                       {s.role}
