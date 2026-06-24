@@ -339,9 +339,6 @@ function DayEntryForm({
       rows.map((r) => (r.id === id ? { ...r, ...patch } : r)),
     );
 
-  const inputCls =
-    "h-9 w-full rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary";
-
   return (
     <form
       action={async (formData) => {
@@ -360,23 +357,17 @@ function DayEntryForm({
       ) : null}
       <div className="grid grid-cols-2 gap-3">
         <Field label="Start">
-          <input
-            type="time"
+          <TimeField12
             name="clockIn"
             required
-            step={60}
             defaultValue={ctx.clockIn ?? ""}
-            className={inputCls}
           />
         </Field>
         <Field label="Finish">
-          <input
-            type="time"
+          <TimeField12
             name="clockOut"
             required
-            step={60}
             defaultValue={ctx.clockOut ?? ""}
-            className={inputCls}
           />
         </Field>
       </div>
@@ -402,25 +393,19 @@ function DayEntryForm({
           breakRows.map((b, idx) => (
             <div key={b.id} className="flex items-end gap-2">
               <Field label={idx === 0 ? "Break start" : `Break ${idx + 1} start`}>
-                <input
-                  type="time"
+                <TimeField12
                   name="breakStart"
                   required
-                  step={60}
                   value={b.start}
-                  onChange={(e) => updateBreak(b.id, { start: e.target.value })}
-                  className={inputCls}
+                  onChange={(v) => updateBreak(b.id, { start: v })}
                 />
               </Field>
               <Field label="End">
-                <input
-                  type="time"
+                <TimeField12
                   name="breakEnd"
                   required
-                  step={60}
                   value={b.end}
-                  onChange={(e) => updateBreak(b.id, { end: e.target.value })}
-                  className={inputCls}
+                  onChange={(v) => updateBreak(b.id, { end: v })}
                 />
               </Field>
               <button
@@ -461,6 +446,107 @@ function DayEntryForm({
         />
       </div>
     </form>
+  );
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+// Parse a 24h "HH:MM" string into parts; null if blank/invalid.
+function parse24(v: string | undefined): { h: number; m: number } | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(v ?? "");
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h > 23 || min > 59) return null;
+  return { h, m: min };
+}
+
+// 12-hour (AM/PM) time field. Native <input type="time"> follows the OS
+// locale (24h on en-AU), so we render explicit hour / minute / AM-PM selects
+// for a consistent AM/PM display everywhere, while submitting the same 24h
+// "HH:MM" string (via a hidden input) that the server actions parse. Works
+// both uncontrolled (name + defaultValue, for Start/Finish) and controlled
+// (value + onChange, for break rows).
+function TimeField12({
+  name,
+  value,
+  defaultValue,
+  onChange,
+  required,
+}: {
+  name: string;
+  value?: string;
+  defaultValue?: string;
+  onChange?: (v: string) => void;
+  required?: boolean;
+}) {
+  const isControlled = value !== undefined;
+  const [internal, setInternal] = useState(defaultValue ?? "");
+  const cur = isControlled ? value ?? "" : internal;
+  const parsed = parse24(cur);
+  const minStr = parsed ? pad2(parsed.m) : "";
+  const ampm: "AM" | "PM" = parsed && parsed.h >= 12 ? "PM" : "AM";
+  const h12Str = parsed ? String(((parsed.h + 11) % 12) + 1) : "";
+
+  const commit = (h12: string, min: string, ap: "AM" | "PM") => {
+    let out = "";
+    if (h12 !== "" && min !== "") {
+      let h = Number(h12) % 12;
+      if (ap === "PM") h += 12;
+      out = `${pad2(h)}:${pad2(Number(min))}`;
+    }
+    if (!isControlled) setInternal(out);
+    onChange?.(out);
+  };
+
+  const selCls =
+    "h-9 rounded-md border border-border bg-background px-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary";
+  return (
+    <div className="flex items-center gap-1">
+      <select
+        aria-label="Hour"
+        required={required}
+        value={h12Str}
+        onChange={(e) => commit(e.target.value, minStr || "00", ampm)}
+        className={selCls}
+      >
+        <option value="">--</option>
+        {Array.from({ length: 12 }, (_, i) => i + 1).map((h) => (
+          <option key={h} value={h}>
+            {h}
+          </option>
+        ))}
+      </select>
+      <span className="text-sm text-muted-foreground">:</span>
+      <select
+        aria-label="Minute"
+        required={required}
+        value={minStr}
+        onChange={(e) => commit(h12Str || "12", e.target.value, ampm)}
+        className={selCls}
+      >
+        <option value="">--</option>
+        {Array.from({ length: 60 }, (_, i) => pad2(i)).map((m) => (
+          <option key={m} value={m}>
+            {m}
+          </option>
+        ))}
+      </select>
+      <select
+        aria-label="AM or PM"
+        value={ampm}
+        onChange={(e) =>
+          commit(h12Str || "12", minStr || "00", e.target.value as "AM" | "PM")
+        }
+        className={selCls}
+      >
+        <option value="AM">AM</option>
+        <option value="PM">PM</option>
+      </select>
+      <input type="hidden" name={name} value={cur} />
+    </div>
   );
 }
 
