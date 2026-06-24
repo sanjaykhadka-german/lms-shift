@@ -5,8 +5,8 @@ import { createPortal } from "react-dom";
 import { useFormStatus } from "react-dom";
 import {
   addClockEventAction,
-  addTimesheetEntryAction,
   editClockEventAction,
+  editDayEntryAction,
   voidClockEventAction,
 } from "./event-actions";
 
@@ -38,22 +38,27 @@ export interface ModalAddContext {
   defaultEventType?: "in" | "out" | "break_start" | "break_end";
 }
 
-// Full-entry mode: enter a whole shift (clock in → any number of breaks →
-// clock out) for one employee on one day in a single popup, instead of adding
-// punches one at a time. Submits via addTimesheetEntryAction (same path as the
-// top-of-page "Add timesheet entry").
-export interface ModalFullEntryContext {
-  mode: "fullEntry";
+// Day-entry mode: enter or edit a whole shift (clock in → any number of breaks
+// → clock out) for one employee on one day in a single popup. With no prefill
+// it adds a fresh day; with prefill (opened from a worked day's edit pencil) it
+// shows the current punches and Save REPLACES that day's punches. Submits via
+// editDayEntryAction.
+export interface ModalDayEntryContext {
+  mode: "dayEntry";
   appUserId: string;
   userName: string;
-  /** YYYY-MM-DD — the day the entry is being added for. */
+  /** YYYY-MM-DD — the day being added/edited. */
   dateIso: string;
+  /** Prefill (HH:MM) when editing an existing day; omitted when adding fresh. */
+  clockIn?: string;
+  clockOut?: string;
+  breaks?: Array<{ start: string; end: string }>;
 }
 
 export type ModalContext =
   | ModalEditContext
   | ModalAddContext
-  | ModalFullEntryContext;
+  | ModalDayEntryContext;
 
 interface Props {
   ctx: ModalContext | null;
@@ -104,8 +109,10 @@ export function EventEditModal({ ctx, onClose }: Props) {
           <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
             {ctx.mode === "edit"
               ? "Edit punch"
-              : ctx.mode === "fullEntry"
-                ? "Add entry"
+              : ctx.mode === "dayEntry"
+                ? ctx.clockIn
+                  ? "Edit entry"
+                  : "Add entry"
                 : "Add punch"}
           </div>
           <h2 className="mt-1 text-lg font-semibold">
@@ -117,8 +124,8 @@ export function EventEditModal({ ctx, onClose }: Props) {
 
         {ctx.mode === "edit" ? (
           <EditForm ctx={ctx} onClose={onClose} />
-        ) : ctx.mode === "fullEntry" ? (
-          <FullEntryForm ctx={ctx} onClose={onClose} />
+        ) : ctx.mode === "dayEntry" ? (
+          <DayEntryForm ctx={ctx} onClose={onClose} />
         ) : (
           <AddForm ctx={ctx} onClose={onClose} />
         )}
@@ -293,23 +300,44 @@ function VoidButton({ onDone }: { onDone: () => void }) {
   );
 }
 
-// Whole-shift entry: clock in, 0..N breaks, clock out — one popup. Employee +
-// date are fixed from the row/day it was opened on; submits via
-// addTimesheetEntryAction (which reads the parallel breakStart[]/breakEnd[]
-// inputs). This is portaled to <body>, so a real <form> is fine here.
-function FullEntryForm({
+// Whole-shift add/edit: clock in, 0..N breaks, clock out — one popup. Employee
+// + date are fixed from the row/day it was opened on. Prefilled when editing an
+// existing worked day; Save REPLACES that day's punches via editDayEntryAction
+// (which reads the parallel breakStart[]/breakEnd[] inputs). Portaled to
+// <body>, so a real <form> is fine here.
+interface BreakRow {
+  id: number;
+  start: string;
+  end: string;
+}
+
+function DayEntryForm({
   ctx,
   onClose,
 }: {
-  ctx: ModalFullEntryContext;
+  ctx: ModalDayEntryContext;
   onClose: () => void;
 }) {
+  const isEditing = !!ctx.clockIn;
   const nextBreakId = useRef(1);
-  const [breakRows, setBreakRows] = useState<number[]>([]);
+  const [breakRows, setBreakRows] = useState<BreakRow[]>(
+    (ctx.breaks ?? []).map((b) => ({
+      id: nextBreakId.current++,
+      start: b.start,
+      end: b.end,
+    })),
+  );
   const addBreak = () =>
-    setBreakRows((rows) => [...rows, nextBreakId.current++]);
+    setBreakRows((rows) => [
+      ...rows,
+      { id: nextBreakId.current++, start: "", end: "" },
+    ]);
   const removeBreak = (id: number) =>
-    setBreakRows((rows) => rows.filter((r) => r !== id));
+    setBreakRows((rows) => rows.filter((r) => r.id !== id));
+  const updateBreak = (id: number, patch: Partial<BreakRow>) =>
+    setBreakRows((rows) =>
+      rows.map((r) => (r.id === id ? { ...r, ...patch } : r)),
+    );
 
   const inputCls =
     "h-9 w-full rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary";
@@ -317,19 +345,39 @@ function FullEntryForm({
   return (
     <form
       action={async (formData) => {
-        await addTimesheetEntryAction(formData);
+        await editDayEntryAction(formData);
         onClose();
       }}
       className="space-y-4"
     >
       <input type="hidden" name="appUserId" value={ctx.appUserId} />
       <input type="hidden" name="date" value={ctx.dateIso} />
+      {isEditing ? (
+        <p className="rounded-md border border-[color-mix(in_srgb,var(--warn)_40%,transparent)] bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] px-3 py-2 text-[11px] text-ink">
+          Saving replaces this day's punches with the values below (recorded as a
+          manual edit).
+        </p>
+      ) : null}
       <div className="grid grid-cols-2 gap-3">
         <Field label="Start">
-          <input type="time" name="clockIn" required step={60} className={inputCls} />
+          <input
+            type="time"
+            name="clockIn"
+            required
+            step={60}
+            defaultValue={ctx.clockIn ?? ""}
+            className={inputCls}
+          />
         </Field>
         <Field label="Finish">
-          <input type="time" name="clockOut" required step={60} className={inputCls} />
+          <input
+            type="time"
+            name="clockOut"
+            required
+            step={60}
+            defaultValue={ctx.clockOut ?? ""}
+            className={inputCls}
+          />
         </Field>
       </div>
 
@@ -351,17 +399,33 @@ function FullEntryForm({
             No break. Add one or more if the shift had them.
           </p>
         ) : (
-          breakRows.map((id, idx) => (
-            <div key={id} className="flex items-end gap-2">
+          breakRows.map((b, idx) => (
+            <div key={b.id} className="flex items-end gap-2">
               <Field label={idx === 0 ? "Break start" : `Break ${idx + 1} start`}>
-                <input type="time" name="breakStart" required step={60} className={inputCls} />
+                <input
+                  type="time"
+                  name="breakStart"
+                  required
+                  step={60}
+                  value={b.start}
+                  onChange={(e) => updateBreak(b.id, { start: e.target.value })}
+                  className={inputCls}
+                />
               </Field>
               <Field label="End">
-                <input type="time" name="breakEnd" required step={60} className={inputCls} />
+                <input
+                  type="time"
+                  name="breakEnd"
+                  required
+                  step={60}
+                  value={b.end}
+                  onChange={(e) => updateBreak(b.id, { end: e.target.value })}
+                  className={inputCls}
+                />
               </Field>
               <button
                 type="button"
-                onClick={() => removeBreak(id)}
+                onClick={() => removeBreak(b.id)}
                 aria-label="Remove break"
                 className="mb-2 px-1 text-sm text-muted-foreground hover:text-[var(--danger)]"
               >
@@ -378,7 +442,7 @@ function FullEntryForm({
           required
           maxLength={200}
           rows={2}
-          placeholder="e.g. onboarding — paper timesheet"
+          placeholder="e.g. corrected — actual break was 30m"
           className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
         />
       </Field>
@@ -391,7 +455,10 @@ function FullEntryForm({
         >
           Cancel
         </button>
-        <SubmitButton label="Add entry" pendingLabel="Adding…" />
+        <SubmitButton
+          label={isEditing ? "Save entry" : "Add entry"}
+          pendingLabel="Saving…"
+        />
       </div>
     </form>
   );

@@ -21,6 +21,15 @@ function toLocalDateTimeValue(iso: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+// HH:MM (local) from an ISO string — prefills the whole-day editor's time
+// inputs from the day's existing punches.
+function isoToTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 // Per-day expansion row + anomaly chips + scheduled-vs-actual subscripts +
 // per-segment audit detail (source / location / selfie thumbnail) + inline
 // edit / add / void via the modal mounted at the row level.
@@ -441,7 +450,7 @@ export function TimesheetRow({
                         type="button"
                         onClick={() =>
                           setModalCtx({
-                            mode: "fullEntry",
+                            mode: "dayEntry",
                             appUserId: userId,
                             userName: name,
                             dateIso: d.dayIso,
@@ -495,6 +504,45 @@ export function TimesheetRow({
                                 onClick={() =>
                                   setEditingBreak({ dayIso: d.dayIso, segment: s })
                                 }
+                                className="ml-1 rounded p-0.5 text-current/70 hover:bg-foreground/10"
+                              >
+                                ✎
+                              </button>
+                            ) : s.kind === "work" ? (
+                              // Work: edit the WHOLE day (clock in + breaks +
+                              // clock out) in one popup, prefilled from the day's
+                              // current punches.
+                              <button
+                                type="button"
+                                aria-label="Edit this day's shift"
+                                onClick={() => {
+                                  const workSegs = d.segments.filter(
+                                    (x) => x.kind === "work",
+                                  );
+                                  const breakSegs = d.segments.filter(
+                                    (x) => x.kind === "break",
+                                  );
+                                  const inIso = workSegs[0]?.openingOccurredAtIso;
+                                  const outIso =
+                                    workSegs[workSegs.length - 1]
+                                      ?.closingOccurredAtIso ?? null;
+                                  setModalCtx({
+                                    mode: "dayEntry",
+                                    appUserId: userId,
+                                    userName: name,
+                                    dateIso: d.dayIso,
+                                    clockIn: inIso ? isoToTime(inIso) : undefined,
+                                    clockOut: outIso
+                                      ? isoToTime(outIso)
+                                      : undefined,
+                                    breaks: breakSegs
+                                      .filter((bk) => bk.closingOccurredAtIso)
+                                      .map((bk) => ({
+                                        start: isoToTime(bk.openingOccurredAtIso),
+                                        end: isoToTime(bk.closingOccurredAtIso!),
+                                      })),
+                                  });
+                                }}
                                 className="ml-1 rounded p-0.5 text-current/70 hover:bg-foreground/10"
                               >
                                 ✎

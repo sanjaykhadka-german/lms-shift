@@ -377,6 +377,159 @@ export async function addTimesheetEntryAction(
   revalidatePath("/app/timesheets");
 }
 
+// Edit a whole day's entry in one go (clock in + 0..N breaks + clock out),
+// replacing whatever punches the day currently has. This is the "edit the whole
+// shift" counterpart to addTimesheetEntryAction: it voids the day's existing
+// non-voided punches and inserts the new sequence in one transaction, so the
+// stream is always left valid. Same-day shifts only (an overnight clock-out on
+// the following day is left untouched). Note: replaced punches become
+// source='admin_edit', so a kiosk selfie on the old clock-in no longer attaches.
+const dayEntrySchema = z.object({
+  appUserId: z.string().uuid(),
+  date: z.string().min(1), // YYYY-MM-DD
+  clockIn: z.string().min(1), // HH:MM
+  clockOut: z.string().min(1), // HH:MM
+  reason: z.string().trim().min(1, "Add a note.").max(200),
+});
+
+export async function editDayEntryAction(formData: FormData): Promise<void> {
+  const g = await gate();
+  if (!g.ok) {
+    console.warn("[editDayEntryAction] refused:", g.message);
+    return;
+  }
+  const parsed = dayEntrySchema.safeParse({
+    appUserId: formData.get("appUserId"),
+    date: formData.get("date"),
+    clockIn: formData.get("clockIn"),
+    clockOut: formData.get("clockOut"),
+    reason: formData.get("reason"),
+  });
+  if (!parsed.success) {
+    console.warn(
+      "[editDayEntryAction] invalid:",
+      parsed.error.flatten().fieldErrors,
+    );
+    return;
+  }
+
+  const combine = (time: string): Date => new Date(`${parsed.data.date}T${time}`);
+  const inAt = combine(parsed.data.clockIn);
+  const outAt = combine(parsed.data.clockOut);
+  if (Number.isNaN(inAt.getTime()) || Number.isNaN(outAt.getTime())) {
+    console.warn("[editDayEntryAction] bad date/time");
+    return;
+  }
+  if (outAt.getTime() <= inAt.getTime()) {
+    console.warn("[editDayEntryAction] finish must be after start");
+    return;
+  }
+
+  // Same 0..N break parsing + validation as addTimesheetEntryAction.
+  const breakStartRaw = formData.getAll("breakStart").map((v) => String(v));
+  const breakEndRaw = formData.getAll("breakEnd").map((v) => String(v));
+  const rowCount = Math.max(breakStartRaw.length, breakEndRaw.length);
+  const breaks: Array<{ bsAt: Date; beAt: Date }> = [];
+  for (let i = 0; i < rowCount; i++) {
+    const bs = emptyToNull(breakStartRaw[i]);
+    const be = emptyToNull(breakEndRaw[i]);
+    if (!bs && !be) continue;
+    if (!bs || !be) {
+      console.warn("[editDayEntryAction] break row needs both start and end");
+      return;
+    }
+    const bsAt = combine(bs);
+    const beAt = combine(be);
+    if (
+      Number.isNaN(bsAt.getTime()) ||
+      Number.isNaN(beAt.getTime()) ||
+      bsAt.getTime() <= inAt.getTime() ||
+      beAt.getTime() <= bsAt.getTime() ||
+      beAt.getTime() >= outAt.getTime()
+    ) {
+      console.warn("[editDayEntryAction] break must sit inside the shift");
+      return;
+    }
+    breaks.push({ bsAt, beAt });
+  }
+  breaks.sort((a, b) => a.bsAt.getTime() - b.bsAt.getTime());
+  for (let i = 1; i < breaks.length; i++) {
+    if (breaks[i]!.bsAt.getTime() < breaks[i - 1]!.beAt.getTime()) {
+      console.warn("[editDayEntryAction] breaks overlap");
+      return;
+    }
+  }
+
+  const lockErr = await assertWeekUnlocked(g.tenantId, parsed.data.appUserId, inAt);
+  if (lockErr) {
+    console.warn("[editDayEntryAction] locked:", lockErr);
+    return;
+  }
+
+  const punches: Array<{ eventType: ScClockEventType; occurredAt: Date }> = [
+    { eventType: "in", occurredAt: inAt },
+  ];
+  for (const b of breaks) {
+    punches.push({ eventType: "break_start", occurredAt: b.bsAt });
+    punches.push({ eventType: "break_end", occurredAt: b.beAt });
+  }
+  punches.push({ eventType: "out", occurredAt: outAt });
+
+  const dayStart = combine("00:00");
+  const dayEnd = new Date(dayStart.getTime() + 86_400_000);
+
+  // One transaction: void the day's existing punches, then insert the new
+  // sequence. The replacement set is valid by construction (built + validated
+  // above), so no per-event state-machine check is needed.
+  let insertedCount = 0;
+  await forTenant(g.tenantId).run(async (tx) => {
+    await tx
+      .update(scClockEvents)
+      .set({
+        voidedAt: new Date(),
+        voidedByUserId: g.meId,
+        voidReason: parsed.data.reason,
+      })
+      .where(
+        and(
+          eq(scClockEvents.traceyTenantId, g.tenantId),
+          eq(scClockEvents.appUserId, parsed.data.appUserId),
+          isNull(scClockEvents.voidedAt),
+          gte(scClockEvents.occurredAt, dayStart),
+          lt(scClockEvents.occurredAt, dayEnd),
+        ),
+      );
+    for (const p of punches) {
+      await tx.insert(scClockEvents).values({
+        traceyTenantId: g.tenantId,
+        appUserId: parsed.data.appUserId,
+        eventType: p.eventType,
+        occurredAt: p.occurredAt,
+        source: "admin_edit",
+        notes: parsed.data.reason,
+      });
+      insertedCount += 1;
+    }
+  });
+
+  await logAuditEvent({
+    action: "shiftcraft.clock.day_replaced",
+    targetKind: "sc_clock_event",
+    targetId: parsed.data.appUserId,
+    details: {
+      appUserId: parsed.data.appUserId,
+      date: parsed.data.date,
+      clockIn: parsed.data.clockIn,
+      clockOut: parsed.data.clockOut,
+      breaks: breaks.length,
+      punches: insertedCount,
+      reason: parsed.data.reason,
+    },
+  });
+
+  revalidatePath("/app/timesheets");
+}
+
 // Inline break edit (item 5): adjust a break's start AND end times in one go
 // from the timesheet expansion, without the per-punch modal. Reuses
 // editClockEventAction's proven void+insert per event so audit + state-machine

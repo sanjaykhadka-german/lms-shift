@@ -891,13 +891,13 @@ export default async function TimesheetsPage({
           openingOccurredAtIso: c.openingOccurredAt.toISOString(),
           openingEventTypeLabel:
             EVENT_TYPE_LABEL[c.openingEventType] ?? c.openingEventType,
-          // For a break, the closing event is its break_end — carried so the
-          // break can be edited (start + end) inline (item 5).
-          closingEventId: c.kind === "break" ? c.closingEventId : null,
-          closingOccurredAtIso:
-            c.kind === "break" && c.closingOccurredAt
-              ? c.closingOccurredAt.toISOString()
-              : null,
+          // Closing event: a break's break_end (edited inline, item 5) and a
+          // work segment's out (used to prefill the clock-out in the whole-day
+          // editor). Null when the segment was force-closed at week-end / open.
+          closingEventId: c.closingEventId,
+          closingOccurredAtIso: c.closingOccurredAt
+            ? c.closingOccurredAt.toISOString()
+            : null,
         })),
       });
     }
