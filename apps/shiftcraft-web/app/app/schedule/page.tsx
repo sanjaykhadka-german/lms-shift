@@ -19,6 +19,7 @@ import {
   scEmployees,
   scLocations,
   scShiftAssignments,
+  scShiftComments,
   scShifts,
   scShiftSwapRequests,
   scTimeOffRequests,
@@ -541,6 +542,49 @@ export default async function SchedulePage({
 
   const canCreate = locations.length > 0;
   const isAdmin = membership.role === "admin" || membership.role === "owner";
+
+  // Internal shift comments for hover preview on the grid. Comments are
+  // manager-only (the edit page already gates them), so load + show them ONLY
+  // for admins — staff viewing the day/employee grid must never see them. One
+  // bounded query over the visible shifts; reduced to count + latest per shift.
+  const commentByShift = new Map<
+    string,
+    { count: number; latestBody: string; latestAuthor: string | null }
+  >();
+  if (isAdmin && shifts.length > 0) {
+    const commentRows = await ctx.run((tx) =>
+      tx
+        .select({
+          shiftId: scShiftComments.shiftId,
+          body: scShiftComments.body,
+          createdAt: scShiftComments.createdAt,
+          authorName: users.name,
+          authorEmail: users.email,
+        })
+        .from(scShiftComments)
+        .leftJoin(users, eq(users.id, scShiftComments.authorUserId))
+        .where(
+          and(
+            eq(scShiftComments.traceyTenantId, membership.tenant.id),
+            inArray(
+              scShiftComments.shiftId,
+              shifts.map((s) => s.id),
+            ),
+          ),
+        )
+        .orderBy(asc(scShiftComments.createdAt)),
+    );
+    for (const c of commentRows) {
+      const prev = commentByShift.get(c.shiftId);
+      // Rows are ascending by createdAt, so the last seen is the latest.
+      commentByShift.set(c.shiftId, {
+        count: (prev?.count ?? 0) + 1,
+        latestBody: c.body,
+        latestAuthor: c.authorName ?? c.authorEmail ?? null,
+      });
+    }
+  }
+
   // A shift "needs publishing" when it's a never-published draft OR a published
   // shift that was edited since it last went live (updatedAt past publishedAt).
   // Mirrors the predicate in bulkPublishWeekAction so the menu counts match
@@ -1049,6 +1093,9 @@ export default async function SchedulePage({
             ...s,
             needsPublish: needsPublish(s),
             noShow: noShowShiftIds.has(s.id),
+            commentCount: commentByShift.get(s.id)?.count ?? 0,
+            latestComment: commentByShift.get(s.id)?.latestBody ?? null,
+            latestCommentAuthor: commentByShift.get(s.id)?.latestAuthor ?? null,
             startsAtMs: s.startsAt.getTime(),
             endsAtMs: s.endsAt.getTime(),
           })) as unknown as AreaShiftSer[]}
@@ -1063,6 +1110,9 @@ export default async function SchedulePage({
             ...s,
             needsPublish: needsPublish(s),
             noShow: noShowShiftIds.has(s.id),
+            commentCount: commentByShift.get(s.id)?.count ?? 0,
+            latestComment: commentByShift.get(s.id)?.latestBody ?? null,
+            latestCommentAuthor: commentByShift.get(s.id)?.latestAuthor ?? null,
           })) as unknown as AreaShift[]}
           employees={employees as EmployeeRow[]}
           assignmentsByShift={assignmentsByShift}

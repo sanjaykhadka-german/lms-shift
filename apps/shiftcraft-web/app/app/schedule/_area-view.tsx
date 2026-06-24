@@ -33,6 +33,7 @@ import {
   moveShiftAction,
   moveShiftToAreaAction,
 } from "./actions";
+import { CommentBadge } from "./_comment-badge";
 
 // Date-bearing shape used by the (server-rendered) employee view.
 export interface AreaShift {
@@ -54,6 +55,12 @@ export interface AreaShift {
    *  clocked in around the shift window — a no-show (item 10). Computed
    *  server-side. */
   noShow?: boolean;
+  /** Internal shift-comment preview (manager-only). commentCount 0 = no
+   *  indicator; latestComment/author drive the hover popover (item: see a
+   *  shift's internal comment without opening it). */
+  commentCount?: number;
+  latestComment?: string | null;
+  latestCommentAuthor?: string | null;
   locationName: string | null;
   locationColor: string | null;
   acceptedCount: number;
@@ -340,6 +347,11 @@ function ShiftChip({
           No-show
         </span>
       ) : null}
+      <CommentBadge
+        count={shift.commentCount}
+        latest={shift.latestComment}
+        author={shift.latestCommentAuthor}
+      />
     </div>
   );
 

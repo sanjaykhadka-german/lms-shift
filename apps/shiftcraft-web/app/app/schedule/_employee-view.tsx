@@ -2,6 +2,7 @@ import Link from "next/link";
 import { fmtTime24 } from "~/lib/date-format";
 import type { AreaShift } from "./_area-view";
 import { EmployeeSummaryCell } from "./_employee-summary";
+import { CommentBadge } from "./_comment-badge";
 
 // Per-employee totals for the summary modal. Gross scheduled time (end − start)
 // across all non-cancelled shifts in the visible range.
@@ -269,6 +270,11 @@ export function EmployeeScheduleView({
                           No-show
                         </span>
                       ) : null}
+                      <CommentBadge
+                        count={s.commentCount}
+                        latest={s.latestComment}
+                        author={s.latestCommentAuthor}
+                      />
                     </div>
                     <div className="truncate text-muted-foreground">
                       {s.role}
