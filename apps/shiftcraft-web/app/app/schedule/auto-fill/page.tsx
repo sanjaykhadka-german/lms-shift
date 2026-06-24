@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { and, asc, between, eq, gte, lt, sql } from "drizzle-orm";
+import { and, asc, between, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import {
   db,
   forTenant,
@@ -85,7 +85,7 @@ export default async function AutoFillPage({
           between(scShifts.startsAt, weekStart, weekEnd),
           sql`${scShifts.status} <> 'cancelled'`,
           scopeIds
-            ? sql`${scShifts.locationId} = ANY(${scopeIds})`
+            ? inArray(scShifts.locationId, scopeIds)
             : undefined,
           sql`NOT EXISTS (
             SELECT 1 FROM ${scShiftAssignments}
@@ -186,7 +186,7 @@ export default async function AutoFillPage({
           .where(
             and(
               eq(members.tenantId, tenantId),
-              sql`${users.id} = ANY(${userIds})`,
+              inArray(users.id, userIds),
             ),
           );
   const userById = new Map(
@@ -208,7 +208,7 @@ export default async function AutoFillPage({
         and(
           eq(scLocations.traceyTenantId, tenantId),
           sql`${scLocations.dailyWageBudget} is not null`,
-          scopeIds ? sql`${scLocations.id} = ANY(${scopeIds})` : undefined,
+          scopeIds ? inArray(scLocations.id, scopeIds) : undefined,
         ),
       ),
   );
