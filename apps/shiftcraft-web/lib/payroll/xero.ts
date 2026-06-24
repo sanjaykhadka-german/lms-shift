@@ -426,6 +426,69 @@ export async function listPayCalendars(
     }));
 }
 
+// ─── Leave-balance read (Team-leave overview) ───────────────────────
+//
+// Payroll-AU's getEmployees() summary omits leave balances — only the
+// per-employee getEmployee() returns the leaveBalances array. We fetch
+// each linked employee in parallel (Promise.allSettled so one failure
+// doesn't sink the page) and pick the annual-leave line, matched on
+// name: AU balances carry a leaveName, not a stable id, so "annual" is
+// the most reliable signal. Needs only the payroll.employees scope,
+// which the connect flow already requests.
+
+export interface XeroAnnualLeave {
+  xeroEmployeeId: string;
+  /** Annual-leave units, normalised to hours when the balance is hour-
+   *  denominated; null when no annual line exists on the Xero record. */
+  hours: number | null;
+  /** The matched Xero leave-type name, for display/debugging. */
+  leaveName: string | null;
+}
+
+export async function fetchAnnualLeaveBalances(
+  tenantId: string,
+  xeroEmployeeIds: string[],
+): Promise<Map<string, XeroAnnualLeave>> {
+  const out = new Map<string, XeroAnnualLeave>();
+  if (xeroEmployeeIds.length === 0) return out;
+  const ctx = await getClientForTenant(tenantId);
+  if (!ctx) return out;
+
+  const results = await Promise.allSettled(
+    xeroEmployeeIds.map(async (id) => {
+      const response = await ctx.client.payrollAUApi.getEmployee(
+        ctx.xeroTenantId,
+        id,
+      );
+      const employee = response.body.employees?.[0];
+      const balances = (employee?.leaveBalances ?? []) as Array<{
+        leaveName?: string | null;
+        numberOfUnits?: number | null;
+        typeOfUnits?: string | null;
+      }>;
+      // Prefer an hours-denominated annual line; fall back to any
+      // annual match if the org reports units differently.
+      const annual =
+        balances.find(
+          (b) =>
+            /annual/i.test(String(b.leaveName ?? "")) &&
+            /hour/i.test(String(b.typeOfUnits ?? "")),
+        ) ?? balances.find((b) => /annual/i.test(String(b.leaveName ?? "")));
+      return {
+        xeroEmployeeId: id,
+        hours:
+          annual?.numberOfUnits != null ? Number(annual.numberOfUnits) : null,
+        leaveName: annual?.leaveName ? String(annual.leaveName) : null,
+      } satisfies XeroAnnualLeave;
+    }),
+  );
+
+  for (const r of results) {
+    if (r.status === "fulfilled") out.set(r.value.xeroEmployeeId, r.value);
+  }
+  return out;
+}
+
 // ─── Timesheet push ─────────────────────────────────────────────────
 //
 // Pushes one Xero Timesheet per (employee, week) at status APPROVED.
