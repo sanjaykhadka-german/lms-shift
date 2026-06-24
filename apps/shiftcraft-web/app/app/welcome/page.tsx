@@ -236,7 +236,18 @@ export default async function WelcomePage() {
           out. It&rsquo;s for kiosk use only — your web login still uses
           your email + password.
         </p>
-        <PinForm hasPin={pin !== null} lastUsedAt={pin?.lastUsedAt ?? null} />
+        <PinForm
+          hasPin={pin !== null}
+          lastUsedLabel={
+            pin?.lastUsedAt
+              ? pin.lastUsedAt.toLocaleDateString("en-AU", {
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                })
+              : null
+          }
+        />
       </section>
 
       <section className="rounded-lg border border-border bg-card shadow-sm">

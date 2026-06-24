@@ -9,10 +9,13 @@ const initial: FormState = { status: "idle" };
 
 interface PinFormProps {
   hasPin: boolean;
-  lastUsedAt: Date | null;
+  /** Pre-formatted on the server (e.g. "23 Jun 2026") so SSR and client render
+   *  the identical string — formatting a Date here would mismatch between the
+   *  server (Node ICU) and the browser. Null when the PIN was never used. */
+  lastUsedLabel: string | null;
 }
 
-export function PinForm({ hasPin, lastUsedAt }: PinFormProps) {
+export function PinForm({ hasPin, lastUsedLabel }: PinFormProps) {
   const [state, formAction] = useActionState(selfSetPinAction, initial);
   const [open, setOpen] = useState(false);
 
@@ -24,14 +27,9 @@ export function PinForm({ hasPin, lastUsedAt }: PinFormProps) {
             <span className="inline-flex items-center rounded-full bg-[var(--live)] px-2 py-0.5 text-[11px] font-medium text-white">
               PIN set
             </span>
-            {lastUsedAt ? (
+            {lastUsedLabel ? (
               <span className="ml-2 text-muted-foreground">
-                Last used{" "}
-                {lastUsedAt.toLocaleDateString(undefined, {
-                  day: "numeric",
-                  month: "short",
-                  year: "numeric",
-                })}
+                Last used {lastUsedLabel}
               </span>
             ) : (
               <span className="ml-2 text-muted-foreground">
