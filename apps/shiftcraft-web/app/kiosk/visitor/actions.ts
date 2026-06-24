@@ -86,6 +86,9 @@ export async function visitorSignInAction(formData: FormData): Promise<void> {
   const visitingEmployeeId = String(
     formData.get("visitingEmployeeId") ?? "",
   ).trim();
+  // Free-text host name, used when the visitor chose "Someone else (not listed)"
+  // instead of an employee from the picker.
+  const visitingPersonOther = field(formData, "visitingPersonOther", 120);
   const visitReason = field(formData, "visitReason", 300);
   const sig = decodeSignature(String(formData.get("signInSignature") ?? ""));
 
@@ -129,7 +132,14 @@ export async function visitorSignInAction(formData: FormData): Promise<void> {
   if (!policyAgreed) {
     redirect("/kiosk/visitor?error=policy");
   }
-  if (!UUID_RE.test(visitingEmployeeId)) {
+  // Host is either a picked employee (UUID) or "Someone else (not listed)"
+  // (the OTHER sentinel) with a typed name. Anything else is invalid.
+  const hostIsOther = visitingEmployeeId === "__other__";
+  if (hostIsOther) {
+    if (!visitingPersonOther) {
+      redirect("/kiosk/visitor?error=employee");
+    }
+  } else if (!UUID_RE.test(visitingEmployeeId)) {
     redirect("/kiosk/visitor?error=employee");
   }
   if (!sig) {
@@ -144,26 +154,40 @@ export async function visitorSignInAction(formData: FormData): Promise<void> {
     redirect("/kiosk/visitor?error=signature");
   }
 
-  // Resolve the chosen employee (scoped to this tenant) so we can store their
-  // name + FK and find their login to notify them.
-  const [employee] = await forTenant(deviceClaim.tenantId).run((tx) =>
-    tx
-      .select({
-        id: scEmployees.id,
-        fullName: scEmployees.fullName,
-        appUserId: scEmployees.appUserId,
-      })
-      .from(scEmployees)
-      .where(
-        and(
-          eq(scEmployees.id, visitingEmployeeId),
-          eq(scEmployees.traceyTenantId, deviceClaim.tenantId),
-        ),
-      )
-      .limit(1),
-  );
-  if (!employee) {
-    redirect("/kiosk/visitor?error=employee");
+  // Resolve the host. For a picked employee we look them up (scoped to this
+  // tenant) to store their name + FK and find their login to notify them. For
+  // the "Other" path there's no employee row — store the typed name with a null
+  // FK and no direct notification target.
+  let hostName: string;
+  let hostEmployeeId: string | null;
+  let hostAppUserId: string | null;
+  if (hostIsOther) {
+    hostName = visitingPersonOther;
+    hostEmployeeId = null;
+    hostAppUserId = null;
+  } else {
+    const [employee] = await forTenant(deviceClaim.tenantId).run((tx) =>
+      tx
+        .select({
+          id: scEmployees.id,
+          fullName: scEmployees.fullName,
+          appUserId: scEmployees.appUserId,
+        })
+        .from(scEmployees)
+        .where(
+          and(
+            eq(scEmployees.id, visitingEmployeeId),
+            eq(scEmployees.traceyTenantId, deviceClaim.tenantId),
+          ),
+        )
+        .limit(1),
+    );
+    if (!employee) {
+      redirect("/kiosk/visitor?error=employee");
+    }
+    hostName = employee.fullName;
+    hostEmployeeId = employee.id;
+    hostAppUserId = employee.appUserId;
   }
 
   await forTenant(deviceClaim.tenantId).run((tx) =>
@@ -173,8 +197,8 @@ export async function visitorSignInAction(formData: FormData): Promise<void> {
       visitorName,
       visitorCompany,
       visitorMobile,
-      visitingPerson: employee.fullName,
-      visitingEmployeeId: employee.id,
+      visitingPerson: hostName,
+      visitingEmployeeId: hostEmployeeId,
       visitReason,
       signInSignature: sig,
       source: "kiosk",
@@ -193,10 +217,10 @@ export async function visitorSignInAction(formData: FormData): Promise<void> {
   const visitorLabel = `${visitorName}${
     visitorCompany ? ` (${visitorCompany})` : ""
   }`;
-  if (employee.appUserId) {
+  if (hostAppUserId) {
     await createNotifications(deviceClaim.tenantId, [
       {
-        recipientUserId: employee.appUserId,
+        recipientUserId: hostAppUserId,
         kind: "shiftcraft.visitor.sign_in",
         title: "Visitor at reception",
         body: `${visitorLabel} has signed in to see you.`,
@@ -213,10 +237,10 @@ export async function visitorSignInAction(formData: FormData): Promise<void> {
     {
       kind: "shiftcraft.visitor.sign_in",
       title: "Visitor at reception",
-      body: `${visitorLabel} signed in to see ${employee.fullName}.`,
+      body: `${visitorLabel} signed in to see ${hostName}.`,
       actionUrl: "/app/admin/visitors",
     },
-    { excludeUserId: employee.appUserId ?? undefined },
+    { excludeUserId: hostAppUserId ?? undefined },
   );
 
   redirect("/kiosk/visitor?signed=in");

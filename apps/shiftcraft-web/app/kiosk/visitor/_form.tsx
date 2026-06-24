@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useFormStatus } from "react-dom";
 import { SignaturePad } from "~/components/SignaturePad";
-import { EmployeePicker } from "./_employee_picker";
+import { EmployeePicker, OTHER_HOST } from "./_employee_picker";
 import { PdfViewer } from "./_pdf_viewer";
 import { SignOutNameInput } from "./_signout_name";
 import { visitorSignInAction, visitorSignOutAction } from "./actions";
@@ -100,6 +100,8 @@ export function VisitorForm({
   // inputs). An empty signature was the most common cause of the bounce.
   const [hasSignature, setHasSignature] = useState(false);
   const [employeeId, setEmployeeId] = useState("");
+  // Free-text host name used when the visitor picks "Someone else (not listed)".
+  const [otherName, setOtherName] = useState("");
   // Sign-out signature is now mandatory too — gate the sign-out button on it.
   const [hasSignOutSignature, setHasSignOutSignature] = useState(false);
   // Visitor-policy screening (POL 1.4.1.2). Both toggles must be answered; a
@@ -110,6 +112,12 @@ export function VisitorForm({
   const [illnessDescription, setIllnessDescription] = useState("");
   const [policyAgreed, setPolicyAgreed] = useState(false);
   const [policyOpen, setPolicyOpen] = useState(false);
+
+  // A host is chosen when a real employee is picked, or "Other" is picked and a
+  // name has been typed.
+  const hostChosen =
+    employeeId !== "" &&
+    (employeeId !== OTHER_HOST || otherName.trim() !== "");
 
   const screeningIncomplete =
     !policyAgreed ||
@@ -201,6 +209,17 @@ export function VisitorForm({
                 onChange={setEmployeeId}
                 inputClassName={INPUT}
               />
+              {employeeId === OTHER_HOST ? (
+                <input
+                  name="visitingPersonOther"
+                  value={otherName}
+                  onChange={(e) => setOtherName(e.target.value)}
+                  maxLength={120}
+                  autoComplete="off"
+                  placeholder="Name of the person you're visiting"
+                  className={`${INPUT} mt-2`}
+                />
+              ) : null}
             </div>
           </div>
           <div>
@@ -294,10 +313,10 @@ export function VisitorForm({
             required
             onInkChange={setHasSignature}
           />
-          {!employeeId || !hasSignature || screeningIncomplete ? (
+          {!hostChosen || !hasSignature || screeningIncomplete ? (
             <p className="text-xs text-[#a89c8c]">
-              {!employeeId
-                ? "Choose who you're visiting, then complete the questions and sign."
+              {!hostChosen
+                ? "Choose who you're visiting (or enter their name), then complete the questions and sign."
                 : screeningIncomplete
                   ? "Answer the questions above, agree to the policy, then sign."
                   : "Please sign in the box above to enable sign-in."}
@@ -305,7 +324,7 @@ export function VisitorForm({
           ) : null}
           <SubmitButton
             tone="in"
-            disabled={!employeeId || !hasSignature || screeningIncomplete}
+            disabled={!hostChosen || !hasSignature || screeningIncomplete}
           >
             Sign in
           </SubmitButton>

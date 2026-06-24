@@ -2,6 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+// Sentinel id for "the host isn't in the employee list" — the visitor types a
+// free-text name instead. The server treats this (rather than a UUID) as the
+// signal to store visitingEmployeeId = null + a typed visitingPerson.
+export const OTHER_HOST = "__other__";
+const OTHER_LABEL = "Someone else (not listed)";
+
 // Themed, searchable employee picker for the visitor form. The native <select>
 // popup can't be styled (the OS draws it), so this is a custom combobox: a
 // search input plus a dark dropdown list, writing the chosen employee id into a
@@ -21,14 +27,19 @@ export function EmployeePicker({
   const [q, setQ] = useState("");
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  const selectedName = employees.find((e) => e.id === value)?.name ?? "";
+  const selectedName =
+    value === OTHER_HOST
+      ? OTHER_LABEL
+      : (employees.find((e) => e.id === value)?.name ?? "");
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const base = needle
       ? employees.filter((e) => e.name.toLowerCase().includes(needle))
       : employees;
-    return base.slice(0, 50);
+    // Always offer "Someone else (not listed)" at the bottom so a visitor can
+    // sign in even when their host isn't an employee in the system.
+    return [...base.slice(0, 50), { id: OTHER_HOST, name: OTHER_LABEL }];
   }, [employees, q]);
 
   // Close when clicking/tapping outside so the dropdown doesn't linger.
