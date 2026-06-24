@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, asc, eq, gte, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   forTenant,
@@ -375,6 +375,116 @@ export async function addTimesheetEntryAction(
   });
 
   revalidatePath("/app/timesheets");
+}
+
+// Inline break edit (item 5): adjust a break's start AND end times in one go
+// from the timesheet expansion, without the per-punch modal. Reuses
+// editClockEventAction's proven void+insert per event so audit + state-machine
+// validation stay identical. Edits are ordered by the direction the start
+// moves so the pair never transiently has start-after-end.
+const editBreakSchema = z.object({
+  startEventId: z.string().uuid(),
+  endEventId: z.string().uuid(),
+  startOccurredAt: z.string().min(1), // datetime-local (local tz)
+  endOccurredAt: z.string().min(1),
+  reason: z.string().trim().min(1, "Add a note.").max(200),
+});
+
+export async function editBreakInlineAction(formData: FormData): Promise<void> {
+  const g = await gate();
+  if (!g.ok) {
+    console.warn("[editBreakInlineAction] refused:", g.message);
+    return;
+  }
+  const parsed = editBreakSchema.safeParse({
+    startEventId: formData.get("startEventId"),
+    endEventId: formData.get("endEventId"),
+    startOccurredAt: formData.get("startOccurredAt"),
+    endOccurredAt: formData.get("endOccurredAt"),
+    reason: formData.get("reason"),
+  });
+  if (!parsed.success) {
+    console.warn(
+      "[editBreakInlineAction] invalid:",
+      parsed.error.flatten().fieldErrors,
+    );
+    return;
+  }
+
+  const newStart = new Date(parsed.data.startOccurredAt);
+  const newEnd = new Date(parsed.data.endOccurredAt);
+  if (Number.isNaN(newStart.getTime()) || Number.isNaN(newEnd.getTime())) {
+    console.warn("[editBreakInlineAction] bad date/time");
+    return;
+  }
+  if (newEnd.getTime() <= newStart.getTime()) {
+    console.warn("[editBreakInlineAction] break end must be after start");
+    return;
+  }
+
+  // Confirm both events are the break_start/break_end they claim to be, live,
+  // and in this tenant. Their current times decide the safe edit order.
+  const rows = await forTenant(g.tenantId).run((tx) =>
+    tx
+      .select({
+        id: scClockEvents.id,
+        eventType: scClockEvents.eventType,
+        occurredAt: scClockEvents.occurredAt,
+        voidedAt: scClockEvents.voidedAt,
+      })
+      .from(scClockEvents)
+      .where(
+        and(
+          inArray(scClockEvents.id, [
+            parsed.data.startEventId,
+            parsed.data.endEventId,
+          ]),
+          eq(scClockEvents.traceyTenantId, g.tenantId),
+        ),
+      ),
+  );
+  const startRow = rows.find((r) => r.id === parsed.data.startEventId);
+  const endRow = rows.find((r) => r.id === parsed.data.endEventId);
+  if (!startRow || !endRow) {
+    console.warn("[editBreakInlineAction] break events not found");
+    return;
+  }
+  if (
+    startRow.eventType !== "break_start" ||
+    endRow.eventType !== "break_end" ||
+    startRow.voidedAt ||
+    endRow.voidedAt
+  ) {
+    console.warn("[editBreakInlineAction] not an editable break pair");
+    return;
+  }
+
+  const minute = (d: Date) => Math.floor(d.getTime() / 60_000);
+  const startChanged = minute(startRow.occurredAt) !== minute(newStart);
+  const endChanged = minute(endRow.occurredAt) !== minute(newEnd);
+  if (!startChanged && !endChanged) return; // no-op
+
+  const callEdit = async (id: string, iso: string) => {
+    const fd = new FormData();
+    fd.set("originalEventId", id);
+    fd.set("eventId", id);
+    fd.set("occurredAt", iso);
+    fd.set("reason", parsed.data.reason);
+    await editClockEventAction(fd);
+  };
+
+  // If the start is moving later, edit the end first so the intermediate
+  // stream never has start beyond end; otherwise edit the start first.
+  const startMovingLater = newStart.getTime() > startRow.occurredAt.getTime();
+  const ops: Array<() => Promise<void>> = [];
+  if (startMovingLater) {
+    if (endChanged) ops.push(() => callEdit(parsed.data.endEventId, parsed.data.endOccurredAt));
+    if (startChanged) ops.push(() => callEdit(parsed.data.startEventId, parsed.data.startOccurredAt));
+  } else {
+    if (startChanged) ops.push(() => callEdit(parsed.data.startEventId, parsed.data.startOccurredAt));
+    if (endChanged) ops.push(() => callEdit(parsed.data.endEventId, parsed.data.endOccurredAt));
+  }
+  for (const op of ops) await op();
 }
 
 export async function editClockEventAction(formData: FormData): Promise<void> {

@@ -9,6 +9,17 @@ import {
   TimesheetDetailPanel,
   type ActivityEntry,
 } from "./_detail_panel";
+import { editBreakInlineAction } from "./event-actions";
+
+// datetime-local value (YYYY-MM-DDTHH:mm) in the browser's local tz from an ISO
+// string — mirrors the helper in _event_edit_modal so what's shown matches the
+// timesheet display (no UTC shift).
+function toLocalDateTimeValue(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 // Per-day expansion row + anomaly chips + scheduled-vs-actual subscripts +
 // per-segment audit detail (source / location / selfie thumbnail) + inline
@@ -36,6 +47,10 @@ export interface RowSegmentDisplay {
   /** Human label for the opening event ('Clock-in' / 'Clock-out' /
    *  'Break start' / 'Break end'). Read-only in the edit modal. */
   openingEventTypeLabel: string;
+  /** Break segments only: the break_end event id + its ISO time, so a break's
+   *  start AND end can be edited together inline (item 5). Null otherwise. */
+  closingEventId?: string | null;
+  closingOccurredAtIso?: string | null;
 }
 
 export interface RowDayDetail {
@@ -197,6 +212,12 @@ export function TimesheetRow({
   const [expanded, setExpanded] = useState(false);
   const [modalCtx, setModalCtx] = useState<ModalContext | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
+  // Which break is being edited inline (item 5) — keyed by day so the editor
+  // renders under that day's segment chips.
+  const [editingBreak, setEditingBreak] = useState<{
+    dayIso: string;
+    segment: RowSegmentDisplay;
+  } | null>(null);
   const canExpand = perDayDetail.length > 0;
   // AUDIT.md #4 — when the week is approved, hide every clock-event
   // mutation affordance. The Reopen button on the approval cell is the
@@ -466,26 +487,46 @@ export function TimesheetRow({
                             </span>
                           ) : null}
                           {isAdmin && !isLocked ? (
-                            <button
-                              type="button"
-                              aria-label="Edit this punch"
-                              onClick={() =>
-                                setModalCtx({
-                                  mode: "edit",
-                                  originalEventId: s.openingEventId,
-                                  occurredAtIso: s.openingOccurredAtIso,
-                                  eventTypeLabel: s.openingEventTypeLabel,
-                                  userName: name,
-                                })
-                              }
-                              className="ml-1 rounded p-0.5 text-current/70 hover:bg-foreground/10"
-                            >
-                              ✎
-                            </button>
+                            s.kind === "break" && s.closingEventId ? (
+                              // Break: edit start + end together, inline.
+                              <button
+                                type="button"
+                                aria-label="Edit this break"
+                                onClick={() =>
+                                  setEditingBreak({ dayIso: d.dayIso, segment: s })
+                                }
+                                className="ml-1 rounded p-0.5 text-current/70 hover:bg-foreground/10"
+                              >
+                                ✎
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                aria-label="Edit this punch"
+                                onClick={() =>
+                                  setModalCtx({
+                                    mode: "edit",
+                                    originalEventId: s.openingEventId,
+                                    occurredAtIso: s.openingOccurredAtIso,
+                                    eventTypeLabel: s.openingEventTypeLabel,
+                                    userName: name,
+                                  })
+                                }
+                                className="ml-1 rounded p-0.5 text-current/70 hover:bg-foreground/10"
+                              >
+                                ✎
+                              </button>
+                            )
                           ) : null}
                         </li>
                       ))}
                     </ul>
+                  ) : null}
+                  {editingBreak && editingBreak.dayIso === d.dayIso ? (
+                    <BreakInlineEditor
+                      segment={editingBreak.segment}
+                      onClose={() => setEditingBreak(null)}
+                    />
                   ) : null}
                 </li>
               ))}
@@ -516,6 +557,99 @@ export function TimesheetRow({
         canManage={canManage}
       />
     </>
+  );
+}
+
+// Inline break editor (item 5). Edits a break's start AND end in place. The
+// timesheet table is wrapped in the bulk-selection <form>, so this deliberately
+// uses NO <form> element — Save calls the server action directly to avoid an
+// invalid nested form. The action revalidates /app/timesheets, so the change
+// flows back in once it closes.
+function BreakInlineEditor({
+  segment,
+  onClose,
+}: {
+  segment: RowSegmentDisplay;
+  onClose: () => void;
+}) {
+  const [start, setStart] = useState(
+    toLocalDateTimeValue(segment.openingOccurredAtIso),
+  );
+  const [end, setEnd] = useState(
+    segment.closingOccurredAtIso
+      ? toLocalDateTimeValue(segment.closingOccurredAtIso)
+      : "",
+  );
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const inputCls =
+    "h-8 rounded-md border border-border bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-primary";
+
+  async function save() {
+    if (!segment.closingEventId || saving) return;
+    setSaving(true);
+    const fd = new FormData();
+    fd.set("startEventId", segment.openingEventId);
+    fd.set("endEventId", segment.closingEventId);
+    fd.set("startOccurredAt", start);
+    fd.set("endOccurredAt", end);
+    fd.set("reason", reason.trim() || "Break edited inline");
+    await editBreakInlineAction(fd);
+    setSaving(false);
+    onClose();
+  }
+
+  return (
+    <div className="ml-6 mt-1 flex flex-wrap items-end gap-2 rounded-md border border-border bg-card p-2">
+      <label className="flex flex-col gap-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+        Break start
+        <input
+          type="datetime-local"
+          step={60}
+          value={start}
+          onChange={(e) => setStart(e.target.value)}
+          className={inputCls}
+        />
+      </label>
+      <label className="flex flex-col gap-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+        Break end
+        <input
+          type="datetime-local"
+          step={60}
+          value={end}
+          onChange={(e) => setEnd(e.target.value)}
+          className={inputCls}
+        />
+      </label>
+      <label className="flex flex-1 flex-col gap-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+        Reason
+        <input
+          type="text"
+          maxLength={200}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="e.g. break was 30m not 60m"
+          className={`${inputCls} min-w-[8rem]`}
+        />
+      </label>
+      <button
+        type="button"
+        onClick={save}
+        disabled={saving}
+        className="h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+      >
+        {saving ? "Saving…" : "Save"}
+      </button>
+      <button
+        type="button"
+        onClick={onClose}
+        disabled={saving}
+        className="h-8 rounded-md border border-border px-3 text-xs font-medium hover:bg-muted"
+      >
+        Cancel
+      </button>
+    </div>
   );
 }
 

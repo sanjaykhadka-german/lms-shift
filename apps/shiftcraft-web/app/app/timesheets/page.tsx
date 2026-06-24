@@ -705,6 +705,11 @@ export default async function TimesheetsPage({
       openingSource: string;
       openingLocationId: string | null;
       openingEventType: string;
+      // The event that CLOSED this segment (break_end for a break, out/
+      // break_start for work). Null when force-closed at week-end. Used to
+      // make a break's end editable inline (item 5).
+      closingEventId: string | null;
+      closingOccurredAt: Date | null;
     }
     const segs: SegMeta[] = [];
     let open: {
@@ -715,7 +720,10 @@ export default async function TimesheetsPage({
       locationId: string | null;
       eventType: string;
     } | null = null;
-    const closeOpen = (endedAt: Date) => {
+    const closeOpen = (
+      endedAt: Date,
+      closingEvent: { id: string; occurredAt: Date } | null,
+    ) => {
       if (!open) return;
       if (endedAt > open.startedAt) {
         segs.push({
@@ -726,6 +734,8 @@ export default async function TimesheetsPage({
           openingSource: open.source,
           openingLocationId: open.locationId,
           openingEventType: open.eventType,
+          closingEventId: closingEvent?.id ?? null,
+          closingOccurredAt: closingEvent?.occurredAt ?? null,
         });
       }
       open = null;
@@ -746,7 +756,7 @@ export default async function TimesheetsPage({
           break;
         case "break_start":
           if (open?.kind === "work") {
-            closeOpen(e.occurredAt);
+            closeOpen(e.occurredAt, { id: e.id, occurredAt: e.occurredAt });
             open = {
               kind: "break",
               startedAt: e.occurredAt,
@@ -759,7 +769,7 @@ export default async function TimesheetsPage({
           break;
         case "break_end":
           if (open?.kind === "break") {
-            closeOpen(e.occurredAt);
+            closeOpen(e.occurredAt, { id: e.id, occurredAt: e.occurredAt });
             open = {
               kind: "work",
               startedAt: e.occurredAt,
@@ -771,7 +781,7 @@ export default async function TimesheetsPage({
           }
           break;
         case "out":
-          closeOpen(e.occurredAt);
+          closeOpen(e.occurredAt, { id: e.id, occurredAt: e.occurredAt });
           break;
         default:
           break;
@@ -782,7 +792,7 @@ export default async function TimesheetsPage({
     // too — that's where the missing clock-out belongs (the "Fix" target).
     const hadOpenAtWeekEnd = open !== null;
     const openPunchDayIso = open ? fmtIsoDate(open.startedAt) : null;
-    if (open) closeOpen(weekEnd);
+    if (open) closeOpen(weekEnd, null);
 
     const perDay = Array.from({ length: 7 }, () => 0);
     // chunksByDay carries metadata; one entry per (segment × day-split).
@@ -796,6 +806,8 @@ export default async function TimesheetsPage({
         openingLocationId: string | null;
         openingEventType: string;
         openingOccurredAt: Date;
+        closingEventId: string | null;
+        closingOccurredAt: Date | null;
       }>
     > = Array.from({ length: 7 }, () => []);
     let totalWork = 0;
@@ -831,6 +843,8 @@ export default async function TimesheetsPage({
             openingLocationId: seg.openingLocationId,
             openingEventType: seg.openingEventType,
             openingOccurredAt: seg.startedAt,
+            closingEventId: seg.closingEventId,
+            closingOccurredAt: seg.closingOccurredAt,
           });
         }
         cursor = chunkEnd;
@@ -877,6 +891,13 @@ export default async function TimesheetsPage({
           openingOccurredAtIso: c.openingOccurredAt.toISOString(),
           openingEventTypeLabel:
             EVENT_TYPE_LABEL[c.openingEventType] ?? c.openingEventType,
+          // For a break, the closing event is its break_end — carried so the
+          // break can be edited (start + end) inline (item 5).
+          closingEventId: c.kind === "break" ? c.closingEventId : null,
+          closingOccurredAtIso:
+            c.kind === "break" && c.closingOccurredAt
+              ? c.closingOccurredAt.toISOString()
+              : null,
         })),
       });
     }
