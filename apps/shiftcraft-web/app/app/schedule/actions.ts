@@ -2511,6 +2511,7 @@ export async function moveShiftAction(
         startsAt: scShifts.startsAt,
         endsAt: scShifts.endsAt,
         locationId: scShifts.locationId,
+        status: scShifts.status,
       })
       .from(scShifts)
       .where(
@@ -2565,10 +2566,20 @@ export async function moveShiftAction(
   );
   if (clash) return { ok: false, message: clash };
 
+  // Moving a shift un-publishes it: a published shift dragged to a new day
+  // reverts to draft (its green dot goes back to draft) so the change must be
+  // re-published before staff see it. Drafts/cancelled keep their status.
+  const movedStatus = shiftRow.status === "published" ? "draft" : shiftRow.status;
+
   await forTenant(membership.tenant.id).run((tx) =>
     tx
       .update(scShifts)
-      .set({ startsAt: newStart, endsAt: newEnd, updatedAt: new Date() })
+      .set({
+        startsAt: newStart,
+        endsAt: newEnd,
+        status: movedStatus,
+        updatedAt: new Date(),
+      })
       .where(
         and(
           eq(scShifts.id, shiftId),
@@ -2615,6 +2626,7 @@ export async function moveShiftToAreaAction(input: {
         startsAt: scShifts.startsAt,
         endsAt: scShifts.endsAt,
         locationId: scShifts.locationId,
+        status: scShifts.status,
       })
       .from(scShifts)
       .where(
@@ -2676,6 +2688,10 @@ export async function moveShiftToAreaAction(input: {
   );
   if (clash) return { ok: false, message: clash };
 
+  // Moving a shift (incl. across areas) un-publishes it — reverts a published
+  // shift to draft so the change must be re-published before staff see it.
+  const movedStatus = shiftRow.status === "published" ? "draft" : shiftRow.status;
+
   await forTenant(membership.tenant.id).run((tx) =>
     tx
       .update(scShifts)
@@ -2684,6 +2700,7 @@ export async function moveShiftToAreaAction(input: {
         endsAt: newEnd,
         locationId,
         role,
+        status: movedStatus,
         updatedAt: new Date(),
       })
       .where(
