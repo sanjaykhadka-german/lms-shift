@@ -229,12 +229,17 @@ export default async function TimesheetsPage({
     dept?: string;
     status?: string;
     digest?: string;
+    range?: string;
   }>;
 }) {
   const user = await currentUser();
   if (!user) redirect("/sign-in");
   const membership = await currentMembership();
   if (!membership) redirect("/app");
+  // Capture the post-guard non-null user so the narrowing survives into the
+  // nested buildWeekData() closure (TS drops control-flow narrowing across
+  // function boundaries).
+  const authUser = user;
 
   const role = membership.role;
   const tenantId = membership.tenant.id;
@@ -267,7 +272,7 @@ export default async function TimesheetsPage({
       .where(
         and(
           eq(scEmployees.traceyTenantId, tenantId),
-          eq(scEmployees.appUserId, user.id),
+          eq(scEmployees.appUserId, authUser.id),
         ),
       )
       .limit(1),
@@ -282,33 +287,45 @@ export default async function TimesheetsPage({
   // granted viewer to their own home location.
   let viewScope: string[] | null = null;
   if (role === "location_manager") {
-    viewScope = scopeArray(await getManagedLocationIds(tenantId, user.id, role));
+    viewScope = scopeArray(await getManagedLocationIds(tenantId, authUser.id, role));
   } else if (grantedView) {
     viewScope = viewerEmp?.locationId ? [viewerEmp.locationId] : [];
   }
 
-  const { week, dept, status: statusRaw, digest: digestRaw } = await searchParams;
+  const {
+    week,
+    dept,
+    status: statusRaw,
+    digest: digestRaw,
+    range: rangeRaw,
+  } = await searchParams;
   // R1 Features 3+4 — flash after the "email managers a summary" action.
   const digestCount = digestRaw == null ? null : Number.parseInt(digestRaw, 10);
   const deptFilter = dept ?? "";
   const statusFilter = parseStatusFilter(statusRaw);
   const weekStart = startOfWeek(parseIsoDate(week) ?? new Date());
-  const weekEnd = addDays(weekStart, 7);
-  const prevWeek = addDays(weekStart, -7);
-  const nextWeek = addDays(weekStart, 7);
+  // 1 WK / 2 WK range toggle (mirrors the schedule screen). 2 WK renders two
+  // stacked week blocks; each block is still a 7-day grid, so the per-week
+  // build (buildWeekData) runs once per week and the renderer maps over them.
+  const range = rangeRaw === "2w" ? "2w" : "1w";
+  const weekCount = range === "2w" ? 2 : 1;
+  const weekStarts =
+    weekCount === 2 ? [weekStart, addDays(weekStart, 7)] : [weekStart];
+  // Prev/Today/Next step by the whole visible window so a 2 WK view pages a
+  // fortnight at a time.
+  const windowDays = weekCount * 7;
+  const prevWeek = addDays(weekStart, -windowDays);
+  const nextWeek = addDays(weekStart, windowDays);
+  const windowEnd = addDays(weekStart, windowDays);
 
   // "Now" anchors two behaviours, computed once so every row shares one
   // reference point within a render: (1) an open (still-clocked-in) punch is
   // capped at now rather than the end of the week, and (2) days after today
-  // render greyed and non-approvable. todayIdx is the day index of today
-  // within the displayed week: <0 when the week is entirely in the future,
-  // >6 when entirely in the past, else 0..6 (Mon..Sun).
+  // render greyed and non-approvable. (todayIdx is per-week, so it's computed
+  // inside buildWeekData below.)
   const now = new Date();
   const todayStart = new Date(now);
   todayStart.setHours(0, 0, 0, 0);
-  const todayIdx = Math.floor(
-    (todayStart.getTime() - weekStart.getTime()) / 86_400_000,
-  );
 
   // Build query-string preserving the active filters so week navigation
   // and the Clear button don't drop a selection. Pass `null` for an
@@ -317,6 +334,7 @@ export default async function TimesheetsPage({
     week?: string;
     dept?: string | null;
     status?: StatusFilter | null;
+    range?: "1w" | "2w" | null;
   }) => {
     const params = new URLSearchParams();
     const w = overrides.week ?? (week ?? "");
@@ -328,9 +346,26 @@ export default async function TimesheetsPage({
         ? "all"
         : (overrides.status ?? statusFilter);
     if (s && s !== "all") params.set("status", s);
+    const r = overrides.range === null ? "1w" : (overrides.range ?? range);
+    if (r && r !== "1w") params.set("range", r);
     const qs = params.toString();
     return qs ? `?${qs}` : "";
   };
+
+  // ─── Per-week pipeline ───────────────────────────────────────────────────
+  // Everything below is scoped to a single [weekStart, weekStart+7) window:
+  // events, approvals, planned-vs-actual, holidays, anomalies, the row set and
+  // its summary. Wrapping it in buildWeekData means the 2 WK view is simply
+  // "run it once per week"; every week-scoped concern (approvals keyed by
+  // weekStart, the Xero pay-run, holidays) naturally scopes per block. The
+  // tenant-wide queries inside re-run per week — acceptable on an admin page.
+  async function buildWeekData(weekStart: Date) {
+    const weekEnd = addDays(weekStart, 7);
+    // Day index of today within THIS week: <0 future-only, >6 past-only,
+    // else 0..6 (Mon..Sun). Drives greying + no-show gating.
+    const todayIdx = Math.floor(
+      (todayStart.getTime() - weekStart.getTime()) / 86_400_000,
+    );
 
   // Resolve which users to show. Team viewers (managers + granted viewers):
   // everyone in the tenant, narrowed to viewScope's locations when scoped.
@@ -354,7 +389,7 @@ export default async function TimesheetsPage({
       // A Lead sees only their area-team for the displayed week: employees
       // assigned to a shift in the Lead's area(s) during this week. No grants
       // (or no shifts) → nobody.
-      const areaIds = await getLeadAreaIds(tenantId, user.id, role);
+      const areaIds = await getLeadAreaIds(tenantId, authUser.id, role);
       const resolved = await resolveLeadAreas(tenantId, areaIds ?? new Set());
       const teamIds = await getLeadTeamUserIds(
         tenantId,
@@ -389,9 +424,9 @@ export default async function TimesheetsPage({
   } else {
     allMemberRows = [
       {
-        userId: user.id,
-        name: user.name,
-        email: user.email,
+        userId: authUser.id,
+        name: authUser.name,
+        email: authUser.email,
       },
     ];
   }
@@ -554,7 +589,7 @@ export default async function TimesheetsPage({
   const userIdSet = new Set(memberRows.map((m) => m.userId));
   const allEvents = canViewTeam
     ? await getEventsInRangeForTenant(tenantId, weekStart, weekEnd)
-    : await getEventsInRangeForUser(tenantId, user.id, weekStart, weekEnd);
+    : await getEventsInRangeForUser(tenantId, authUser.id, weekStart, weekEnd);
 
   const weekStartIso = fmtIsoDate(weekStart);
   const approvalRows = await forTenant(tenantId).run((tx) =>
@@ -1192,75 +1227,170 @@ export default async function TimesheetsPage({
   // a tenant that hasn't set any hourly rates shouldn't see "$0.00".
   const anyCost = visibleRows.some((r) => r.costAud != null);
   const anyPlanned = visibleRows.some((r) => r.plannedTotalMs > 0);
-  const varianceMs = summary.workMs - summary.plannedMs;
 
-  const weekLabel = formatWeekLabel(weekStart, weekEnd);
-  // CSV export preserves the dept + status filter so what you see is what
-  // you get. (Export route handler reads `dept` already; `status` is
-  // forwarded for future use.)
+    return {
+      weekStart,
+      weekEnd,
+      weekStartIso,
+      weekLabel: formatWeekLabel(weekStart, weekEnd),
+      memberRows,
+      rows,
+      visibleRows,
+      statusCounts,
+      summary,
+      anyCost,
+      anyPlanned,
+      pendingUserIds,
+      activityByUser,
+      xeroExportByUser,
+      xeroFailed,
+      xeroLastError,
+      deptByUserId,
+      locationRows,
+      departments,
+    };
+  }
+
+  const weeks = await Promise.all(weekStarts.map((w) => buildWeekData(w)));
+
+  // ─── Cross-week aggregates for the shared toolbar / summary / pills ───
+  // The toolbar, summary cards and status pills sit above both week blocks, so
+  // their numbers sum across the visible window. Per-week data (visibleRows,
+  // approvals, Xero state) stays on each `weeks[i]` and is consumed per block.
+  const w0 = weeks[0]!;
+  const combinedSummary = weeks.reduce(
+    (acc, w) => {
+      acc.workMs += w.summary.workMs;
+      acc.breakMs += w.summary.breakMs;
+      acc.onShift += w.summary.onShift;
+      acc.costAud += w.summary.costAud;
+      acc.awardCostAud += w.summary.awardCostAud;
+      acc.plannedMs += w.summary.plannedMs;
+      return acc;
+    },
+    {
+      workMs: 0,
+      breakMs: 0,
+      onShift: 0,
+      costAud: 0,
+      awardCostAud: 0,
+      plannedMs: 0,
+    },
+  );
+  const anyCost = weeks.some((w) => w.anyCost);
+  const anyPlanned = weeks.some((w) => w.anyPlanned);
+  const varianceMs = combinedSummary.workMs - combinedSummary.plannedMs;
+  // "On shift" is a headcount, so count distinct people across the window
+  // rather than summing each week's count (which double-counts anyone who
+  // worked both weeks). Matches the per-week number in 1 WK mode.
+  const onShiftUserIds = new Set<string>();
+  for (const w of weeks) {
+    for (const r of w.visibleRows) {
+      if (r.totalWorkMs > 0) onShiftUserIds.add(r.userId);
+    }
+  }
+  const onShiftCount = onShiftUserIds.size;
+  const statusCounts: Record<StatusFilter, number> = {
+    all: weeks.reduce((s, w) => s + w.statusCounts.all, 0),
+    pending: weeks.reduce((s, w) => s + w.statusCounts.pending, 0),
+    approved: weeks.reduce((s, w) => s + w.statusCounts.approved, 0),
+    disputed: weeks.reduce((s, w) => s + w.statusCounts.disputed, 0),
+    no_activity: weeks.reduce((s, w) => s + w.statusCounts.no_activity, 0),
+  };
+  const departments = w0.departments;
+
+  // CSV export covers the whole visible window (week 1, or both weeks in 2 WK)
+  // and preserves the dept + status filter so what you see is what you get.
   const exportParams = new URLSearchParams({ week: fmtIsoDate(weekStart) });
   if (deptFilter) exportParams.set("dept", deptFilter);
   if (statusFilter !== "all") exportParams.set("status", statusFilter);
+  if (range !== "1w") exportParams.set("range", range);
   const exportHref = `/api/timesheets/export?${exportParams.toString()}`;
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-6 py-10">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
-          <h2 className="font-display text-lg font-semibold tracking-[-0.01em] text-ink">
-            {`${weekStart.toLocaleDateString(undefined, {
-              weekday: "short",
-              day: "numeric",
-              month: "long",
-            })} – ${addDays(weekEnd, -1).toLocaleDateString(undefined, {
-              weekday: "short",
-              day: "numeric",
-              month: "long",
-            })}`}
-            <span className="ml-2 font-sans text-sm font-normal text-muted-foreground">
-              · {summary.onShift} on shift
-            </span>
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {canViewTeam
-              ? "Hours per employee for the selected week, auto-built from clock punches."
-              : "Your hours for the selected week, auto-built from your clock punches."}
-          </p>
-        </div>
-        {/* Toolbar mirrors the schedule page: Date nav · Actions, split by a
-            hairline. (Range/view toggles don't apply — timesheets are weekly.) */}
-        <div className="flex flex-wrap items-center justify-end gap-1.5">
-          <Button asChild variant="outline" size="sm">
-            <Link href={`/app/timesheets${qsFor({ week: fmtIsoDate(prevWeek) })}`}>
-              ← Prev
-            </Link>
-          </Button>
-          <Button asChild variant="outline" size="sm">
-            <Link
-              href={`/app/timesheets${qsFor({ week: fmtIsoDate(startOfWeek(now)) })}`}
-            >
-              Today
-            </Link>
-          </Button>
-          <Button asChild variant="outline" size="sm">
-            <Link href={`/app/timesheets${qsFor({ week: fmtIsoDate(nextWeek) })}`}>
-              Next →
-            </Link>
-          </Button>
-          <span className="mx-1 h-6 w-px self-center bg-line" aria-hidden />
-          <Button asChild variant="outline" size="sm">
-            <a href={exportHref}>Export CSV</a>
-          </Button>
-          {isAdmin && <CloseStaleClockInsButton />}
-          {isAdmin && (
-            <AddEntryForm
-              employees={memberRows}
-              locations={locationRows}
-              defaultDate={weekStartIso}
-            />
-          )}
+      {/* ─── Sticky toolbar (mirrors the schedule screen) ───
+          Pinned below the TopBar so the date nav, the 1/2 WK toggle and the
+          Day key stay visible while the grid(s) scroll underneath. */}
+      <div className="sticky top-0 z-20 -mx-6 flex flex-col gap-3 border-b border-line bg-[color-mix(in_srgb,var(--paper)_88%,transparent)] px-6 py-3 backdrop-blur md:top-16">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1.5">
+            <h2 className="font-display text-base font-semibold tracking-[-0.01em] text-ink">
+              {`${weekStart.toLocaleDateString(undefined, {
+                weekday: "short",
+                day: "numeric",
+                month: "long",
+              })} – ${addDays(windowEnd, -1).toLocaleDateString(undefined, {
+                weekday: "short",
+                day: "numeric",
+                month: "long",
+              })}`}
+              <span className="ml-2 font-sans text-sm font-normal text-muted-foreground">
+                · {onShiftCount} on shift
+              </span>
+            </h2>
+            <DayKeyLegend />
+          </div>
+          {/* Date nav · range toggle · actions, split by a hairline. */}
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            <Button asChild variant="outline" size="sm">
+              <Link
+                href={`/app/timesheets${qsFor({ week: fmtIsoDate(prevWeek) })}`}
+              >
+                ← Prev
+              </Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link
+                href={`/app/timesheets${qsFor({ week: fmtIsoDate(startOfWeek(now)) })}`}
+              >
+                Today
+              </Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link
+                href={`/app/timesheets${qsFor({ week: fmtIsoDate(nextWeek) })}`}
+              >
+                Next →
+              </Link>
+            </Button>
+            {/* 1 WK / 2 WK segmented toggle. 2 WK stacks two week blocks. */}
+            <div className="inline-flex gap-0.5 rounded-[var(--r-sm)] border border-line bg-[var(--paper-2)] p-0.5">
+              {(["1w", "2w"] as const).map((r) => (
+                <Link
+                  key={r}
+                  href={`/app/timesheets${qsFor({ range: r })}`}
+                  className={`whitespace-nowrap rounded-[calc(var(--r-sm)-3px)] px-3 py-1.5 text-xs font-semibold uppercase transition-colors ${
+                    range === r
+                      ? "bg-[var(--raise)] text-ink shadow-[var(--shadow-sm)] dark:bg-[var(--accent)] dark:text-[var(--accent-ink)]"
+                      : "text-ink-2 hover:text-ink"
+                  }`}
+                >
+                  {r === "1w" ? "1 wk" : "2 wk"}
+                </Link>
+              ))}
+            </div>
+            <span className="mx-1 h-6 w-px self-center bg-line" aria-hidden />
+            <Button asChild variant="outline" size="sm">
+              <a href={exportHref}>Export CSV</a>
+            </Button>
+            {isAdmin && <CloseStaleClockInsButton />}
+            {isAdmin && (
+              <AddEntryForm
+                employees={w0.memberRows}
+                locations={w0.locationRows}
+                defaultDate={fmtIsoDate(weekStart)}
+              />
+            )}
+          </div>
         </div>
       </div>
+
+      <p className="text-sm text-muted-foreground">
+        {canViewTeam
+          ? "Hours per employee for the selected period, auto-built from clock punches."
+          : "Your hours for the selected period, auto-built from your clock punches."}
+      </p>
 
       {isAdmin ? (
         <>
@@ -1274,16 +1404,16 @@ export default async function TimesheetsPage({
                   : "sm:grid-cols-3"
             }`}
           >
-            <StatCard label="Total work" value={fmtHours(summary.workMs)} />
-            <StatCard label="Total break" value={fmtHours(summary.breakMs)} />
+            <StatCard label="Total work" value={fmtHours(combinedSummary.workMs)} />
+            <StatCard label="Total break" value={fmtHours(combinedSummary.breakMs)} />
             <StatCard
               label="On shift"
-              value={`${summary.onShift} ${summary.onShift === 1 ? "person" : "people"}`}
+              value={`${onShiftCount} ${onShiftCount === 1 ? "person" : "people"}`}
             />
             {anyPlanned ? (
               <StatCard
                 label="Planned vs actual"
-                value={fmtHours(summary.plannedMs)}
+                value={fmtHours(combinedSummary.plannedMs)}
                 hint={
                   varianceMs === 0
                     ? "On plan"
@@ -1301,14 +1431,16 @@ export default async function TimesheetsPage({
             {anyCost ? (
               <StatCard
                 label="Total cost (AUD)"
-                value={fmtAud(summary.costAud)}
+                value={fmtAud(combinedSummary.costAud)}
                 hint={
-                  summary.awardCostAud !== summary.costAud
-                    ? `Award-derived: ${fmtAud(roundCents(summary.awardCostAud))}`
+                  combinedSummary.awardCostAud !== combinedSummary.costAud
+                    ? `Award-derived: ${fmtAud(roundCents(combinedSummary.awardCostAud))}`
                     : "Award-derived matches"
                 }
                 hintTone={
-                  summary.awardCostAud > summary.costAud ? "amber" : "neutral"
+                  combinedSummary.awardCostAud > combinedSummary.costAud
+                    ? "amber"
+                    : "neutral"
                 }
               />
             ) : null}
@@ -1359,6 +1491,9 @@ export default async function TimesheetsPage({
             {statusFilter !== "all" ? (
               <input type="hidden" name="status" value={statusFilter} />
             ) : null}
+            {range !== "1w" ? (
+              <input type="hidden" name="range" value={range} />
+            ) : null}
             <label
               htmlFor="dept-filter"
               className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-3"
@@ -1391,15 +1526,8 @@ export default async function TimesheetsPage({
             ) : null}
           </form>
 
-          {/* R1 Feature 2 — retry the Xero push right where the failure shows. */}
-          {xeroFailed ? (
-            <XeroRetryButton
-              weekStartIso={weekStartIso}
-              lastError={xeroLastError}
-            />
-          ) : null}
-
-          {/* R1 Features 3+4 — email managers a pending-approval digest. */}
+          {/* R1 Feature 2 — Xero retry moved into each week block (per-week
+              pay-run state). R1 Features 3+4 — email managers a digest. */}
           <ApprovalDigestButton />
         </>
       ) : null}
@@ -1412,7 +1540,23 @@ export default async function TimesheetsPage({
         </div>
       ) : null}
 
-      {(() => {
+      {/* One block per visible week (1 in 1 WK, 2 stacked in 2 WK). Each block
+          owns its own table, approvals and Xero state; the column layout uses
+          the combined `anyCost` so the two grids stay aligned. */}
+      {weeks.map((wk, wkIndex) => {
+        const {
+          weekStart,
+          weekEnd,
+          weekStartIso,
+          weekLabel,
+          visibleRows,
+          pendingUserIds,
+          activityByUser,
+          xeroExportByUser,
+          xeroFailed,
+          xeroLastError,
+          deptByUserId,
+        } = wk;
         const showCheckbox = isAdmin;
         // Checkbox (admin) + chevron + Employee + 7 weekdays + Work + Break
         // + (optional Cost) + Status. The expansion <tr> uses this to
@@ -1435,7 +1579,6 @@ export default async function TimesheetsPage({
               </p>
             ) : (
               <>
-                <TimesheetLegend />
                 <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-muted/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
@@ -1647,17 +1790,51 @@ export default async function TimesheetsPage({
           </section>
         );
 
-        return isAdmin && visibleRows.length > 0 ? (
-          <BulkSelectionForm
-            weekStartIso={weekStartIso}
-            pendingUserIds={pendingUserIds}
-          >
-            {tableSection}
-          </BulkSelectionForm>
-        ) : (
-          tableSection
+        const block =
+          isAdmin && visibleRows.length > 0 ? (
+            <BulkSelectionForm
+              weekStartIso={weekStartIso}
+              pendingUserIds={pendingUserIds}
+            >
+              {tableSection}
+            </BulkSelectionForm>
+          ) : (
+            tableSection
+          );
+
+        return (
+          <div key={weekStartIso} className="space-y-3">
+            {/* Week subheader — only when stacking two weeks. */}
+            {weekCount > 1 ? (
+              <div className="flex items-center gap-3 pt-1">
+                <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-3">
+                  Week {wkIndex + 1}
+                </span>
+                <span className="text-sm font-medium text-ink-2">
+                  {`${weekStart.toLocaleDateString(undefined, {
+                    weekday: "short",
+                    day: "numeric",
+                    month: "short",
+                  })} – ${addDays(weekEnd, -1).toLocaleDateString(undefined, {
+                    weekday: "short",
+                    day: "numeric",
+                    month: "short",
+                  })}`}
+                </span>
+                <span className="h-px flex-1 bg-line-soft" aria-hidden />
+              </div>
+            ) : null}
+            {/* R1 Feature 2 — retry the Xero push right where the failure shows. */}
+            {isAdmin && xeroFailed ? (
+              <XeroRetryButton
+                weekStartIso={weekStartIso}
+                lastError={xeroLastError}
+              />
+            ) : null}
+            {block}
+          </div>
         );
-      })()}
+      })}
 
       <p className="text-[11px] text-muted-foreground">
         Hours are derived from the append-only clock-event stream. Overnight
@@ -1752,10 +1929,11 @@ const STATUS_PILL_LABEL: Record<StatusFilter, string> = {
 // Colour key for the per-day cells. Mirrors the tile styling in _row.tsx so a
 // manager can decode the grid at a glance (#5). Status (approved / disputed /
 // pending) is labelled in the Status column's badges, so this covers day state.
-function TimesheetLegend() {
+// Rendered inside the sticky toolbar (no table chrome) so it stays in view.
+function DayKeyLegend() {
   const swatch = "inline-block h-3 w-3 rounded-[3px] border";
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border bg-muted/20 px-4 py-2 text-[11px] text-muted-foreground">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink-3">
       <span className="font-mono font-medium uppercase tracking-wider text-ink-3">
         Day key
       </span>

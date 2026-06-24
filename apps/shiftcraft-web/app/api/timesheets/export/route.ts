@@ -22,7 +22,10 @@ import {
 } from "~/lib/clock";
 
 function csvCell(v: string | null | undefined): string {
-  const s = v ?? "";
+  let s = v ?? "";
+  // Neutralize CSV formula injection: a leading = + - @ (or tab/CR) makes
+  // Excel/Sheets execute the cell as a formula. Prefix with a single quote.
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }
@@ -48,7 +51,9 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const weekParam = url.searchParams.get("week");
   const weekStart = startOfWeek(parseIsoDate(weekParam) ?? new Date());
-  const weekEnd = addDays(weekStart, 7);
+  // 1 WK / 2 WK — the export covers the same window shown on screen.
+  const windowDays = url.searchParams.get("range") === "2w" ? 14 : 7;
+  const weekEnd = addDays(weekStart, windowDays);
 
   // Whose timesheet rows to include.
   const memberRows = isAdmin
@@ -80,28 +85,35 @@ export async function GET(req: NextRequest) {
     byUser.set(e.appUserId, arr);
   }
 
-  // Approval status for this week, keyed by employee.
-  const weekStartIso = fmtIsoDate(weekStart);
-  const approvalRows = await forTenant(tenantId).run((tx) =>
-    tx
-      .select({
-        employeeUserId: scTimesheetApprovals.employeeUserId,
-        status: scTimesheetApprovals.status,
-      })
-      .from(scTimesheetApprovals)
-      .where(
-        and(
-          eq(scTimesheetApprovals.traceyTenantId, tenantId),
-          sql`${scTimesheetApprovals.weekStart} = ${weekStartIso}::date`,
+  // Approval status, keyed by "employeeUserId|weekStartIso". In 2 WK mode the
+  // window spans two weeks, each with its own approval row, so we look up per
+  // (employee, owning week). One small query per week start (max 2).
+  const weekStartIsos = Array.from({ length: windowDays / 7 }, (_, i) =>
+    fmtIsoDate(addDays(weekStart, i * 7)),
+  );
+  const approvalByUserWeek = new Map<string, ScTimesheetApprovalStatus>();
+  for (const wkIso of weekStartIsos) {
+    const approvalRows = await forTenant(tenantId).run((tx) =>
+      tx
+        .select({
+          employeeUserId: scTimesheetApprovals.employeeUserId,
+          status: scTimesheetApprovals.status,
+        })
+        .from(scTimesheetApprovals)
+        .where(
+          and(
+            eq(scTimesheetApprovals.traceyTenantId, tenantId),
+            sql`${scTimesheetApprovals.weekStart} = ${wkIso}::date`,
+          ),
         ),
-      ),
-  );
-  const approvalByUser = new Map(
-    approvalRows.map((r) => [
-      r.employeeUserId,
-      r.status as ScTimesheetApprovalStatus,
-    ]),
-  );
+    );
+    for (const r of approvalRows) {
+      approvalByUserWeek.set(
+        `${r.employeeUserId}|${wkIso}`,
+        r.status as ScTimesheetApprovalStatus,
+      );
+    }
+  }
 
   // CSV: one row per (user, day) with non-zero hours. Header below.
   const header = [
@@ -131,13 +143,14 @@ export async function GET(req: NextRequest) {
     }
     // Emit one line per day in the week (even zero-hour days) for admin
     // export; for self-export, skip empty days to keep the file short.
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < windowDays; i++) {
       const day = addDays(weekStart, i);
       const key = fmtIsoDate(day);
       const w = perDayWork.get(key) ?? 0;
       const b = perDayBreak.get(key) ?? 0;
       if (!isAdmin && w === 0 && b === 0) continue;
-      const approval = approvalByUser.get(m.userId);
+      const wkIso = weekStartIsos[Math.floor(i / 7)]!;
+      const approval = approvalByUserWeek.get(`${m.userId}|${wkIso}`);
       const statusLabel = approval
         ? approval === "approved"
           ? "Approved"
