@@ -10,7 +10,7 @@ import {
   type ActivityEntry,
 } from "./_detail_panel";
 import { editBreakInlineAction } from "./event-actions";
-import { SelfieThumb } from "./_selfie-thumb";
+import { SelfieThumb } from "~/components/SelfieThumb";
 
 // datetime-local value (YYYY-MM-DDTHH:mm) in the browser's local tz from an ISO
 // string — mirrors the helper in _event_edit_modal so what's shown matches the

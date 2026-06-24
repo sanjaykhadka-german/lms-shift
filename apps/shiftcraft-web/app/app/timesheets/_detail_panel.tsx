@@ -10,7 +10,7 @@ import {
   disputeTimesheetAction,
 } from "./actions";
 import type { AnomalyKind, RowDayDetail } from "./_row";
-import { SelfieThumb } from "./_selfie-thumb";
+import { SelfieThumb } from "~/components/SelfieThumb";
 
 // Deputy-style timesheet detail panel. Right-aligned overlay rendered via
 // portal so its <form> isn't nested inside the bulk-selection form on the

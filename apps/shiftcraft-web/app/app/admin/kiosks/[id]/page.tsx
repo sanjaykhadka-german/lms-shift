@@ -13,6 +13,7 @@ import {
 import { currentMembership } from "~/lib/auth/current";
 import { isAtLeastManager } from "~/lib/roles";
 import { Button } from "~/components/ui/button";
+import { SelfieThumb } from "~/components/SelfieThumb";
 import {
   regeneratePairingCodeAction,
   restoreKioskAction,
@@ -322,13 +323,9 @@ export default async function KioskDetailPage({
                 className="flex items-center gap-3 px-5 py-3"
               >
                 {p.hasImage ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={`/api/kiosk-selfie/${p.id}`}
-                    alt=""
-                    width={56}
-                    height={42}
-                    className="h-[42px] w-14 rounded-md border border-border object-cover"
+                  <SelfieThumb
+                    eventId={p.id}
+                    thumbClassName="h-[42px] w-14 rounded-md border border-border object-cover"
                   />
                 ) : (
                   <div
