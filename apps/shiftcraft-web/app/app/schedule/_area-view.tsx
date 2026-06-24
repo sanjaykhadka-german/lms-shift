@@ -7,6 +7,7 @@ import {
   useState,
   useTransition,
 } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -768,6 +769,11 @@ export function AreaScheduleView({
   >(null);
 
   // ── Multi-select + bulk copy (local UI state only) ──
+  // `mounted` gates the portal: the slot lives in the server-rendered sticky
+  // bar (page.tsx #schedule-select-slot) and `document` is undefined on the
+  // server, so we only portal after the first client render.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [menuOpen, setMenuOpen] = useState(false);
@@ -1058,32 +1064,43 @@ export function AreaScheduleView({
       )}
 
       {/* Select toggle — turns the grid into a multi-select surface so shifts
-          can be bulk-copied (Feature 1). */}
-      <div className="mb-2 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
-          aria-pressed={selectMode}
-          className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium shadow-sm transition-colors ${
-            selectMode
-              ? "border-[var(--accent-deep)] bg-[var(--accent-deep)] text-white"
-              : "border-[color:var(--input)] bg-transparent text-ink hover:bg-muted/40"
-          }`}
-        >
-          <span
-            aria-hidden
-            className={`h-3 w-3 rounded-sm border ${
-              selectMode ? "border-white bg-white/30" : "border-current"
-            }`}
-          />
-          {selectMode ? "Selecting…" : "Select"}
-        </button>
-        {selectMode && (
-          <span className="text-xs text-muted-foreground">
-            Click shifts to select, then “Copy to”. Esc to clear.
-          </span>
-        )}
-      </div>
+          can be bulk-copied (Feature 1). Portaled into the sticky bar's
+          #schedule-select-slot so it sits with the other schedule controls. */}
+      {mounted &&
+        (() => {
+          const slot = document.getElementById("schedule-select-slot");
+          if (!slot) return null;
+          return createPortal(
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  selectMode ? exitSelectMode() : setSelectMode(true)
+                }
+                aria-pressed={selectMode}
+                className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium shadow-sm transition-colors ${
+                  selectMode
+                    ? "border-[var(--accent-deep)] bg-[var(--accent-deep)] text-white"
+                    : "border-[color:var(--input)] bg-transparent text-ink hover:bg-muted/40"
+                }`}
+              >
+                <span
+                  aria-hidden
+                  className={`h-3 w-3 rounded-sm border ${
+                    selectMode ? "border-white bg-white/30" : "border-current"
+                  }`}
+                />
+                {selectMode ? "Selecting…" : "Select"}
+              </button>
+              {selectMode && (
+                <span className="text-xs text-muted-foreground">
+                  Click shifts to select, then “Copy to”. Esc to clear.
+                </span>
+              )}
+            </div>,
+            slot,
+          );
+        })()}
 
       <div className="flex gap-3">
         {/* Left rail: employee roster — drag a name onto a shift to schedule */}

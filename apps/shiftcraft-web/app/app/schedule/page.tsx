@@ -42,7 +42,6 @@ import { PersistRange } from "./_persist-range";
 import { PublishMenu } from "./_publish-menu";
 import { RepublishBanner } from "./_republish-banner";
 import { copyDayToDateAction, repeatWeekAction } from "./actions";
-import { InfoPopover } from "~/components/InfoPopover";
 
 type ScheduleView = "day" | "area" | "employee";
 
@@ -656,25 +655,51 @@ export default async function SchedulePage({
       }`}
     >
       <PersistRange range={range} />
+      {/* Location selector sits above the sticky controls (req: location on top). */}
+      {locations.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-3">
+            Location:
+          </span>
+          <Button
+            asChild
+            size="sm"
+            variant={locationFilter ? "outline" : "default"}
+          >
+            <Link href={`/app/schedule${qs({ location: null })}`}>All</Link>
+          </Button>
+          {locations.map((loc) => (
+            <Button
+              asChild
+              key={loc.id}
+              size="sm"
+              variant={locationFilter === loc.id ? "default" : "outline"}
+            >
+              <Link
+                href={`/app/schedule${qs({ location: loc.id })}`}
+                className="inline-flex items-center gap-1.5"
+              >
+                {loc.color && (
+                  <span
+                    aria-hidden
+                    className="h-2 w-2 rounded-full"
+                    style={{ backgroundColor: loc.color }}
+                  />
+                )}
+                {loc.name}
+              </Link>
+            </Button>
+          ))}
+        </div>
+      )}
       {/* Kati's rostering feedback #1.A — the action bar stays visible while
           scrolling a long roster. Sits just under the 64px TopBar on desktop;
           bleeds past the container padding (-mx-6) so rows scroll cleanly
           underneath the blurred background. */}
-      <div className="sticky top-0 z-20 -mx-6 flex items-start justify-between gap-3 border-b border-line bg-[color-mix(in_srgb,var(--paper)_88%,transparent)] px-6 py-3 backdrop-blur md:top-16">
+      <div className="sticky top-0 z-20 -mx-6 flex flex-col gap-3 border-b border-line bg-[color-mix(in_srgb,var(--paper)_88%,transparent)] px-6 py-3 backdrop-blur md:top-16">
+        <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="flex items-center gap-1.5 font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">
-            Schedule
-            <InfoPopover label="About the schedule">
-              <p>
-                Weekly roster grid. <strong>Drafts</strong> are visible
-                only to managers; <strong>publish</strong> a shift to
-                make it offerable to staff. Use <strong>Auto-fill</strong>{" "}
-                to let the scheduler propose assignments from your
-                candidate pool.
-              </p>
-            </InfoPopover>
-          </h1>
-          <p className="mt-1 text-sm text-ink-2">
+          <p className="text-sm text-ink-2">
             {fmtRange(weekStart, addDays(weekStart, dayCount - 1))} ·{" "}
             {shifts.length} shift{shifts.length === 1 ? "" : "s"}
             {activeLocation ? ` · ${activeLocation.name}` : ""}
@@ -717,6 +742,8 @@ export default async function SchedulePage({
         {/* Kati's rostering feedback #1.B — controls grouped by purpose:
             View · Date & range · Actions, separated by hairlines. */}
         <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {/* Select toggle (multi-select) portals into here from AreaScheduleView */}
+          <div id="schedule-select-slot" className="contents" />
           {/* Group 1 — View */}
           <div className="inline-flex gap-0.5 rounded-[var(--r-sm)] border border-line bg-[var(--paper-2)] p-0.5">
             {(["area", "employee", "day"] as const).map((v) => (
@@ -976,6 +1003,46 @@ export default async function SchedulePage({
             </Button>
           )}
         </div>
+        </div>
+        {/* ─── Status strip — counts pinned at the end of the sticky bar ─── */}
+        <ul className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-line-soft pt-2.5 text-xs">
+          <StatusPill
+            label="Published"
+            value={stripCounts.published}
+            tone={stripCounts.published > 0 ? "emerald" : "muted"}
+          />
+          <StatusPill
+            label="Draft"
+            value={stripCounts.draft}
+            tone={stripCounts.draft > 0 ? "amber" : "muted"}
+          />
+          <StatusPill
+            label="Open"
+            value={stripCounts.open}
+            tone={stripCounts.open > 0 ? "amber" : "muted"}
+          />
+          <StatusPill
+            label="Cancelled"
+            value={stripCounts.cancelled}
+            tone={stripCounts.cancelled > 0 ? "rose" : "muted"}
+          />
+          <span className="hidden h-3 border-r border-line sm:block" />
+          <StatusPill
+            label="Swaps pending"
+            value={stripCounts.swapsPending}
+            tone={stripCounts.swapsPending > 0 ? "blue" : "muted"}
+          />
+          <StatusPill
+            label="Leave pending"
+            value={stripCounts.leavePending}
+            tone={stripCounts.leavePending > 0 ? "amber" : "muted"}
+          />
+          <StatusPill
+            label="Leave approved"
+            value={stripCounts.leaveApprovedThisWeek}
+            tone={stripCounts.leaveApprovedThisWeek > 0 ? "blue" : "muted"}
+          />
+        </ul>
       </div>
 
       {showCopyFlash && (
@@ -1015,43 +1082,6 @@ export default async function SchedulePage({
           week. Those shifts were left unfilled. Re-copy with{" "}
           <span className="font-semibold">&ldquo;assign even if unavailable&rdquo;</span>{" "}
           to override, or fill them manually.
-        </div>
-      )}
-
-      {locations.length > 1 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-3">
-            Location:
-          </span>
-          <Button
-            asChild
-            size="sm"
-            variant={locationFilter ? "outline" : "default"}
-          >
-            <Link href={`/app/schedule${qs({ location: null })}`}>All</Link>
-          </Button>
-          {locations.map((loc) => (
-            <Button
-              asChild
-              key={loc.id}
-              size="sm"
-              variant={locationFilter === loc.id ? "default" : "outline"}
-            >
-              <Link
-                href={`/app/schedule${qs({ location: loc.id })}`}
-                className="inline-flex items-center gap-1.5"
-              >
-                {loc.color && (
-                  <span
-                    aria-hidden
-                    className="h-2 w-2 rounded-full"
-                    style={{ backgroundColor: loc.color }}
-                  />
-                )}
-                {loc.name}
-              </Link>
-            </Button>
-          ))}
         </div>
       )}
 
@@ -1201,47 +1231,6 @@ export default async function SchedulePage({
       </div>
       )}
 
-      {/* ─── Bottom status strip ─── */}
-      <section className="rounded-[var(--r-lg)] border border-line bg-[var(--paper)] px-4 py-3 shadow-[var(--shadow-sm)]">
-        <ul className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs">
-          <StatusPill
-            label="Published"
-            value={stripCounts.published}
-            tone={stripCounts.published > 0 ? "emerald" : "muted"}
-          />
-          <StatusPill
-            label="Draft"
-            value={stripCounts.draft}
-            tone={stripCounts.draft > 0 ? "amber" : "muted"}
-          />
-          <StatusPill
-            label="Open"
-            value={stripCounts.open}
-            tone={stripCounts.open > 0 ? "amber" : "muted"}
-          />
-          <StatusPill
-            label="Cancelled"
-            value={stripCounts.cancelled}
-            tone={stripCounts.cancelled > 0 ? "rose" : "muted"}
-          />
-          <span className="hidden h-3 border-r border-line sm:block" />
-          <StatusPill
-            label="Swaps pending"
-            value={stripCounts.swapsPending}
-            tone={stripCounts.swapsPending > 0 ? "blue" : "muted"}
-          />
-          <StatusPill
-            label="Leave pending"
-            value={stripCounts.leavePending}
-            tone={stripCounts.leavePending > 0 ? "amber" : "muted"}
-          />
-          <StatusPill
-            label="Leave approved"
-            value={stripCounts.leaveApprovedThisWeek}
-            tone={stripCounts.leaveApprovedThisWeek > 0 ? "blue" : "muted"}
-          />
-        </ul>
-      </section>
     </div>
   );
 }
