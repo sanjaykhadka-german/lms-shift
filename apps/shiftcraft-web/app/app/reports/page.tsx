@@ -38,6 +38,7 @@ import {
   type AwardProfileOverrides,
 } from "~/lib/timesheet-classifier";
 import { InfoPopover } from "~/components/InfoPopover";
+import { AnalyticsBuilder, type AnalyticsRow } from "./_analytics-builder";
 
 export const metadata = { title: "Reports · ShiftCraft" };
 
@@ -53,6 +54,81 @@ interface PersonRow {
 function wageCostFor(workMs: number, rate: number | null): number {
   if (!rate || workMs <= 0) return 0;
   return (workMs / 3_600_000) * rate;
+}
+
+function startOfMonth(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+function addMonths(d: Date, n: number): Date {
+  return new Date(d.getFullYear(), d.getMonth() + n, 1);
+}
+function startOfQuarter(d: Date): Date {
+  return new Date(d.getFullYear(), Math.floor(d.getMonth() / 3) * 3, 1);
+}
+
+type AnalyticsRangeKey =
+  | "week"
+  | "lastweek"
+  | "month"
+  | "lastmonth"
+  | "quarter"
+  | "custom";
+
+// Resolve the analytics builder's date window (independent of the weekly page
+// window; defaults to it). End is exclusive. "This week" / "Last week" are
+// relative to the page's week navigator; month/quarter are relative to today.
+function resolveAnalyticsWindow(
+  preset: string | undefined,
+  astart: string | undefined,
+  aend: string | undefined,
+  thisWeekStart: Date,
+  thisWeekEnd: Date,
+): { start: Date; end: Date; key: AnalyticsRangeKey } {
+  const now = new Date();
+  switch (preset) {
+    case "lastweek":
+      return {
+        start: addDays(thisWeekStart, -7),
+        end: thisWeekStart,
+        key: "lastweek",
+      };
+    case "month":
+      return {
+        start: startOfMonth(now),
+        end: addMonths(now, 1),
+        key: "month",
+      };
+    case "lastmonth":
+      return {
+        start: addMonths(now, -1),
+        end: startOfMonth(now),
+        key: "lastmonth",
+      };
+    case "quarter":
+      return {
+        start: startOfQuarter(now),
+        end: addMonths(startOfQuarter(now), 3),
+        key: "quarter",
+      };
+    case "custom": {
+      const s = parseIsoDate(astart);
+      const e = parseIsoDate(aend);
+      if (s && e && e.getTime() >= s.getTime()) {
+        // The picker's end date is inclusive; the window end is exclusive.
+        return { start: s, end: addDays(e, 1), key: "custom" };
+      }
+      break; // invalid custom range → fall back to the default week
+    }
+  }
+  return { start: thisWeekStart, end: thisWeekEnd, key: "week" };
+}
+
+// Friendly label for the snake_case employment_type enum (e.g. "full_time"
+// → "Full time"). Used as a group-by dimension in the analytics builder.
+function fmtEmploymentType(raw: string | null | undefined): string {
+  if (!raw) return "Unassigned";
+  const s = raw.replace(/_/g, " ").trim();
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function fmtMoney(amount: number): string {
@@ -93,7 +169,13 @@ function deltaCell(thisMs: number, prevMs: number) {
 export default async function ReportsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ week?: string; department?: string }>;
+  searchParams: Promise<{
+    week?: string;
+    department?: string;
+    arange?: string;
+    astart?: string;
+    aend?: string;
+  }>;
 }) {
   const membership = await currentMembership();
   if (!membership) redirect("/app");
@@ -102,7 +184,13 @@ export default async function ReportsPage({
   }
   const tenantId = membership.tenant.id;
 
-  const { week, department: deptFilter } = await searchParams;
+  const {
+    week,
+    department: deptFilter,
+    arange,
+    astart,
+    aend,
+  } = await searchParams;
   const thisWeekStart = startOfWeek(parseIsoDate(week) ?? new Date());
   const thisWeekEnd = addDays(thisWeekStart, 7);
   const prevWeekStart = addDays(thisWeekStart, -7);
@@ -133,6 +221,7 @@ export default async function ReportsPage({
             id: scLocations.id,
             name: scLocations.name,
             color: scLocations.color,
+            dailyWageBudget: scLocations.dailyWageBudget,
           })
           .from(scLocations)
           .where(eq(scLocations.traceyTenantId, tenantId))
@@ -150,12 +239,17 @@ export default async function ReportsPage({
             departmentId: scEmployees.departmentId,
             departmentName: scDepartments.name,
             awardProfile: scEmployees.awardProfile,
+            // Extra per-employee dimensions for the Custom analytics builder.
+            position: scEmployees.position,
+            employmentType: scEmployees.employmentType,
+            locationName: scLocations.name,
           })
           .from(scEmployees)
           .leftJoin(
             scDepartments,
             eq(scDepartments.id, scEmployees.departmentId),
           )
+          .leftJoin(scLocations, eq(scLocations.id, scEmployees.locationId))
           .where(
             and(
               eq(scEmployees.traceyTenantId, tenantId),
@@ -167,6 +261,10 @@ export default async function ReportsPage({
   const rateByUser = new Map<string, number>();
   const deptByUser = new Map<string, string | null>();
   const awardProfileByUser = new Map<string, AwardProfileOverrides>();
+  // Per-employee dimensions powering the Custom analytics builder.
+  const positionByUser = new Map<string, string | null>();
+  const employmentTypeByUser = new Map<string, string | null>();
+  const homeLocationByUser = new Map<string, string | null>();
   for (const r of employeeRates) {
     if (!r.appUserId) continue;
     if (r.hourlyRate) {
@@ -175,6 +273,9 @@ export default async function ReportsPage({
     }
     deptByUser.set(r.appUserId, r.departmentName);
     awardProfileByUser.set(r.appUserId, _parseAwardProfile(r.awardProfile));
+    positionByUser.set(r.appUserId, r.position);
+    employmentTypeByUser.set(r.appUserId, r.employmentType);
+    homeLocationByUser.set(r.appUserId, r.locationName);
   }
 
   // Distinct department names to populate the filter dropdown.
@@ -426,6 +527,91 @@ export default async function ReportsPage({
     };
   });
   peopleRows.sort((a, b) => b.thisWorkMs - a.thisWorkMs || a.name.localeCompare(b.name));
+
+  // ── Custom analytics builder dataset ──────────────────────────────────
+  // The builder has its own date window (presets or a custom range), separate
+  // from the weekly window driving the rest of the page; it defaults to the
+  // selected week. We aggregate per-user hours over that window + the
+  // preceding equal-length window (for the "vs prev period" delta), reusing
+  // the already-computed weekly aggregates when the range IS the week.
+  const aWin = resolveAnalyticsWindow(
+    arange,
+    astart,
+    aend,
+    thisWeekStart,
+    thisWeekEnd,
+  );
+  const aLenMs = aWin.end.getTime() - aWin.start.getTime();
+  const aRangeDays = Math.max(1, Math.round(aLenMs / 86_400_000));
+  const sameAsWeek =
+    aWin.start.getTime() === thisWeekStart.getTime() &&
+    aWin.end.getTime() === thisWeekEnd.getTime();
+
+  let aThisByUser: Map<string, number>;
+  let aPrevByUser: Map<string, number>;
+  if (sameAsWeek) {
+    aThisByUser = thisByUser;
+    aPrevByUser = prevByUser;
+  } else {
+    const aPrevStart = new Date(aWin.start.getTime() - aLenMs);
+    const [aEvents, aPrevEvents] = await Promise.all([
+      getEventsInRangeForTenant(tenantId, aWin.start, aWin.end),
+      getEventsInRangeForTenant(tenantId, aPrevStart, aWin.start),
+    ]);
+    const filt = (evs: typeof aEvents) =>
+      departmentFilter ? evs.filter((e) => departmentMatch(e.appUserId)) : evs;
+    aThisByUser = aggregatePerUser(filt(aEvents));
+    aPrevByUser = aggregatePerUser(filt(aPrevEvents));
+  }
+
+  // Person set for the range: everyone with hours in either window, plus the
+  // (department-filtered) active roster so zero-hour people still appear.
+  const aPersonIds = new Set<string>();
+  for (const id of aThisByUser.keys()) aPersonIds.add(id);
+  for (const id of aPrevByUser.keys()) aPersonIds.add(id);
+  for (const m of allMembers) {
+    if (departmentFilter && !departmentMatch(m.id)) continue;
+    aPersonIds.add(m.id);
+  }
+
+  // Raw numeric metrics + group-by dimensions per person; formatting happens
+  // client-side. "Unassigned" stands in for any missing dimension value.
+  const analyticsRows: AnalyticsRow[] = Array.from(aPersonIds).map((uid) => {
+    const m = memberById.get(uid);
+    const hoursMs = aThisByUser.get(uid) ?? 0;
+    const rate = rateByUser.get(uid) ?? null;
+    return {
+      employee: m?.name ?? "Unknown",
+      department: deptByUser.get(uid) || "Unassigned",
+      location: homeLocationByUser.get(uid) || "Unassigned",
+      position: positionByUser.get(uid) || "Unassigned",
+      employmentType: fmtEmploymentType(employmentTypeByUser.get(uid)),
+      hoursMs,
+      prevHoursMs: aPrevByUser.get(uid) ?? 0,
+      wageCost: wageCostFor(hoursMs, rate),
+    };
+  });
+
+  // Wage budget per location for the selected range (daily budget × #days),
+  // keyed by the location name the builder groups on. Only locations with a
+  // budget set appear; the builder shows a vs-budget readout for that range
+  // when grouping by location.
+  const locationPeriodBudgets: Record<string, number> = {};
+  for (const l of allLocations) {
+    const daily = l.dailyWageBudget == null ? null : Number(l.dailyWageBudget);
+    if (daily != null && Number.isFinite(daily) && daily > 0) {
+      locationPeriodBudgets[l.name] = daily * aRangeDays;
+    }
+  }
+
+  // Range control state for the builder.
+  const aDisplayEnd = addDays(aWin.end, -1); // inclusive end for display/picker
+  const fmtDM = (d: Date) =>
+    d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  const aRangeLabel =
+    aWin.start.getTime() === aDisplayEnd.getTime()
+      ? fmtDM(aWin.start)
+      : `${fmtDM(aWin.start)} – ${fmtDM(aDisplayEnd)}`;
 
   const totalWageCostThis = peopleRows.reduce(
     (s, r) => s + wageCostFor(r.thisWorkMs, r.hourlyRate),
@@ -1099,6 +1285,18 @@ export default async function ReportsPage({
           </div>
         )}
       </section>
+
+      <AnalyticsBuilder
+        rows={analyticsRows}
+        locationPeriodBudgets={locationPeriodBudgets}
+        rangeKey={aWin.key}
+        rangeLabel={aRangeLabel}
+        rangeDays={aRangeDays}
+        customStart={fmtIsoDate(aWin.start)}
+        customEnd={fmtIsoDate(aDisplayEnd)}
+        baseWeek={week ?? null}
+        baseDepartment={departmentFilter}
+      />
 
       <p className="text-[11px] text-muted-foreground">
         Wage cost uses each employee's <code>hourly_rate</code> on{" "}
