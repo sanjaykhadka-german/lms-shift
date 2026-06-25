@@ -175,6 +175,10 @@ export const members = appSchema.table(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     role: text("role").notNull().default("member"),
+    // Member type, independent of `role` (access level) and of ShiftCraft's
+    // sc_employees.employmentType. Drives the roster section a person shows
+    // up under (Employees / Contractors / Visitors) across both apps.
+    kind: text("kind").notNull().default("employee"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -182,6 +186,10 @@ export const members = appSchema.table(
     check(
       "members_role_chk",
       sql`${t.role} in ('owner','admin','location_manager','lead','member')`,
+    ),
+    check(
+      "members_kind_chk",
+      sql`${t.kind} in ('employee','contractor','visitor')`,
     ),
   ],
 );
@@ -195,6 +203,8 @@ export const invitations = appSchema.table(
       .references(() => tenants.id, { onDelete: "cascade" }),
     email: text("email").notNull(),
     role: text("role").notNull().default("member"),
+    // Carried to members.kind when the invite is accepted (see accept-invite).
+    kind: text("kind").notNull().default("employee"),
     token: text("token").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     invitedByUserId: uuid("invited_by_user_id")
@@ -207,6 +217,10 @@ export const invitations = appSchema.table(
     check(
       "invitations_role_chk",
       sql`${t.role} in ('owner','admin','location_manager','lead','member')`,
+    ),
+    check(
+      "invitations_kind_chk",
+      sql`${t.kind} in ('employee','contractor','visitor')`,
     ),
   ],
 );
@@ -329,6 +343,12 @@ export type Role =
   | "location_manager"
   | "lead"
   | "member";
+export type MemberKind = "employee" | "contractor" | "visitor";
+export const MEMBER_KINDS: readonly MemberKind[] = [
+  "employee",
+  "contractor",
+  "visitor",
+] as const;
 export type AiStudioSession = typeof aiStudioSessions.$inferSelect;
 export type NewAiStudioSession = typeof aiStudioSessions.$inferInsert;
 export type Notification = typeof notifications.$inferSelect;

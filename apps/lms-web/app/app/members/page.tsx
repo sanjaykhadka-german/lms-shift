@@ -4,8 +4,15 @@ import { requireTenant } from "~/lib/auth/current";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
 import { Badge } from "~/components/ui/badge";
 import { InviteForm } from "./_form";
+import { MemberKindSelect } from "./_kind";
 import { RevokeButton } from "./_revoke";
 import { revokeInvitationAction } from "./actions";
+
+const KIND_LABEL: Record<string, string> = {
+  employee: "Employee",
+  contractor: "Contractor",
+  visitor: "Visitor",
+};
 
 export default async function MembersPage() {
   const { tenant, role } = await requireTenant();
@@ -15,6 +22,7 @@ export default async function MembersPage() {
     .select({
       id: members.id,
       role: members.role,
+      kind: members.kind,
       createdAt: members.createdAt,
       userId: users.id,
       name: users.name,
@@ -67,7 +75,7 @@ export default async function MembersPage() {
         </CardHeader>
         <CardContent className="divide-y divide-[color:var(--border)]">
           {memberRows.map((m) => (
-            <div key={m.id} className="flex items-center justify-between py-3">
+            <div key={m.id} className="flex items-center justify-between gap-3 py-3">
               <div className="min-w-0">
                 <div className="text-sm font-medium truncate">
                   {m.name ?? m.email}
@@ -76,9 +84,19 @@ export default async function MembersPage() {
                   {m.email}
                 </div>
               </div>
-              <Badge variant={m.role === "owner" ? "default" : "secondary"}>
-                {m.role}
-              </Badge>
+              <div className="flex items-center gap-2">
+                {m.kind !== "employee" && (
+                  <Badge variant="outline">
+                    {KIND_LABEL[m.kind] ?? m.kind}
+                  </Badge>
+                )}
+                <Badge variant={m.role === "owner" ? "default" : "secondary"}>
+                  {m.role}
+                </Badge>
+                {canManage && (
+                  <MemberKindSelect memberId={m.id} kind={m.kind} />
+                )}
+              </div>
             </div>
           ))}
         </CardContent>

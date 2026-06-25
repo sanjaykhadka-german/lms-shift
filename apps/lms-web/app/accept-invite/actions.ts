@@ -47,6 +47,7 @@ export async function acceptInvitationAction(formData: FormData): Promise<void> 
       tenantId: inv.tenantId,
       userId: me.id,
       role: inv.role,
+      kind: inv.kind,
     });
   }
 

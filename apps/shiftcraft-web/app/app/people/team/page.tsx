@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
@@ -14,6 +15,7 @@ import {
   scShiftAssignments,
   scShifts,
   users,
+  type MemberKind,
   type ScEmploymentType,
   type ScOnboardingStatus,
 } from "@tracey/db";
@@ -23,6 +25,7 @@ import { Avatar } from "~/components/Avatar";
 import { Button } from "~/components/ui/button";
 import { Badge, type BadgeProps } from "~/components/ui/badge";
 import { InviteForm } from "../_components/InviteForm";
+import { MemberKindSelect } from "../_components/MemberKindSelect";
 import { RevokeInvitationButton } from "../_components/RevokeInvitationButton";
 import { revokeInvitationAction } from "../_actions";
 import { EmployeeNameButton } from "../_components/EmployeeNameButton";
@@ -52,6 +55,19 @@ const EMPLOYMENT_LABEL: Record<ScEmploymentType, string> = {
   casual: "Casual",
   contractor: "Contractor",
 };
+
+// Roster is grouped into these sections in this order. Auth members carry an
+// explicit `members.kind`; ShiftCraft-only rows (no auth account) fall back to
+// their employmentType (contractor → Contractors, else Employees).
+const SECTION_ORDER: { key: MemberKind; label: string }[] = [
+  { key: "employee", label: "Employees" },
+  { key: "contractor", label: "Contractors" },
+  { key: "visitor", label: "Visitors" },
+];
+
+function scKindOf(employmentType: string): MemberKind {
+  return employmentType === "contractor" ? "contractor" : "employee";
+}
 
 function actionTone(action: string): BadgeVariant {
   if (action.endsWith(".deleted") || action.endsWith(".revoked")) {
@@ -229,6 +245,7 @@ export default async function PeopleTeamPage({
     .select({
       memberId: members.id,
       role: members.role,
+      kind: members.kind,
       joinedAt: members.createdAt,
       userId: users.id,
       name: users.name,
@@ -408,6 +425,16 @@ export default async function PeopleTeamPage({
   const shown = memberRows.length + shiftcraftOnly.length;
   const total = allMemberRows.length + allShiftcraftOnly.length;
 
+  // Partition the roster into Employees / Contractors / Visitors. Empty
+  // sections are dropped; section headers only appear once more than one
+  // section is populated (so an all-employee roster looks unchanged).
+  const groups = SECTION_ORDER.map((s) => ({
+    ...s,
+    members: memberRows.filter((r) => (r.kind as MemberKind) === s.key),
+    sc: shiftcraftOnly.filter((r) => scKindOf(r.employmentType) === s.key),
+  })).filter((g) => g.members.length + g.sc.length > 0);
+  const showHeaders = groups.length > 1;
+
   // Admin extras — pending invites + mini audit feed.
   const pending = canManage
     ? await db
@@ -524,7 +551,14 @@ export default async function PeopleTeamPage({
           </p>
         ) : (
           <ul className="divide-y divide-border">
-            {memberRows.map((r) => {
+            {groups.map((g) => (
+              <Fragment key={g.key}>
+                {showHeaders ? (
+                  <li className="bg-muted/20 px-5 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    {g.label} · {g.members.length + g.sc.length}
+                  </li>
+                ) : null}
+                {g.members.map((r) => {
               const rate = formatRate(r.shiftcraft?.hourlyRate ?? null);
               return (
                 <li
@@ -573,17 +607,27 @@ export default async function PeopleTeamPage({
                       />
                     </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <Badge variant={ROLE_BADGE[r.role] ?? "neutral"} size="sm">
-                      {friendlyRoleLabel(r.role)}
-                    </Badge>
-                    {r.shiftcraft ? (
-                      <Badge
-                        variant={EMPLOYMENT_BADGE[r.shiftcraft.employmentType as ScEmploymentType]}
-                        size="sm"
-                      >
-                        {EMPLOYMENT_LABEL[r.shiftcraft.employmentType as ScEmploymentType]}
+                  <div className="flex flex-col items-start gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Badge variant={ROLE_BADGE[r.role] ?? "neutral"} size="sm">
+                        {friendlyRoleLabel(r.role)}
                       </Badge>
+                      {r.shiftcraft ? (
+                        <Badge
+                          variant={EMPLOYMENT_BADGE[r.shiftcraft.employmentType as ScEmploymentType]}
+                          size="sm"
+                        >
+                          {EMPLOYMENT_LABEL[r.shiftcraft.employmentType as ScEmploymentType]}
+                        </Badge>
+                      ) : null}
+                      {!canInvite && r.kind !== "employee" ? (
+                        <Badge variant="open" size="sm">
+                          {r.kind === "contractor" ? "Contractor" : "Visitor"}
+                        </Badge>
+                      ) : null}
+                    </div>
+                    {canInvite ? (
+                      <MemberKindSelect memberId={r.memberId} kind={r.kind} />
                     ) : null}
                   </div>
                   <div className="min-w-[10rem] text-right text-xs leading-snug">
@@ -621,7 +665,7 @@ export default async function PeopleTeamPage({
                 </li>
               );
             })}
-            {shiftcraftOnly.map((r) => {
+                {g.sc.map((r) => {
               const rate = formatRate(r.hourlyRate);
               return (
                 <li
@@ -698,6 +742,8 @@ export default async function PeopleTeamPage({
                 </li>
               );
             })}
+              </Fragment>
+            ))}
           </ul>
         )}
       </section>

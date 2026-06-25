@@ -12,6 +12,7 @@ import { logAuditEvent } from "~/lib/audit";
 const inviteSchema = z.object({
   email: z.string().trim().toLowerCase().email("Enter a valid email address"),
   role: z.enum(["admin", "member"]),
+  kind: z.enum(["employee", "contractor", "visitor"]).default("employee"),
 });
 
 export type InviteState =
@@ -32,6 +33,7 @@ export async function createInvitationAction(
   const parsed = inviteSchema.safeParse({
     email: formData.get("email"),
     role: formData.get("role"),
+    kind: formData.get("kind") ?? undefined,
   });
   if (!parsed.success) {
     return {
@@ -40,7 +42,7 @@ export async function createInvitationAction(
       fieldErrors: parsed.error.flatten().fieldErrors,
     };
   }
-  const { email, role } = parsed.data;
+  const { email, role, kind } = parsed.data;
 
   // Already a member of this tenant?
   const [existingMember] = await db
@@ -73,6 +75,7 @@ export async function createInvitationAction(
       tenantId: tenant.id,
       email,
       role,
+      kind,
       token,
       expiresAt: tokenExpiry(24 * 7), // 7 days
       invitedByUserId: user.id,
@@ -103,11 +106,52 @@ export async function createInvitationAction(
     action: "invitation.created",
     targetKind: "invitation",
     targetId: invRow?.id,
-    details: { email, role },
+    details: { email, role, kind },
   });
 
   revalidatePath("/app/members");
   return { status: "ok", message: `Invitation sent to ${email}.` };
+}
+
+const setKindSchema = z.object({
+  memberId: z.string().uuid(),
+  kind: z.enum(["employee", "contractor", "visitor"]),
+});
+
+/**
+ * Change a member's `kind` (employee / contractor / visitor). Shared across
+ * apps via app.members; scoped by tenant_id so an admin can't edit another
+ * tenant's members.
+ */
+export async function updateMemberKindAction(formData: FormData): Promise<void> {
+  const user = await requireUser();
+  const { tenant, role } = await requireTenant();
+  if (role !== "owner" && role !== "admin") {
+    throw new Error("Forbidden");
+  }
+  const parsed = setKindSchema.safeParse({
+    memberId: formData.get("memberId"),
+    kind: formData.get("kind"),
+  });
+  if (!parsed.success) {
+    throw new Error("Invalid member kind");
+  }
+  await db
+    .update(members)
+    .set({ kind: parsed.data.kind })
+    .where(
+      and(eq(members.id, parsed.data.memberId), eq(members.tenantId, tenant.id)),
+    );
+  await logAuditEvent({
+    tenantId: tenant.id,
+    actorUserId: user.id,
+    actorEmail: user.email,
+    action: "member.kind_changed",
+    targetKind: "member",
+    targetId: parsed.data.memberId,
+    details: { kind: parsed.data.kind },
+  });
+  revalidatePath("/app/members");
 }
 
 const revokeSchema = z.object({

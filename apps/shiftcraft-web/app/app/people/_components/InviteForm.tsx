@@ -57,6 +57,24 @@ export function InviteForm() {
           <option value="admin">Admin</option>
         </select>
       </div>
+      <div className="space-y-1.5">
+        <label
+          htmlFor="invite-kind"
+          className="block text-xs font-medium text-muted-foreground"
+        >
+          Type
+        </label>
+        <select
+          id="invite-kind"
+          name="kind"
+          defaultValue="employee"
+          className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+        >
+          <option value="employee">Employee</option>
+          <option value="contractor">Contractor</option>
+          <option value="visitor">Visitor</option>
+        </select>
+      </div>
       <SubmitButton />
       {state.status === "ok" ? (
         <p className="basis-full text-xs text-[var(--live)]">{state.message}</p>

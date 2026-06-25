@@ -13,6 +13,7 @@ import { logAuditEvent } from "~/lib/audit";
 const inviteSchema = z.object({
   email: z.string().trim().toLowerCase().email("Enter a valid email address."),
   role: z.enum(["admin", "location_manager", "lead", "member"]),
+  kind: z.enum(["employee", "contractor", "visitor"]).default("employee"),
 });
 
 export type InviteState =
@@ -37,6 +38,7 @@ export async function createInvitationAction(
   const parsed = inviteSchema.safeParse({
     email: formData.get("email"),
     role: formData.get("role"),
+    kind: formData.get("kind") ?? undefined,
   });
   if (!parsed.success) {
     return {
@@ -45,7 +47,7 @@ export async function createInvitationAction(
       fieldErrors: parsed.error.flatten().fieldErrors,
     };
   }
-  const { email, role } = parsed.data;
+  const { email, role, kind } = parsed.data;
 
   const [existingMember] = await db
     .select({ id: members.id })
@@ -81,6 +83,7 @@ export async function createInvitationAction(
       tenantId: tenant.id,
       email,
       role,
+      kind,
       token,
       expiresAt: tokenExpiry(24 * 7),
       invitedByUserId: me.id,
@@ -107,7 +110,7 @@ export async function createInvitationAction(
     action: "tenant.member.invited",
     targetKind: "invitation",
     targetId: invRow?.id ?? null,
-    details: { email, role },
+    details: { email, role, kind },
   });
 
   revalidatePath("/app/people/team");
@@ -161,6 +164,53 @@ export async function revokeInvitationAction(formData: FormData): Promise<void> 
       details: { email: target.email, role: target.role },
     });
   }
+
+  revalidatePath("/app/people/team");
+}
+
+const setKindSchema = z.object({
+  memberId: z.string().uuid(),
+  kind: z.enum(["employee", "contractor", "visitor"]),
+});
+
+/**
+ * Change a member's `kind` (employee / contractor / visitor). This is how an
+ * admin re-classifies someone who was added without the right type — e.g. a
+ * member created via the LMS that should sit under Contractors/Visitors here.
+ * Scoped by tenant_id so an admin can't edit another tenant's members.
+ */
+export async function updateMemberKindAction(formData: FormData): Promise<void> {
+  const me = await currentUser();
+  const membership = await currentMembership();
+  if (!me || !membership || !isWorkspaceAdmin(membership.role)) {
+    throw new Error("Forbidden");
+  }
+  const tenantId = membership.tenant.id;
+
+  const parsed = setKindSchema.safeParse({
+    memberId: formData.get("memberId"),
+    kind: formData.get("kind"),
+  });
+  if (!parsed.success) {
+    throw new Error("Invalid member kind");
+  }
+
+  await db
+    .update(members)
+    .set({ kind: parsed.data.kind })
+    .where(
+      and(
+        eq(members.id, parsed.data.memberId),
+        eq(members.tenantId, tenantId),
+      ),
+    );
+
+  await logAuditEvent({
+    action: "tenant.member.kind_changed",
+    targetKind: "member",
+    targetId: parsed.data.memberId,
+    details: { kind: parsed.data.kind },
+  });
 
   revalidatePath("/app/people/team");
 }

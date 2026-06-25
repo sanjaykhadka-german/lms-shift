@@ -42,6 +42,19 @@ export function InviteForm() {
           <option value="admin">Admin</option>
         </select>
       </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="invite-kind">Type</Label>
+        <select
+          id="invite-kind"
+          name="kind"
+          defaultValue="employee"
+          className="flex h-9 w-full rounded-md border border-[color:var(--input)] bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+        >
+          <option value="employee">Employee</option>
+          <option value="contractor">Contractor</option>
+          <option value="visitor">Visitor</option>
+        </select>
+      </div>
       <Button type="submit" disabled={pending}>
         {pending ? "Sending…" : "Send invitation"}
       </Button>
