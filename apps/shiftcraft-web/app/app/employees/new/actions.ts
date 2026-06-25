@@ -77,8 +77,10 @@ const employeeSchema = z.object({
   firstName: z.string().trim().min(1, "First name is required").max(60, "Too long"),
   lastName: z.string().trim().min(1, "Last name is required").max(60, "Too long"),
   email: z
-    .union([z.literal(""), z.string().trim().email("Invalid email")])
-    .optional(),
+    .string()
+    .trim()
+    .min(1, "Email is required")
+    .email("Invalid email"),
   mobile: z.string().trim().max(40).optional().or(z.literal("")),
   department: z.string().trim().max(80).optional().or(z.literal("")),
   position: z.string().trim().max(80).optional().or(z.literal("")),

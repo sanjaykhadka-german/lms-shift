@@ -144,13 +144,14 @@ export function EmployeeForm({
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="email">Email (optional)</Label>
+          <Label htmlFor="email">Email</Label>
           <Input
             id="email"
             name="email"
             type="email"
             defaultValue={v?.email ?? ""}
             placeholder="jane@example.com"
+            required
             aria-invalid={!!fieldError(state, "email")}
           />
           {fieldError(state, "email") ? (
@@ -159,7 +160,7 @@ export function EmployeeForm({
             </p>
           ) : (
             <p className="text-xs text-muted-foreground">
-              Required for learner suggestion. Leave blank for contractors.
+              Required. Used for learner suggestion and account invites.
             </p>
           )}
           {mode === "create" ? (
@@ -171,8 +172,8 @@ export function EmployeeForm({
                 className="mt-0.5 h-3.5 w-3.5 rounded border-border accent-primary"
               />
               <span className="text-muted-foreground">
-                Email them a link to create their account. Ignored if email
-                is empty or employment type is contractor.
+                Email them a link to create their account. Ignored if
+                employment type is contractor.
               </span>
             </label>
           ) : null}
