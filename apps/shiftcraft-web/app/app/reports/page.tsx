@@ -38,6 +38,7 @@ import {
   type AwardProfileOverrides,
 } from "~/lib/timesheet-classifier";
 import { InfoPopover } from "~/components/InfoPopover";
+import { buildScoreboard } from "~/lib/attendance-scoreboard";
 import { AnalyticsBuilder, type AnalyticsRow } from "./_analytics-builder";
 
 export const metadata = { title: "Reports · ShiftCraft" };
@@ -549,6 +550,10 @@ export default async function ReportsPage({
 
   let aThisByUser: Map<string, number>;
   let aPrevByUser: Map<string, number>;
+  // Raw (unfiltered) clock events over the builder window — reused by the
+  // rostered-vs-actual scoreboard below. Defaults to the weekly events when
+  // the range IS the week.
+  let aRawEvents = thisEvents;
   if (sameAsWeek) {
     aThisByUser = thisByUser;
     aPrevByUser = prevByUser;
@@ -558,6 +563,7 @@ export default async function ReportsPage({
       getEventsInRangeForTenant(tenantId, aWin.start, aWin.end),
       getEventsInRangeForTenant(tenantId, aPrevStart, aWin.start),
     ]);
+    aRawEvents = aEvents;
     const filt = (evs: typeof aEvents) =>
       departmentFilter ? evs.filter((e) => departmentMatch(e.appUserId)) : evs;
     aThisByUser = aggregatePerUser(filt(aEvents));
@@ -574,12 +580,74 @@ export default async function ReportsPage({
     aPersonIds.add(m.id);
   }
 
+  // ── Rostered-vs-actual scoreboard for the builder range ───────────────
+  // Rostered hours = accepted+published shift durations over aWin (past AND
+  // future, matching the weekly "Schedule vs actual variance" card). No-shows
+  // + lateness come from the shared attendance scoreboard, fed only the shifts
+  // that have already started so an upcoming roster slot isn't a "no-show".
+  // We don't surface unapproved-OT here, so approvedWeeks is left empty.
+  const now = new Date();
+  let aShifts: {
+    userId: string;
+    startsAt: Date;
+    endsAt: Date;
+    locationId: string | null;
+  }[];
+  if (sameAsWeek) {
+    aShifts = scheduledAssignmentsThis.map((a) => ({
+      userId: a.userId,
+      startsAt: a.startsAt,
+      endsAt: a.endsAt,
+      locationId: null,
+    }));
+  } else {
+    aShifts = await forTenant(tenantId).run((tx) =>
+      tx
+        .select({
+          userId: scShiftAssignments.userId,
+          startsAt: scShifts.startsAt,
+          endsAt: scShifts.endsAt,
+          locationId: scShifts.locationId,
+        })
+        .from(scShiftAssignments)
+        .innerJoin(scShifts, eq(scShifts.id, scShiftAssignments.shiftId))
+        .where(
+          and(
+            eq(scShifts.traceyTenantId, tenantId),
+            eq(scShifts.status, "published"),
+            eq(scShiftAssignments.status, "accepted"),
+            sql`${scShifts.startsAt} >= ${aWin.start.toISOString()}::timestamptz`,
+            sql`${scShifts.startsAt} < ${aWin.end.toISOString()}::timestamptz`,
+          ),
+        ),
+    );
+  }
+  const scheduledMsByUser = new Map<string, number>();
+  for (const s of aShifts) {
+    const ms = s.endsAt.getTime() - s.startsAt.getTime();
+    if (ms <= 0) continue;
+    scheduledMsByUser.set(
+      s.userId,
+      (scheduledMsByUser.get(s.userId) ?? 0) + ms,
+    );
+  }
+  const aScoreboard = buildScoreboard({
+    shifts: aShifts.filter((s) => s.startsAt.getTime() < now.getTime()),
+    events: aRawEvents.map((e) => ({
+      userId: e.appUserId,
+      eventType: e.eventType,
+      occurredAt: e.occurredAt,
+    })),
+    approvedWeeks: new Set<string>(),
+  });
+
   // Raw numeric metrics + group-by dimensions per person; formatting happens
   // client-side. "Unassigned" stands in for any missing dimension value.
   const analyticsRows: AnalyticsRow[] = Array.from(aPersonIds).map((uid) => {
     const m = memberById.get(uid);
     const hoursMs = aThisByUser.get(uid) ?? 0;
     const rate = rateByUser.get(uid) ?? null;
+    const sc = aScoreboard.get(uid);
     return {
       employee: m?.name ?? "Unknown",
       department: deptByUser.get(uid) || "Unassigned",
@@ -589,6 +657,9 @@ export default async function ReportsPage({
       hoursMs,
       prevHoursMs: aPrevByUser.get(uid) ?? 0,
       wageCost: wageCostFor(hoursMs, rate),
+      scheduledMs: scheduledMsByUser.get(uid) ?? 0,
+      noShows: sc?.noShows ?? 0,
+      lateCount: sc?.lateCount ?? 0,
     };
   });
 
@@ -915,6 +986,18 @@ export default async function ReportsPage({
           )}
         </form>
       )}
+
+      <AnalyticsBuilder
+        rows={analyticsRows}
+        locationPeriodBudgets={locationPeriodBudgets}
+        rangeKey={aWin.key}
+        rangeLabel={aRangeLabel}
+        rangeDays={aRangeDays}
+        customStart={fmtIsoDate(aWin.start)}
+        customEnd={fmtIsoDate(aDisplayEnd)}
+        baseWeek={week ?? null}
+        baseDepartment={departmentFilter}
+      />
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi label="Total hours" value={fmtHours(totalThis)} delta={totalThis - totalPrev} />
@@ -1285,18 +1368,6 @@ export default async function ReportsPage({
           </div>
         )}
       </section>
-
-      <AnalyticsBuilder
-        rows={analyticsRows}
-        locationPeriodBudgets={locationPeriodBudgets}
-        rangeKey={aWin.key}
-        rangeLabel={aRangeLabel}
-        rangeDays={aRangeDays}
-        customStart={fmtIsoDate(aWin.start)}
-        customEnd={fmtIsoDate(aDisplayEnd)}
-        baseWeek={week ?? null}
-        baseDepartment={departmentFilter}
-      />
 
       <p className="text-[11px] text-muted-foreground">
         Wage cost uses each employee's <code>hourly_rate</code> on{" "}

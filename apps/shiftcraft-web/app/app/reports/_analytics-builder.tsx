@@ -16,6 +16,13 @@ export interface AnalyticsRow {
   hoursMs: number;
   prevHoursMs: number;
   wageCost: number;
+  // Rostered-vs-actual view. scheduledMs = sum of accepted+published shift
+  // durations for this person over the range; noShows/lateCount come from the
+  // attendance scoreboard (server-side). Default 0 when the person has no
+  // scheduled shifts in the range.
+  scheduledMs: number;
+  noShows: number;
+  lateCount: number;
 }
 
 type DimensionKey =
@@ -67,10 +74,22 @@ interface Group {
   prevHoursMs: number;
   wageCost: number;
   headcount: number;
+  scheduledMs: number;
+  noShows: number;
+  lateCount: number;
 }
 
 function emptyGroup(key: string): Group {
-  return { key, hoursMs: 0, prevHoursMs: 0, wageCost: 0, headcount: 0 };
+  return {
+    key,
+    hoursMs: 0,
+    prevHoursMs: 0,
+    wageCost: 0,
+    headcount: 0,
+    scheduledMs: 0,
+    noShows: 0,
+    lateCount: 0,
+  };
 }
 
 function addRow(g: Group, r: AnalyticsRow) {
@@ -78,6 +97,9 @@ function addRow(g: Group, r: AnalyticsRow) {
   g.prevHoursMs += r.prevHoursMs;
   g.wageCost += r.wageCost;
   if (r.hoursMs > 0) g.headcount += 1;
+  g.scheduledMs += r.scheduledMs;
+  g.noShows += r.noShows;
+  g.lateCount += r.lateCount;
 }
 
 function metricValue(g: Group, m: MetricKey): number {
@@ -155,6 +177,9 @@ export function AnalyticsBuilder({
   const pathname = usePathname();
   const [dimension, setDimension] = useState<DimensionKey>("department");
   const [view, setView] = useState<"table" | "chart">("table");
+  // Top-level mode: the "hours" worksheet (table/chart of the metric columns)
+  // or the "rostered" comparison (scheduled vs actual + no-shows/late).
+  const [mode, setMode] = useState<"hours" | "rostered">("hours");
   // Custom-range inputs (only navigate on Apply). Open when the server
   // already resolved a custom range.
   const [customOpen, setCustomOpen] = useState(rangeKey === "custom");
@@ -313,24 +338,49 @@ export function AnalyticsBuilder({
             <span className="rounded-full border border-border bg-muted/40 px-2.5 py-1 text-[11px] font-medium tabular-nums text-muted-foreground">
               {groups.length} {groups.length === 1 ? "group" : "groups"}
             </span>
-            {/* View toggle */}
+            {/* Mode toggle — hours worksheet vs rostered-vs-actual comparison */}
             <div className="inline-flex gap-1 rounded-lg border border-border bg-muted/30 p-1">
-              {(["table", "chart"] as const).map((v) => (
+              {(
+                [
+                  { key: "hours", label: "Hours" },
+                  { key: "rostered", label: "Rostered vs actual" },
+                ] as const
+              ).map((m) => (
                 <button
-                  key={v}
+                  key={m.key}
                   type="button"
-                  onClick={() => setView(v)}
-                  aria-pressed={view === v}
-                  className={`rounded-md px-2.5 py-1 text-xs font-medium capitalize transition ${
-                    view === v
+                  onClick={() => setMode(m.key)}
+                  aria-pressed={mode === m.key}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                    mode === m.key
                       ? "bg-card text-foreground shadow-sm ring-1 ring-border"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  {v}
+                  {m.label}
                 </button>
               ))}
             </div>
+            {/* View toggle (Hours mode only) */}
+            {mode === "hours" && (
+              <div className="inline-flex gap-1 rounded-lg border border-border bg-muted/30 p-1">
+                {(["table", "chart"] as const).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setView(v)}
+                    aria-pressed={view === v}
+                    className={`rounded-md px-2.5 py-1 text-xs font-medium capitalize transition ${
+                      view === v
+                        ? "bg-card text-foreground shadow-sm ring-1 ring-border"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -428,7 +478,9 @@ export function AnalyticsBuilder({
         </div>
 
         {/* Metric chips — in table view they pick columns; in chart view the
-            active (filled) one is what's plotted. */}
+            active (filled) one is what's plotted. Hours mode only — the
+            rostered comparison has a fixed column set. */}
+        {mode === "hours" && (
         <div className="mt-2.5 flex flex-wrap items-center gap-2">
           <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
             {view === "chart" ? "Metric" : "Columns"}
@@ -461,12 +513,28 @@ export function AnalyticsBuilder({
             );
           })}
         </div>
+        )}
       </div>
 
       {groups.length === 0 ? (
         <p className="px-5 py-8 text-center text-sm text-muted-foreground">
           No data for this period.
         </p>
+      ) : mode === "rostered" ? (
+        <RosteredVsActual
+          groups={[...groups].sort(
+            (a, b) =>
+              b.scheduledMs - a.scheduledMs ||
+              b.hoursMs - a.hoursMs ||
+              a.key.localeCompare(b.key),
+          )}
+          totals={totals}
+          membersByGroup={membersByGroup}
+          dimensionLabel={dimensionLabel}
+          drillable={drillable}
+          expanded={expanded}
+          toggleExpanded={toggleExpanded}
+        />
       ) : view === "chart" ? (
         /* ── Chart view ── horizontal bars of the active metric ── */
         <div className="space-y-2.5 px-5 py-5">
@@ -663,5 +731,178 @@ export function AnalyticsBuilder({
         </div>
       )}
     </section>
+  );
+}
+
+// Variance = actual − rostered. Positive = worked more than rostered (labour
+// over the plan → red); negative = under the plan (green); matches the
+// CostVariance card's "did we overspend relative to the roster?" model.
+function varianceCell(scheduledMs: number, actualMs: number) {
+  const diff = actualMs - scheduledMs;
+  const cls =
+    diff > 0
+      ? "text-[color:var(--destructive)]"
+      : diff < 0
+        ? "text-[var(--live)]"
+        : "text-muted-foreground";
+  const sign = diff === 0 ? "±" : diff > 0 ? "+" : "−";
+  return (
+    <span className={`font-semibold ${cls}`}>
+      {sign}
+      {fmtHours(Math.abs(diff))}
+    </span>
+  );
+}
+
+function RosteredVsActual({
+  groups,
+  totals,
+  membersByGroup,
+  dimensionLabel,
+  drillable,
+  expanded,
+  toggleExpanded,
+}: {
+  groups: Group[];
+  totals: Group;
+  membersByGroup: Map<string, Group[]>;
+  dimensionLabel: string;
+  drillable: boolean;
+  expanded: Set<string>;
+  toggleExpanded: (key: string) => void;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="bg-muted/40 text-xs uppercase tracking-wider text-muted-foreground">
+          <tr>
+            <th className="px-5 py-2.5 text-left font-medium">
+              {dimensionLabel}
+            </th>
+            <th className="px-3 py-2.5 text-right font-medium">Rostered</th>
+            <th className="px-3 py-2.5 text-right font-medium">Actual</th>
+            <th className="px-3 py-2.5 text-right font-medium">Variance</th>
+            <th className="px-3 py-2.5 text-right font-medium">No-shows</th>
+            <th className="px-3 py-2.5 text-right font-medium">Late</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border">
+          {groups.map((g) => {
+            const isOpen = expanded.has(g.key);
+            const members = membersByGroup.get(g.key) ?? [];
+            return (
+              <Fragment key={g.key}>
+                <tr
+                  className={`transition-colors hover:bg-muted/30 ${
+                    drillable ? "cursor-pointer" : ""
+                  }`}
+                  onClick={drillable ? () => toggleExpanded(g.key) : undefined}
+                >
+                  <td className="px-5 py-2.5">
+                    <div className="flex items-center gap-1.5">
+                      {drillable && (
+                        <span
+                          className={`text-[9px] text-muted-foreground transition-transform ${
+                            isOpen ? "rotate-90" : ""
+                          }`}
+                        >
+                          ▶
+                        </span>
+                      )}
+                      <span className="font-medium text-foreground">
+                        {g.key}
+                      </span>
+                      {drillable && (
+                        <span className="text-[10px] text-muted-foreground">
+                          ({members.length})
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5 text-right font-mono tabular-nums text-muted-foreground">
+                    {fmtHours(g.scheduledMs)}
+                  </td>
+                  <td className="px-3 py-2.5 text-right font-mono font-semibold tabular-nums text-foreground">
+                    {fmtHours(g.hoursMs)}
+                  </td>
+                  <td className="px-3 py-2.5 text-right font-mono tabular-nums">
+                    {varianceCell(g.scheduledMs, g.hoursMs)}
+                  </td>
+                  <td
+                    className={`px-3 py-2.5 text-right font-mono tabular-nums ${
+                      g.noShows > 0
+                        ? "font-semibold text-[color:var(--destructive)]"
+                        : "text-muted-foreground"
+                    }`}
+                  >
+                    {g.noShows}
+                  </td>
+                  <td
+                    className={`px-3 py-2.5 text-right font-mono tabular-nums ${
+                      g.lateCount > 0
+                        ? "font-semibold text-foreground"
+                        : "text-muted-foreground"
+                    }`}
+                  >
+                    {g.lateCount}
+                  </td>
+                </tr>
+                {isOpen &&
+                  members.map((mem) => (
+                    <tr
+                      key={`${g.key}::${mem.key}`}
+                      className="bg-muted/15 text-xs"
+                    >
+                      <td className="py-1.5 pl-12 pr-5 text-muted-foreground">
+                        {mem.key}
+                      </td>
+                      <td className="px-3 py-1.5 text-right font-mono tabular-nums text-muted-foreground">
+                        {fmtHours(mem.scheduledMs)}
+                      </td>
+                      <td className="px-3 py-1.5 text-right font-mono tabular-nums text-muted-foreground">
+                        {fmtHours(mem.hoursMs)}
+                      </td>
+                      <td className="px-3 py-1.5 text-right font-mono tabular-nums">
+                        {varianceCell(mem.scheduledMs, mem.hoursMs)}
+                      </td>
+                      <td className="px-3 py-1.5 text-right font-mono tabular-nums text-muted-foreground">
+                        {mem.noShows}
+                      </td>
+                      <td className="px-3 py-1.5 text-right font-mono tabular-nums text-muted-foreground">
+                        {mem.lateCount}
+                      </td>
+                    </tr>
+                  ))}
+              </Fragment>
+            );
+          })}
+        </tbody>
+        <tfoot className="border-t-2 border-border bg-muted/30">
+          <tr>
+            <td className="px-5 py-2.5 text-sm font-semibold">Total</td>
+            <td className="px-3 py-2.5 text-right font-mono text-sm font-semibold tabular-nums">
+              {fmtHours(totals.scheduledMs)}
+            </td>
+            <td className="px-3 py-2.5 text-right font-mono text-sm font-semibold tabular-nums">
+              {fmtHours(totals.hoursMs)}
+            </td>
+            <td className="px-3 py-2.5 text-right font-mono text-sm tabular-nums">
+              {varianceCell(totals.scheduledMs, totals.hoursMs)}
+            </td>
+            <td className="px-3 py-2.5 text-right font-mono text-sm font-semibold tabular-nums">
+              {totals.noShows}
+            </td>
+            <td className="px-3 py-2.5 text-right font-mono text-sm font-semibold tabular-nums">
+              {totals.lateCount}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+      <p className="border-t border-border bg-muted/30 px-5 py-2 text-[10px] uppercase tracking-wider text-muted-foreground">
+        Rostered = accepted &amp; published shift hours in this range. Actual =
+        clocked-in hours. No-show = rostered for a past day with no clock-in.
+        Late = first clock-in more than 5 min after the shift start.
+      </p>
+    </div>
   );
 }
