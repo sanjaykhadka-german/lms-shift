@@ -152,12 +152,16 @@ export function Sidebar({
   image,
   role,
   showPlatformLink = false,
+  walled = false,
 }: {
   name: string;
   email: string;
   image: string | null;
   role: string;
   showPlatformLink?: boolean;
+  // When the tenant is behind the billing wall, hide all nav links — every
+  // /app route just renders the wall anyway, so the links would be dead ends.
+  walled?: boolean;
 }) {
   const pathname = usePathname();
   // Location Managers see the Admin section too, but owner/Manager-only items
@@ -165,17 +169,19 @@ export function Sidebar({
   const canSeeAdmin = isAtLeastManager(role);
   const fullAdmin = isWorkspaceAdmin(role);
   const leadRole = isLead(role);
-  const sections = SECTIONS.filter((s) => !s.adminOnly || canSeeAdmin).map((s) => ({
-    ...s,
-    items: s.items.filter((item) => {
-      if (item.ownerOnly && !fullAdmin) return false;
-      if (item.adminOnly && !canSeeAdmin) {
-        // A Lead isn't a manager, but approver items (Timesheets) still show.
-        return Boolean(item.approverOnly && leadRole);
-      }
-      return true;
-    }),
-  }));
+  const sections = walled
+    ? []
+    : SECTIONS.filter((s) => !s.adminOnly || canSeeAdmin).map((s) => ({
+        ...s,
+        items: s.items.filter((item) => {
+          if (item.ownerOnly && !fullAdmin) return false;
+          if (item.adminOnly && !canSeeAdmin) {
+            // A Lead isn't a manager, but approver items (Timesheets) still show.
+            return Boolean(item.approverOnly && leadRole);
+          }
+          return true;
+        }),
+      }));
 
   // Mobile drawer state. Closes automatically on route change so the user
   // doesn't see the drawer linger across navigation. Esc closes it too.

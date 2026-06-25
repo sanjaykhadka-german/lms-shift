@@ -69,6 +69,7 @@ export default async function AppLayout({
         image={user.image}
         role={roleLabel}
         showPlatformLink={platformAdmin}
+        walled={walledLevel !== null}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Global chrome — only renders on md+ so the existing mobile
