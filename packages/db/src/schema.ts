@@ -23,6 +23,10 @@ export const appSchema = pgSchema("app");
 export const users = appSchema.table("users", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: text("name"),
+  // Captured separately at sign-up (Deputy-style). `name` is kept as the
+  // canonical "First Last" display string (read across LMS/ShiftCraft).
+  firstName: text("first_name"),
+  lastName: text("last_name"),
   email: text("email").notNull(),
   emailVerified: timestamp("email_verified", { withTimezone: true, mode: "date" }),
   image: text("image"),

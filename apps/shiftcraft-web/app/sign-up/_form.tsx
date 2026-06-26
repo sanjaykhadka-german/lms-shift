@@ -21,13 +21,26 @@ export function SignUpForm({
   return (
     <form action={action} className="space-y-4">
       {returnTo && <input type="hidden" name="returnTo" value={returnTo} />}
-      <Field
-        name="name"
-        label="Full name"
-        type="text"
-        autoComplete="name"
-        errors={state.status === "error" ? state.fieldErrors?.name : undefined}
-      />
+      <div className="grid grid-cols-2 gap-3">
+        <Field
+          name="firstName"
+          label="First name"
+          type="text"
+          autoComplete="given-name"
+          errors={
+            state.status === "error" ? state.fieldErrors?.firstName : undefined
+          }
+        />
+        <Field
+          name="lastName"
+          label="Last name"
+          type="text"
+          autoComplete="family-name"
+          errors={
+            state.status === "error" ? state.fieldErrors?.lastName : undefined
+          }
+        />
+      </div>
       <Field
         name="email"
         label="Work email"

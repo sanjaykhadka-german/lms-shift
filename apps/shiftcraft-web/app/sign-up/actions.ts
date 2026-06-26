@@ -7,7 +7,8 @@ import { db, users } from "@tracey/db";
 import { hashPassword } from "~/lib/auth/passwords";
 
 const schema = z.object({
-  name: z.string().trim().min(1, "Name is required").max(100),
+  firstName: z.string().trim().min(1, "First name is required").max(60),
+  lastName: z.string().trim().min(1, "Last name is required").max(60),
   email: z.string().trim().toLowerCase().email("Enter a valid email address"),
   password: z
     .string()
@@ -29,7 +30,8 @@ export async function signUpAction(
   formData: FormData,
 ): Promise<SignUpState> {
   const parsed = schema.safeParse({
-    name: formData.get("name"),
+    firstName: formData.get("firstName"),
+    lastName: formData.get("lastName"),
     email: formData.get("email"),
     password: formData.get("password"),
     returnTo: formData.get("returnTo") ?? undefined,
@@ -41,7 +43,8 @@ export async function signUpAction(
       fieldErrors: parsed.error.flatten().fieldErrors,
     };
   }
-  const { name, email, password, returnTo } = parsed.data;
+  const { firstName, lastName, email, password, returnTo } = parsed.data;
+  const name = `${firstName} ${lastName}`.trim();
   const safeReturnTo = returnTo && returnTo.startsWith("/") ? returnTo : undefined;
 
   const [existing] = await db
@@ -60,6 +63,8 @@ export async function signUpAction(
   const passwordHash = await hashPassword(password);
   await db.insert(users).values({
     name,
+    firstName,
+    lastName,
     email,
     passwordHash,
     emailVerified: new Date(),
