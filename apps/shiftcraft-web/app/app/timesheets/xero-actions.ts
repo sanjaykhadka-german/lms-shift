@@ -25,7 +25,9 @@ import {
 import { deriveSegments, splitSegmentByDay } from "~/lib/clock";
 import { getHolidaysForTenant } from "~/lib/holidays";
 import {
+  _parseAwardProfile,
   classifyEmployeeWeek,
+  mergeAwardProfiles,
 } from "~/lib/timesheet-classifier";
 import { getTenantAwardProfile } from "~/lib/award-profile";
 import {
@@ -149,6 +151,7 @@ export async function exportToXeroAction(
           id: scEmployees.id,
           appUserId: scEmployees.appUserId,
           fullName: scEmployees.fullName,
+          awardProfile: scEmployees.awardProfile,
         })
         .from(scEmployees)
         .where(
@@ -246,11 +249,19 @@ export async function exportToXeroAction(
     }
     if (perDayMs.every((ms) => ms === 0)) continue;
 
+    // Resolution chain mirrors the /app/timesheets page: employee profile →
+    // tenant profile → @tracey/award defaults, merged per leaf field. Without
+    // the per-employee merge the export silently re-classified everyone on the
+    // tenant/default thresholds, ignoring per-employee award overrides.
+    const effectiveProfile = mergeAwardProfiles(
+      awardProfile,
+      _parseAwardProfile(emp.awardProfile),
+    );
     const breakdown = classifyEmployeeWeek(
       weekStart,
       perDayMs,
       holidaySet,
-      awardProfile.thresholds,
+      effectiveProfile.thresholds,
     );
     const categoryUnits = buildCategoryUnitsFromBreakdown(
       breakdown,
