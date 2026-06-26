@@ -82,7 +82,7 @@ const SECTIONS: NavSection[] = [
     label: "Overview",
     items: [
       { href: "/app", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/app/schedule", label: "Schedule", icon: CalendarDays },
+      { href: "/app/schedule", label: "Schedule", icon: CalendarDays, adminOnly: true, approverOnly: true },
       { href: "/app/timesheets", label: "Timesheets", icon: ClipboardList, adminOnly: true, approverOnly: true },
       { href: "/app/announcements", label: "Announcements", icon: Megaphone },
     ],

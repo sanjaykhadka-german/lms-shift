@@ -34,7 +34,7 @@ import {
   resolveLeadAreas,
   scopeArray,
 } from "~/lib/manager-scope";
-import { isLead } from "~/lib/roles";
+import { canViewTeam, isLead } from "~/lib/roles";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
 import { WeeklyLabourForecast } from "~/components/WeeklyLabourForecast";
@@ -114,6 +114,10 @@ export default async function SchedulePage({
 }) {
   const membership = await currentMembership();
   if (!membership) redirect("/app");
+  // Employees (regular "member" role) don't get the roster editor — only
+  // managers and Leads. Everyone else sees just their own shifts. Leads keep
+  // their existing read-only, area-scoped view below.
+  if (!canViewTeam(membership.role)) redirect("/app/my-shifts");
   const me = await requireUser();
   // AUDIT.md #13 — scope manager visibility to assigned locations.
   // Owners + unscoped admins get the full set; scoped admins only
