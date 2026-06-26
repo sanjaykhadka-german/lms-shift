@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { Button } from "~/components/ui/button";
+import { TimeField12h } from "~/components/ui/time-field-12h";
 import { addTimesheetEntryAction } from "./event-actions";
 
 interface Props {
@@ -68,11 +69,11 @@ export function AddEntryForm({ employees, locations, defaultDate }: Props) {
         <div className="grid grid-cols-2 gap-2">
           <label className="flex flex-col gap-1 text-xs text-ink-2">
             Start
-            <input type="time" name="clockIn" required className={fieldCls} />
+            <TimeField12h name="clockIn" required />
           </label>
           <label className="flex flex-col gap-1 text-xs text-ink-2">
             Finish
-            <input type="time" name="clockOut" required className={fieldCls} />
+            <TimeField12h name="clockOut" required />
           </label>
         </div>
 
@@ -96,11 +97,11 @@ export function AddEntryForm({ employees, locations, defaultDate }: Props) {
               <div key={id} className="flex items-end gap-2">
                 <label className="flex flex-1 flex-col gap-1 text-[11px] text-ink-2">
                   {idx === 0 ? "Break start" : `Break ${idx + 1} start`}
-                  <input type="time" name="breakStart" required className={fieldCls} />
+                  <TimeField12h name="breakStart" required />
                 </label>
                 <label className="flex flex-1 flex-col gap-1 text-[11px] text-ink-2">
                   End
-                  <input type="time" name="breakEnd" required className={fieldCls} />
+                  <TimeField12h name="breakEnd" required />
                 </label>
                 <button
                   type="button"

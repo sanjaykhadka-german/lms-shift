@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useFormStatus } from "react-dom";
+import { TimeField12h } from "~/components/ui/time-field-12h";
 import {
   addClockEventAction,
   editClockEventAction,
@@ -466,23 +467,13 @@ function DayEntryForm({
   );
 }
 
-// Extract the "HH:MM" portion from a datetime-local value
-// ("YYYY-MM-DDTHH:MM"). Empty string when blank/invalid.
-function timePart(dt: string): string {
-  const i = dt.indexOf("T");
-  return i >= 0 ? dt.slice(i + 1, i + 6) : "";
-}
-
-// Time field for the whole-day entry form. Uses the SAME native
-// <input type="datetime-local"> the schedule page uses — which renders the
-// browser's AM/PM picker (24h native <input type="time"> looked different) —
-// but locks the date portion to the day being edited (min/max) and submits
-// just the "HH:MM" the server action parses, via a hidden input. Works both
-// uncontrolled (name + defaultValue, for Start/Finish) and controlled
-// (value + onChange, for break rows). All time values are 24h "HH:MM".
+// Time field for the whole-day entry form. Renders a 12-hour (AM/PM) picker
+// and submits just the "HH:MM" (24h) the server action parses, via a hidden
+// input. Works both uncontrolled (name + defaultValue, for Start/Finish) and
+// controlled (value + onChange, for break rows). `dateIso` is accepted for
+// call-site symmetry but no longer used (the picker is pure time-of-day).
 function EntryTimeField({
   name,
-  dateIso,
   value,
   defaultValue,
   onChange,
@@ -495,29 +486,14 @@ function EntryTimeField({
   onChange?: (v: string) => void;
   required?: boolean;
 }) {
-  const isControlled = value !== undefined;
-  const [internal, setInternal] = useState(defaultValue ?? "");
-  const cur = isControlled ? value ?? "" : internal;
-  const dtValue = cur ? `${dateIso}T${cur}` : "";
-  const commit = (dt: string) => {
-    const t = timePart(dt);
-    if (!isControlled) setInternal(t);
-    onChange?.(t);
-  };
   return (
-    <>
-      <input
-        type="datetime-local"
-        step={60}
-        required={required}
-        value={dtValue}
-        min={`${dateIso}T00:00`}
-        max={`${dateIso}T23:59`}
-        onChange={(e) => commit(e.target.value)}
-        className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-      />
-      <input type="hidden" name={name} value={cur} />
-    </>
+    <TimeField12h
+      name={name}
+      value={value}
+      defaultValue={defaultValue}
+      onChange={onChange}
+      required={required}
+    />
   );
 }
 
