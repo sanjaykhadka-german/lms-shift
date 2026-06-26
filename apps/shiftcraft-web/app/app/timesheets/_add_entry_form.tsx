@@ -24,18 +24,28 @@ export function AddEntryForm({ employees, locations, defaultDate }: Props) {
   // inputs named breakStart/breakEnd, read in order on the server via getAll.
   const nextBreakId = useRef(1);
   const [breakRows, setBreakRows] = useState<number[]>([]);
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const addBreak = () =>
     setBreakRows((rows) => [...rows, nextBreakId.current++]);
   const removeBreak = (id: number) =>
     setBreakRows((rows) => rows.filter((r) => r !== id));
 
   return (
-    <details className="relative">
+    <details ref={detailsRef} className="relative">
       <summary className="inline-flex h-8 cursor-pointer list-none items-center rounded-[var(--r-sm)] border border-[color:var(--input)] px-3 text-sm font-medium hover:bg-[color-mix(in_srgb,var(--ink)_5%,transparent)]">
         Add timesheet entry
       </summary>
       <form
-        action={addTimesheetEntryAction}
+        ref={formRef}
+        action={async (fd) => {
+          await addTimesheetEntryAction(fd);
+          // Success (the action revalidates and returns; it never redirects).
+          // Reset the form, drop any break rows, and collapse the dropdown.
+          formRef.current?.reset();
+          setBreakRows([]);
+          detailsRef.current?.removeAttribute("open");
+        }}
         className="absolute right-0 z-10 mt-1 grid w-[320px] gap-2 rounded-[var(--r-sm)] border border-border bg-card p-3 shadow-lg"
       >
         <label className="flex flex-col gap-1 text-xs text-ink-2">
