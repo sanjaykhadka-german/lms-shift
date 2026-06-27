@@ -88,6 +88,7 @@ const employeeSchema = z.object({
     .union([z.literal(""), z.string().uuid("Pick a valid location")])
     .optional(),
   employmentType: z.enum(["full_time", "part_time", "casual", "contractor"]),
+  payType: z.enum(["hourly", "salaried"]),
   hourlyRate: z
     .union([
       z.literal(""),
@@ -199,6 +200,7 @@ export async function createEmployeeAction(
     position: formData.get("position") ?? "",
     locationId: formData.get("locationId") ?? "",
     employmentType: formData.get("employmentType") ?? "full_time",
+    payType: formData.get("payType") ?? "hourly",
     hourlyRate: formData.get("hourlyRate") ?? "",
     notes: formData.get("notes") ?? "",
     preferredName: formData.get("preferredName") ?? "",
@@ -297,6 +299,7 @@ export async function createEmployeeAction(
           position,
           availability,
           employmentType: parsed.data.employmentType,
+          payType: parsed.data.payType,
           hourlyRate,
           notes,
           appUserId: linkedAppUserId,
@@ -439,6 +442,7 @@ export async function updateEmployeeAction(
     position: formData.get("position") ?? "",
     locationId: formData.get("locationId") ?? "",
     employmentType: formData.get("employmentType") ?? "full_time",
+    payType: formData.get("payType") ?? "hourly",
     hourlyRate: formData.get("hourlyRate") ?? "",
     notes: formData.get("notes") ?? "",
     preferredName: formData.get("preferredName") ?? "",
@@ -542,6 +546,7 @@ export async function updateEmployeeAction(
         position,
         availability,
         employmentType: parsed.data.employmentType,
+        payType: parsed.data.payType,
         hourlyRate,
         notes,
         preferredName: emptyToNull(parsed.data.preferredName),

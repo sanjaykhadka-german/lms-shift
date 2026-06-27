@@ -1,0 +1,2 @@
+ALTER TABLE "sc_employees" ADD COLUMN "pay_type" text DEFAULT 'hourly' NOT NULL;--> statement-breakpoint
+ALTER TABLE "sc_employees" ADD CONSTRAINT "sc_employees_pay_type_chk" CHECK ("sc_employees"."pay_type" in ('hourly','salaried'));

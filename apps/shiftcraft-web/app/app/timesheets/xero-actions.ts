@@ -151,6 +151,7 @@ export async function exportToXeroAction(
           id: scEmployees.id,
           appUserId: scEmployees.appUserId,
           fullName: scEmployees.fullName,
+          payType: scEmployees.payType,
           awardProfile: scEmployees.awardProfile,
         })
         .from(scEmployees)
@@ -230,6 +231,15 @@ export async function exportToXeroAction(
     if (!emp.appUserId) continue;
     const userEvents = byUser.get(emp.appUserId) ?? [];
     if (userEvents.length === 0) continue;
+
+    // Salaried staff (Slice 1): worked hours are recorded/rostered in
+    // ShiftCraft but NOT pushed to Xero — their fixed Salary line pays them,
+    // so pushing hourly timesheet hours would double-pay. Reported in the
+    // export summary so the skip is transparent, not silent.
+    if (emp.payType === "salaried") {
+      skipped.push(`${emp.fullName} (salaried — paid by fixed salary in Xero)`);
+      continue;
+    }
 
     // Compute per-day worked-ms from clock segments. Same logic the
     // /app/timesheets page uses; duplicating it here keeps the export

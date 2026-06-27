@@ -503,6 +503,12 @@ export const scEmployees = pgTable(
     // employees can be added without forcing a rate (the platform owner
     // sets per-tenant currency; Reports treats nulls as "rate not set").
     hourlyRate: numeric("hourly_rate", { precision: 10, scale: 2 }),
+    // Pay basis for the payroll export. 'hourly' (default) → worked hours are
+    // pushed to Xero as paid timesheet lines. 'salaried' → worked hours are
+    // still recorded/rostered in ShiftCraft but EXCLUDED from the Xero hours
+    // export, because Xero's fixed Salary line pays them; pushing hourly hours
+    // on top would double-pay. See app/app/timesheets/xero-actions.ts.
+    payType: text("pay_type").notNull().default("hourly"),
     isActive: boolean("is_active").notNull().default(true),
     // Grants this (non-manager) employee read access to the team timesheets
     // page, scoped like a Location Manager to their location(s). Managers and
@@ -596,6 +602,10 @@ export const scEmployees = pgTable(
     check(
       "sc_employees_employment_type_chk",
       sql`${t.employmentType} in ('full_time','part_time','casual','contractor')`,
+    ),
+    check(
+      "sc_employees_pay_type_chk",
+      sql`${t.payType} in ('hourly','salaried')`,
     ),
     check(
       "sc_employees_email_format_chk",

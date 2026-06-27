@@ -21,6 +21,7 @@ export interface EmployeeFormDefaults {
   locationId: string | null;
   position: string | null;
   employmentType: string;
+  payType: string;
   hourlyRate: string | null;
   notes: string | null;
   availability: Record<string, string> | null;
@@ -61,6 +62,11 @@ const EMPLOYMENT_TYPES: Array<{ value: string; label: string; hint: string }> = 
     label: "Contractor",
     hint: "Roster-only / external. No LMS suggestion — not added to training cohort.",
   },
+];
+
+const PAY_TYPES: Array<{ value: string; label: string }> = [
+  { value: "hourly", label: "Hourly (paid for hours worked)" },
+  { value: "salaried", label: "Salaried (fixed salary in Xero)" },
 ];
 
 const WEEKDAYS: Array<{ key: string; label: string }> = [
@@ -281,6 +287,33 @@ export function EmployeeForm({
           {fieldError(state, "employmentType") && (
             <p className="text-xs text-[color:var(--destructive)]">
               {fieldError(state, "employmentType")}
+            </p>
+          )}
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="payType">Pay type</Label>
+          <select
+            id="payType"
+            name="payType"
+            defaultValue={v?.payType ?? "hourly"}
+            required
+            className="flex h-9 w-full rounded-md border border-[color:var(--input)] bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+          >
+            {PAY_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+          {fieldError(state, "payType") ? (
+            <p className="text-xs text-[color:var(--destructive)]">
+              {fieldError(state, "payType")}
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Salaried staff are rostered and timesheeted as normal but kept
+              out of the Xero hours export — Xero's salary line pays them.
             </p>
           )}
         </div>

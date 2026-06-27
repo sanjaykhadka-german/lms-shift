@@ -53,6 +53,7 @@ export default async function NewEmployeePage({
           locationId: null,
           position: null,
           employmentType: "full_time",
+          payType: "hourly",
           hourlyRate: null,
           notes: null,
           availability: null,
