@@ -9,8 +9,10 @@ import { z } from "zod";
 import {
   forTenant,
   scEmployees,
+  scLeaveTypes,
   scXeroEarningsMapping,
   scXeroEmployeeLinks,
+  scXeroLeaveMapping,
   type ScPayrollCategory,
 } from "@tracey/db";
 import { currentMembership } from "~/lib/auth/current";
@@ -22,6 +24,7 @@ import {
   isXeroConfigured,
   listAvailableOrgs,
   listEarningsRates,
+  listLeaveTypes,
   listXeroEmployees,
   setActiveOrg,
 } from "~/lib/payroll/xero";
@@ -380,6 +383,156 @@ export async function autoMapEarningsAction(): Promise<void> {
   });
   revalidatePath("/app/admin/payroll");
   redirect(`/app/admin/payroll?automapped=${mapped}&ambiguous=${ambiguous}`);
+}
+
+// ─── Leave-type mapping (Slice 2) ───────────────────────────────────
+
+const leaveMappingSchema = z.object({
+  scLeaveTypeId: z.string().uuid(),
+  xeroLeaveTypeId: z.string().max(200),
+  xeroLeaveTypeName: z.string().max(200).optional().or(z.literal("")),
+});
+
+export async function saveLeaveMappingAction(formData: FormData): Promise<void> {
+  const parsed = leaveMappingSchema.safeParse({
+    scLeaveTypeId: formData.get("scLeaveTypeId"),
+    xeroLeaveTypeId: formData.get("xeroLeaveTypeId") ?? "",
+    xeroLeaveTypeName: formData.get("xeroLeaveTypeName") ?? "",
+  });
+  if (!parsed.success) return;
+  const membership = await requireOwner();
+  const tenantId = membership.tenant.id;
+
+  // Empty xeroLeaveTypeId clears the mapping (the form's "—" option).
+  if (!parsed.data.xeroLeaveTypeId) {
+    await forTenant(tenantId).run((tx) =>
+      tx
+        .delete(scXeroLeaveMapping)
+        .where(
+          and(
+            eq(scXeroLeaveMapping.traceyTenantId, tenantId),
+            eq(scXeroLeaveMapping.scLeaveTypeId, parsed.data.scLeaveTypeId),
+          ),
+        ),
+    );
+    revalidatePath("/app/admin/payroll");
+    return;
+  }
+
+  const name = parsed.data.xeroLeaveTypeName?.length
+    ? parsed.data.xeroLeaveTypeName
+    : null;
+
+  await forTenant(tenantId).run((tx) =>
+    tx
+      .insert(scXeroLeaveMapping)
+      .values({
+        traceyTenantId: tenantId,
+        scLeaveTypeId: parsed.data.scLeaveTypeId,
+        xeroLeaveTypeId: parsed.data.xeroLeaveTypeId,
+        xeroLeaveTypeName: name,
+      })
+      .onConflictDoUpdate({
+        target: [
+          scXeroLeaveMapping.traceyTenantId,
+          scXeroLeaveMapping.scLeaveTypeId,
+        ],
+        set: {
+          xeroLeaveTypeId: parsed.data.xeroLeaveTypeId,
+          xeroLeaveTypeName: name,
+          updatedAt: new Date(),
+        },
+      }),
+  );
+
+  await logAuditEvent({
+    action: "shiftcraft.xero.leave_mapping_saved",
+    targetKind: "sc_xero_leave_mapping",
+    details: {
+      scLeaveTypeId: parsed.data.scLeaveTypeId,
+      xeroLeaveTypeId: parsed.data.xeroLeaveTypeId,
+    },
+  });
+  revalidatePath("/app/admin/payroll");
+}
+
+// Two leave types "fit" when their normalised names are equal, or one contains
+// the other (e.g. ShiftCraft "Annual" ↔ Xero "Annual Leave"). Maps only when
+// exactly one Xero type fits — ambiguous matches are left for the human.
+export async function autoMapLeaveAction(): Promise<void> {
+  const membership = await requireOwner();
+  const tenantId = membership.tenant.id;
+
+  const xeroTypes = await listLeaveTypes(tenantId);
+  const [leaveTypes, existing] = await Promise.all([
+    forTenant(tenantId).run((tx) =>
+      tx
+        .select({ id: scLeaveTypes.id, name: scLeaveTypes.name })
+        .from(scLeaveTypes)
+        .where(
+          and(
+            eq(scLeaveTypes.traceyTenantId, tenantId),
+            eq(scLeaveTypes.isArchived, false),
+          ),
+        ),
+    ),
+    forTenant(tenantId).run((tx) =>
+      tx
+        .select({ scLeaveTypeId: scXeroLeaveMapping.scLeaveTypeId })
+        .from(scXeroLeaveMapping)
+        .where(eq(scXeroLeaveMapping.traceyTenantId, tenantId)),
+    ),
+  ]);
+  const alreadyMapped = new Set(existing.map((e) => e.scLeaveTypeId));
+
+  let mapped = 0;
+  let ambiguous = 0;
+  for (const lt of leaveTypes) {
+    if (alreadyMapped.has(lt.id)) continue;
+    const n = norm(lt.name);
+    const fits = xeroTypes.filter((x) => {
+      const xn = norm(x.name);
+      return xn === n || xn.includes(n) || n.includes(xn);
+    });
+    if (fits.length === 0) continue;
+    if (fits.length > 1) {
+      ambiguous += 1;
+      continue;
+    }
+    const x = fits[0]!;
+    await forTenant(tenantId).run((tx) =>
+      tx
+        .insert(scXeroLeaveMapping)
+        .values({
+          traceyTenantId: tenantId,
+          scLeaveTypeId: lt.id,
+          xeroLeaveTypeId: x.id,
+          xeroLeaveTypeName: x.name,
+        })
+        .onConflictDoUpdate({
+          target: [
+            scXeroLeaveMapping.traceyTenantId,
+            scXeroLeaveMapping.scLeaveTypeId,
+          ],
+          set: {
+            xeroLeaveTypeId: x.id,
+            xeroLeaveTypeName: x.name,
+            updatedAt: new Date(),
+          },
+        }),
+    );
+    mapped += 1;
+  }
+
+  await logAuditEvent({
+    action: "shiftcraft.xero.leave_auto_mapped",
+    targetKind: "sc_xero_leave_mapping",
+    details: { mapped, ambiguous },
+  });
+  revalidatePath("/app/admin/payroll");
+  redirect(
+    `/app/admin/payroll?leavemapped=${mapped}&leaveambiguous=${ambiguous}`,
+  );
 }
 
 export async function autoLinkEmployeesAction(): Promise<void> {

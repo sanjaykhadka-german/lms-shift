@@ -364,6 +364,26 @@ export async function listEarningsRates(
     }));
 }
 
+export interface XeroLeaveTypeSummary {
+  id: string;
+  name: string;
+}
+
+// Lists the org's Payroll-AU leave types (Annual Leave, Personal/Carer's Leave,
+// …) from getPayItems. Used to populate the leave-type mapping dropdown and to
+// resolve a Xero leaveTypeID when pushing approved time-off (Slice 2).
+export async function listLeaveTypes(
+  tenantId: string,
+): Promise<XeroLeaveTypeSummary[]> {
+  const ctx = await getClientForTenant(tenantId);
+  if (!ctx) return [];
+  const response = await ctx.client.payrollAUApi.getPayItems(ctx.xeroTenantId);
+  const types = response.body.payItems?.leaveTypes ?? [];
+  return types
+    .filter((t) => t.leaveTypeID && t.name)
+    .map((t) => ({ id: String(t.leaveTypeID), name: String(t.name) }));
+}
+
 export interface XeroEmployeeSummary {
   id: string;
   firstName: string;
@@ -546,6 +566,70 @@ export async function pushTimesheets(
     return {
       employeeId: t.xeroEmployeeId,
       timesheetId: made?.timesheetID ? String(made.timesheetID) : null,
+      error:
+        made?.validationErrors && made.validationErrors.length > 0
+          ? made.validationErrors.map((e) => e.message).join("; ")
+          : undefined,
+    };
+  });
+}
+
+// ─── Leave-application push (Slice 2) ───────────────────────────────
+//
+// Pushes approved ShiftCraft time-off to Xero as Payroll-AU Leave Applications.
+// leavePeriods are intentionally OMITTED — Xero auto-calculates the units per
+// pay period from the employee's calendar + ordinary earnings. (If a Xero org
+// rejects that, the fallback is to compute and supply leavePeriods.)
+//
+// Returns one result per input (same order) carrying the created Xero
+// leaveApplicationID or a validation error, so the caller can persist the id
+// onto the originating sc_time_off_requests row for idempotency.
+
+export interface XeroLeaveApplicationInput {
+  /** The originating sc_time_off_requests id — echoed back for persistence. */
+  requestId: string;
+  xeroEmployeeId: string;
+  xeroLeaveTypeId: string;
+  title: string;
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+}
+
+export async function pushLeaveApplications(
+  tenantId: string,
+  applications: XeroLeaveApplicationInput[],
+  idempotencyKey?: string,
+): Promise<
+  Array<{ requestId: string; leaveApplicationId: string | null; error?: string }>
+> {
+  const ctx = await getClientForTenant(tenantId);
+  if (!ctx) throw new Error("Xero is not connected for this tenant.");
+  if (applications.length === 0) return [];
+
+  const payload = applications.map((a) => ({
+    employeeID: a.xeroEmployeeId,
+    leaveTypeID: a.xeroLeaveTypeId,
+    title: a.title,
+    startDate: a.startDate,
+    endDate: a.endDate,
+  })) as unknown as Parameters<
+    typeof ctx.client.payrollAUApi.createLeaveApplication
+  >[1];
+
+  const response = await ctx.client.payrollAUApi.createLeaveApplication(
+    ctx.xeroTenantId,
+    payload,
+    idempotencyKey,
+  );
+
+  const created = response.body.leaveApplications ?? [];
+  return applications.map((a, i) => {
+    const made = created[i];
+    return {
+      requestId: a.requestId,
+      leaveApplicationId: made?.leaveApplicationID
+        ? String(made.leaveApplicationID)
+        : null,
       error:
         made?.validationErrors && made.validationErrors.length > 0
           ? made.validationErrors.map((e) => e.message).join("; ")

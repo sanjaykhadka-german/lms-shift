@@ -337,6 +337,10 @@ export const scTimeOffRequests = pgTable(
       onDelete: "set null",
     }),
     reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    // Xero Leave Application id once this approved request has been pushed to
+    // Xero (Slice 2). Null = not yet pushed; the push action skips rows that
+    // already carry an id so re-runs never duplicate the leave in Xero.
+    xeroLeaveApplicationId: text("xero_leave_application_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -1768,6 +1772,31 @@ export const scXeroEarningsMapping = pgTable(
     check(
       "sc_xero_earnings_mapping_category_chk",
       sql`${t.category} in ('ordinary','overtime','penalty_sat','penalty_sun','penalty_ph','penalty_sat_ot','penalty_sun_ot','penalty_ph_ot','penalty_night','allowance')`,
+    ),
+  ],
+);
+
+// Maps a ShiftCraft leave type (sc_leave_types) to a Xero Payroll-AU leave
+// type, so approved time-off can be pushed as Xero Leave Applications (Slice 2).
+// Mirrors sc_xero_earnings_mapping. The FK to sc_leave_types is re-attached in
+// the per-tenant migration (pointing at the tenant copy), so it's a plain uuid
+// here. xero_leave_type_name is denormalised for the mapping UI.
+export const scXeroLeaveMapping = pgTable(
+  "sc_xero_leave_mapping",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    traceyTenantId: text("tracey_tenant_id").notNull(),
+    scLeaveTypeId: uuid("sc_leave_type_id").notNull(),
+    xeroLeaveTypeId: text("xero_leave_type_id").notNull(),
+    xeroLeaveTypeName: text("xero_leave_type_name"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("sc_xero_leave_mapping_tenant_lt_uq").on(
+      t.traceyTenantId,
+      t.scLeaveTypeId,
     ),
   ],
 );

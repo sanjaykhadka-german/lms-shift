@@ -7,6 +7,7 @@ import { Label } from "~/components/ui/label";
 import {
   approveWeekAndExportAction,
   exportToXeroAction,
+  pushApprovedLeaveAction,
   readbackPayRunAction,
   type FormState,
 } from "~/app/app/timesheets/xero-actions";
@@ -81,6 +82,57 @@ export function ExportToXeroForm() {
         <p className="text-xs text-[color:var(--destructive)]">
           {comboState.message}
         </p>
+      )}
+    </form>
+  );
+}
+
+export function PushLeaveForm() {
+  const [state, formAction, pending] = useActionState(
+    pushApprovedLeaveAction,
+    initial,
+  );
+  // Default to the last 4 weeks → today.
+  const today = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - 28);
+  return (
+    <form action={formAction} className="space-y-3">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="rangeStart">From</Label>
+          <Input
+            id="rangeStart"
+            name="rangeStart"
+            type="date"
+            defaultValue={fmtIsoDate(start)}
+            required
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="rangeEnd">To</Label>
+          <Input
+            id="rangeEnd"
+            name="rangeEnd"
+            type="date"
+            defaultValue={fmtIsoDate(today)}
+            required
+          />
+        </div>
+      </div>
+      <Button type="submit" disabled={pending}>
+        {pending ? "Pushing…" : "Push approved leave to Xero"}
+      </Button>
+      <p className="text-xs text-muted-foreground">
+        Sends approved time-off in this range to Xero as Leave Applications.
+        Already-pushed requests are skipped, so it's safe to re-run. Xero
+        recalculates the remaining balance.
+      </p>
+      {state.status === "ok" && (
+        <p className="text-xs text-[var(--live)]">{state.message}</p>
+      )}
+      {state.status === "error" && (
+        <p className="text-xs text-[color:var(--destructive)]">{state.message}</p>
       )}
     </form>
   );

@@ -1,10 +1,12 @@
 import { redirect } from "next/navigation";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import {
   forTenant,
   scEmployees,
+  scLeaveTypes,
   scXeroEarningsMapping,
   scXeroEmployeeLinks,
+  scXeroLeaveMapping,
 } from "@tracey/db";
 import { currentMembership } from "~/lib/auth/current";
 import { isAdmin as isOwnerLevel } from "~/lib/roles";
@@ -13,6 +15,7 @@ import {
   isXeroConfigured,
   listAvailableOrgs,
   listEarningsRates,
+  listLeaveTypes,
   listPayRuns,
   listXeroEmployees,
   loadConnection,
@@ -24,13 +27,15 @@ import {
 import {
   autoLinkEmployeesAction,
   autoMapEarningsAction,
+  autoMapLeaveAction,
   disconnectAction,
   linkEmployeeAction,
+  saveLeaveMappingAction,
   saveMappingAction,
   startConnectAction,
   switchXeroOrgAction,
 } from "./actions";
-import { ExportToXeroForm, ReadbackForm } from "./_export-form";
+import { ExportToXeroForm, PushLeaveForm, ReadbackForm } from "./_export-form";
 import { PayRunPicker } from "./_payrun-picker";
 import { InfoPopover } from "~/components/InfoPopover";
 
@@ -47,6 +52,8 @@ export default async function PayrollAdminPage({
     ambiguous?: string;
     autolinked?: string;
     nomatch?: string;
+    leavemapped?: string;
+    leaveambiguous?: string;
   }>;
 }) {
   const membership = await currentMembership();
@@ -60,6 +67,8 @@ export default async function PayrollAdminPage({
     ambiguous,
     autolinked,
     nomatch,
+    leavemapped,
+    leaveambiguous,
   } = await searchParams;
 
   if (!isXeroConfigured()) {
@@ -112,18 +121,21 @@ export default async function PayrollAdminPage({
   // refresh. If the token expired or refresh fails, fall back to an
   // empty list and surface the error to the operator.
   let earningsRates: Awaited<ReturnType<typeof listEarningsRates>> = [];
+  let leaveTypesXero: Awaited<ReturnType<typeof listLeaveTypes>> = [];
   let xeroEmployees: Awaited<ReturnType<typeof listXeroEmployees>> = [];
   let availableOrgs: Awaited<ReturnType<typeof listAvailableOrgs>> = [];
   let payRuns: Awaited<ReturnType<typeof listPayRuns>> = [];
   let listError: string | null = null;
   if (connection) {
     try {
-      [earningsRates, xeroEmployees, availableOrgs, payRuns] = await Promise.all([
-        listEarningsRates(tenantId),
-        listXeroEmployees(tenantId),
-        listAvailableOrgs(tenantId),
-        listPayRuns(tenantId),
-      ]);
+      [earningsRates, leaveTypesXero, xeroEmployees, availableOrgs, payRuns] =
+        await Promise.all([
+          listEarningsRates(tenantId),
+          listLeaveTypes(tenantId),
+          listXeroEmployees(tenantId),
+          listAvailableOrgs(tenantId),
+          listPayRuns(tenantId),
+        ]);
     } catch (err) {
       // Surface the real Xero error — the xero-node SDK throws non-Error
       // objects (HTTP error shapes), so the old `instanceof Error` check fell
@@ -187,8 +199,32 @@ export default async function PayrollAdminPage({
     ),
   ]);
 
+  const [leaveTypes, leaveMappings] = await Promise.all([
+    forTenant(tenantId).run((tx) =>
+      tx
+        .select({ id: scLeaveTypes.id, name: scLeaveTypes.name })
+        .from(scLeaveTypes)
+        .where(
+          and(
+            eq(scLeaveTypes.traceyTenantId, tenantId),
+            eq(scLeaveTypes.isArchived, false),
+          ),
+        )
+        .orderBy(asc(scLeaveTypes.sortOrder), asc(scLeaveTypes.name)),
+    ),
+    forTenant(tenantId).run((tx) =>
+      tx
+        .select()
+        .from(scXeroLeaveMapping)
+        .where(eq(scXeroLeaveMapping.traceyTenantId, tenantId)),
+    ),
+  ]);
+
   const mappingByCategory = new Map(mappings.map((m) => [m.category, m]));
   const linkByEmployeeId = new Map(links.map((l) => [l.scEmployeeId, l]));
+  const leaveMapByScType = new Map(
+    leaveMappings.map((m) => [m.scLeaveTypeId, m]),
+  );
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-6 py-10">
@@ -410,6 +446,91 @@ export default async function PayrollAdminPage({
               );
             })}
           </ul>
+        </section>
+      )}
+
+      {connection && (
+        <section className="rounded-lg border border-border bg-card shadow-sm">
+          <div className="border-b border-border px-5 py-3">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <h2 className="text-sm font-semibold">Leave type mapping</h2>
+              {leaveTypesXero.length > 0 && leaveTypes.length > 0 && (
+                <form action={autoMapLeaveAction}>
+                  <Button type="submit" variant="outline" size="sm">
+                    Auto-map by name
+                  </Button>
+                </form>
+              )}
+            </div>
+            {leavemapped !== undefined && (
+              <p className="mt-2 rounded-md border border-[color-mix(in_srgb,var(--live)_45%,transparent)] bg-[color-mix(in_srgb,var(--live)_10%,transparent)] px-3 py-1.5 text-xs font-medium text-ink">
+                Auto-mapped {leavemapped} leave type
+                {leavemapped === "1" ? "" : "s"} by name.
+                {leaveambiguous && leaveambiguous !== "0"
+                  ? ` ${leaveambiguous} had more than one possible match — set those manually below.`
+                  : ""}
+              </p>
+            )}
+            <p className="mt-1 text-xs text-muted-foreground">
+              Map each ShiftCraft leave type to the Xero leave type it should be
+              recorded against. Used by <strong>Push approved leave</strong>{" "}
+              below — unmapped leave types are skipped.
+            </p>
+          </div>
+          {leaveTypes.length === 0 ? (
+            <p className="px-5 py-4 text-xs text-muted-foreground">
+              No leave types defined yet. Add them under Time off settings first.
+            </p>
+          ) : (
+            <ul className="divide-y divide-border">
+              {leaveTypes.map((lt) => {
+                const current = leaveMapByScType.get(lt.id);
+                return (
+                  <li
+                    key={lt.id}
+                    className="flex flex-wrap items-center justify-between gap-3 px-5 py-3"
+                  >
+                    <div className="text-sm font-medium">{lt.name}</div>
+                    <form
+                      action={saveLeaveMappingAction}
+                      className="flex items-center gap-2"
+                    >
+                      <input type="hidden" name="scLeaveTypeId" value={lt.id} />
+                      <select
+                        name="xeroLeaveTypeId"
+                        defaultValue={current?.xeroLeaveTypeId ?? ""}
+                        className="flex h-8 rounded-md border border-[color:var(--input)] bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+                      >
+                        <option value="">— Not mapped —</option>
+                        {leaveTypesXero.map((x) => (
+                          <option key={x.id} value={x.id}>
+                            {x.name}
+                          </option>
+                        ))}
+                      </select>
+                      <input type="hidden" name="xeroLeaveTypeName" value="" />
+                      <Button type="submit" size="sm" variant="outline">
+                        Save
+                      </Button>
+                    </form>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {connection && (
+        <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
+          <h2 className="text-sm font-semibold">Push approved leave to Xero</h2>
+          <p className="mt-1 mb-4 text-xs text-muted-foreground">
+            Sends approved time-off in a date range to Xero as Leave
+            Applications (idempotent — re-running skips already-pushed leave).
+            Xero recalculates the remaining balance, which shows on the
+            Team-leave overview.
+          </p>
+          <PushLeaveForm />
         </section>
       )}
 

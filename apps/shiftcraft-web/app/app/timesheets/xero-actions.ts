@@ -1,14 +1,17 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq, gte, isNotNull, isNull, lte } from "drizzle-orm";
 import { z } from "zod";
 import {
   forTenant,
   scEmployees,
+  scLeaveTypes,
+  scTimeOffRequests,
   scTimesheetApprovals,
   scXeroEarningsMapping,
   scXeroEmployeeLinks,
+  scXeroLeaveMapping,
   scXeroPayRuns,
   type ScPayrollCategory,
 } from "@tracey/db";
@@ -40,7 +43,9 @@ import {
   listPayCalendars,
   listXeroEmployees,
   loadConnection,
+  pushLeaveApplications,
   pushTimesheets,
+  type XeroLeaveApplicationInput,
   type XeroTimesheetInput,
 } from "~/lib/payroll/xero";
 import { deriveXeroIdempotencyKey } from "~/lib/payroll/idempotency";
@@ -534,6 +539,224 @@ export async function approveWeekAndExportAction(
 //
 // One row per week, so the admin needs to be on the right week; we
 // reject if the week_start doesn't match a row.
+
+// ─── Push approved leave to Xero (Slice 2) ─────────────────────────
+//
+// Sends approved ShiftCraft time-off in a date range to Xero as Payroll-AU
+// Leave Applications. Mirrors the timesheet export:
+//   1. Validate range + connection + leave-type mappings.
+//   2. Find approved time-off overlapping the range that hasn't been pushed
+//      (xero_leave_application_id IS NULL), for employees linked to Xero with
+//      a mapped leave type. Skip the rest with a reason.
+//   3. Create one Xero Leave Application per request (leavePeriods omitted →
+//      Xero auto-calculates units) and persist the returned id back onto the
+//      request so re-runs never duplicate.
+// Remaining-leave then updates in Xero and surfaces via the existing balance
+// read-back (fetchAnnualLeaveBalances / Team-leave overview).
+
+const leavePushSchema = z.object({
+  rangeStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  rangeEnd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
+export async function pushApprovedLeaveAction(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  if (!isXeroConfigured()) {
+    return { status: "error", message: "Xero is not configured." };
+  }
+  const parsed = leavePushSchema.safeParse({
+    rangeStart: formData.get("rangeStart"),
+    rangeEnd: formData.get("rangeEnd"),
+  });
+  if (!parsed.success) {
+    return { status: "error", message: "Pick a valid date range." };
+  }
+  if (parsed.data.rangeEnd < parsed.data.rangeStart) {
+    return { status: "error", message: "End date must be on or after start." };
+  }
+  const membership = await requireManager();
+  const user = await requireUser();
+  const tenantId = membership.tenant.id;
+
+  const connection = await loadConnection(tenantId);
+  if (!connection) {
+    return {
+      status: "error",
+      message: "Connect Xero first via /app/admin/payroll.",
+    };
+  }
+
+  const [leaveMapRows, linkRows, employeeRows, requests] = await Promise.all([
+    forTenant(tenantId).run((tx) =>
+      tx
+        .select()
+        .from(scXeroLeaveMapping)
+        .where(eq(scXeroLeaveMapping.traceyTenantId, tenantId)),
+    ),
+    forTenant(tenantId).run((tx) =>
+      tx
+        .select()
+        .from(scXeroEmployeeLinks)
+        .where(eq(scXeroEmployeeLinks.traceyTenantId, tenantId)),
+    ),
+    forTenant(tenantId).run((tx) =>
+      tx
+        .select({
+          id: scEmployees.id,
+          appUserId: scEmployees.appUserId,
+          fullName: scEmployees.fullName,
+        })
+        .from(scEmployees)
+        .where(
+          and(
+            eq(scEmployees.traceyTenantId, tenantId),
+            isNotNull(scEmployees.appUserId),
+          ),
+        ),
+    ),
+    // Approved, not-yet-pushed time-off overlapping the range.
+    forTenant(tenantId).run((tx) =>
+      tx
+        .select({
+          id: scTimeOffRequests.id,
+          userId: scTimeOffRequests.userId,
+          leaveTypeId: scTimeOffRequests.leaveTypeId,
+          startDate: scTimeOffRequests.startDate,
+          endDate: scTimeOffRequests.endDate,
+          leaveTypeName: scLeaveTypes.name,
+        })
+        .from(scTimeOffRequests)
+        .leftJoin(
+          scLeaveTypes,
+          eq(scLeaveTypes.id, scTimeOffRequests.leaveTypeId),
+        )
+        .where(
+          and(
+            eq(scTimeOffRequests.traceyTenantId, tenantId),
+            eq(scTimeOffRequests.status, "approved"),
+            isNull(scTimeOffRequests.xeroLeaveApplicationId),
+            lte(scTimeOffRequests.startDate, parsed.data.rangeEnd),
+            gte(scTimeOffRequests.endDate, parsed.data.rangeStart),
+          ),
+        ),
+    ),
+  ]);
+
+  if (leaveMapRows.length === 0) {
+    return {
+      status: "error",
+      message:
+        "No leave types are mapped to Xero yet. Map them at /app/admin/payroll first.",
+    };
+  }
+  if (requests.length === 0) {
+    return {
+      status: "ok",
+      message: "No approved leave to push in that range.",
+    };
+  }
+
+  const xeroLeaveTypeByScType = new Map(
+    leaveMapRows.map((m) => [m.scLeaveTypeId, m.xeroLeaveTypeId]),
+  );
+  const linkByEmpId = new Map(linkRows.map((l) => [l.scEmployeeId, l]));
+  const xeroEmployeeByAppUser = new Map<string, string>();
+  const nameByAppUser = new Map<string, string>();
+  for (const emp of employeeRows) {
+    if (!emp.appUserId) continue;
+    nameByAppUser.set(emp.appUserId, emp.fullName);
+    const link = linkByEmpId.get(emp.id);
+    if (link) xeroEmployeeByAppUser.set(emp.appUserId, link.xeroEmployeeId);
+  }
+
+  const inputs: XeroLeaveApplicationInput[] = [];
+  const skipped: string[] = [];
+  for (const r of requests) {
+    const who = nameByAppUser.get(r.userId) ?? "Unknown employee";
+    const xeroEmpId = xeroEmployeeByAppUser.get(r.userId);
+    if (!xeroEmpId) {
+      skipped.push(`${who} (no Xero link)`);
+      continue;
+    }
+    const xeroLeaveTypeId = r.leaveTypeId
+      ? xeroLeaveTypeByScType.get(r.leaveTypeId)
+      : undefined;
+    if (!xeroLeaveTypeId) {
+      skipped.push(`${who} (${r.leaveTypeName ?? "leave"} not mapped)`);
+      continue;
+    }
+    inputs.push({
+      requestId: r.id,
+      xeroEmployeeId: xeroEmpId,
+      xeroLeaveTypeId,
+      title: `${r.leaveTypeName ?? "Leave"} (ShiftCraft)`,
+      startDate: r.startDate,
+      endDate: r.endDate,
+    });
+  }
+
+  if (inputs.length === 0) {
+    return {
+      status: "error",
+      message: `Nothing pushed. ${skipped.length} skipped: ${skipped.join("; ")}`,
+    };
+  }
+
+  let results: Awaited<ReturnType<typeof pushLeaveApplications>>;
+  try {
+    results = await pushLeaveApplications(tenantId, inputs);
+  } catch (err) {
+    return {
+      status: "error",
+      message: `Xero rejected the leave push: ${err instanceof Error ? err.message : "unknown error"}.`,
+    };
+  }
+
+  let pushed = 0;
+  const failed: string[] = [];
+  for (const res of results) {
+    if (res.leaveApplicationId) {
+      await forTenant(tenantId).run((tx) =>
+        tx
+          .update(scTimeOffRequests)
+          .set({ xeroLeaveApplicationId: res.leaveApplicationId })
+          .where(
+            and(
+              eq(scTimeOffRequests.id, res.requestId),
+              eq(scTimeOffRequests.traceyTenantId, tenantId),
+            ),
+          ),
+      );
+      pushed += 1;
+    } else {
+      failed.push(res.error ?? "unknown error");
+    }
+  }
+
+  await logAuditEvent({
+    action: "shiftcraft.xero.leave_pushed",
+    targetKind: "sc_time_off_requests",
+    details: {
+      rangeStart: parsed.data.rangeStart,
+      rangeEnd: parsed.data.rangeEnd,
+      pushed,
+      skipped: skipped.length,
+      failed: failed.length,
+      submittedByUserId: user.id,
+    },
+  });
+
+  revalidatePath("/app/admin/payroll");
+  const parts = [`Pushed ${pushed} leave application${pushed === 1 ? "" : "s"} to Xero.`];
+  if (skipped.length > 0) parts.push(`Skipped ${skipped.length}: ${skipped.join("; ")}`);
+  if (failed.length > 0) parts.push(`Failed ${failed.length}: ${failed.join("; ")}`);
+  return {
+    status: failed.length > 0 ? "error" : "ok",
+    message: parts.join(" "),
+  };
+}
 
 const readbackSchema = z.object({
   weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
