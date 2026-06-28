@@ -7,7 +7,10 @@ import {
   type ScXeroConnection,
 } from "@tracey/db";
 import { decryptPii, encryptPii } from "@tracey/db/pii";
-import { deriveXeroIdempotencyKey } from "./idempotency";
+import {
+  deriveXeroIdempotencyKey,
+  sortTimesheetsForKey,
+} from "./idempotency";
 import { partitionForReconcile } from "./reconcile";
 
 // ─── Xero adapter (AUDIT.md #5) ─────────────────────────────────────
@@ -686,9 +689,13 @@ export async function pushTimesheets(
   //    same body always yields the same key (Xero replays, never 400s on a
   //    "different request"), while a changed body yields a fresh key.
   if (toCreate.length > 0) {
-    const key = deriveXeroIdempotencyKey(tenantId, weekStart, toCreate);
+    // Send in the SAME sorted order the key is derived from, so the key and
+    // the request body stay in lockstep (a stable order also means re-clicks
+    // produce an identical request Xero can replay instead of rejecting).
+    const ordered = sortTimesheetsForKey(toCreate);
+    const key = deriveXeroIdempotencyKey(tenantId, weekStart, ordered);
     try {
-      const payload = toCreate.map(buildBody) as unknown as Parameters<
+      const payload = ordered.map(buildBody) as unknown as Parameters<
         typeof ctx.client.payrollAUApi.createTimesheet
       >[1];
       const response = await ctx.client.payrollAUApi.createTimesheet(
@@ -697,7 +704,7 @@ export async function pushTimesheets(
         key,
       );
       const created = response.body.timesheets ?? [];
-      toCreate.forEach((t, i) => {
+      ordered.forEach((t, i) => {
         const made = created[i];
         results.push({
           employeeId: t.xeroEmployeeId,
@@ -708,7 +715,7 @@ export async function pushTimesheets(
       });
     } catch (err) {
       const msg = xeroErrorMessage(err);
-      for (const t of toCreate) {
+      for (const t of ordered) {
         results.push({
           employeeId: t.xeroEmployeeId,
           timesheetId: null,

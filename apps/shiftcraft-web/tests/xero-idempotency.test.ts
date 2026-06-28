@@ -45,8 +45,26 @@ describe("deriveXeroIdempotencyKey", () => {
     expect(otherTenant).not.toBe(base);
   });
 
-  it("keeps the stable sc-{tenant8}-{week}-{hash} shape", () => {
+  it("keeps the stable sc2-{tenant8}-{week}-{hash} shape", () => {
     const key = deriveXeroIdempotencyKey(TENANT, WEEK, ts([8]));
-    expect(key).toMatch(/^sc-add6df90-2026-06-15-[0-9a-f]{12}$/);
+    expect(key).toMatch(/^sc2-add6df90-2026-06-15-[0-9a-f]{12}$/);
+  });
+
+  it("is independent of employee order (no flapping on unordered DB rows)", () => {
+    const a = {
+      xeroEmployeeId: "aaa",
+      startDate: WEEK,
+      endDate: "2026-06-21",
+      lines: [{ earningsRateId: "r", unitsByDay: [8, 0, 0, 0, 0, 0, 0] }],
+    };
+    const b = {
+      xeroEmployeeId: "bbb",
+      startDate: WEEK,
+      endDate: "2026-06-21",
+      lines: [{ earningsRateId: "r", unitsByDay: [0, 8, 0, 0, 0, 0, 0] }],
+    };
+    const forward = deriveXeroIdempotencyKey(TENANT, WEEK, [a, b]);
+    const reversed = deriveXeroIdempotencyKey(TENANT, WEEK, [b, a]);
+    expect(forward).toBe(reversed);
   });
 });
