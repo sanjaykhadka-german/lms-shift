@@ -414,11 +414,13 @@ const dayEntrySchema = z.object({
   reason: z.string().trim().min(1, "Add a note.").max(200),
 });
 
-export async function editDayEntryAction(formData: FormData): Promise<void> {
+export async function editDayEntryAction(
+  formData: FormData,
+): Promise<EntryResult> {
   const g = await gate();
   if (!g.ok) {
     console.warn("[editDayEntryAction] refused:", g.message);
-    return;
+    return { ok: false, error: g.message };
   }
   const parsed = dayEntrySchema.safeParse({
     appUserId: formData.get("appUserId"),
@@ -432,7 +434,7 @@ export async function editDayEntryAction(formData: FormData): Promise<void> {
       "[editDayEntryAction] invalid:",
       parsed.error.flatten().fieldErrors,
     );
-    return;
+    return { ok: false, error: "Fill in the start, finish and a note." };
   }
 
   const combine = (time: string): Date => new Date(`${parsed.data.date}T${time}`);
@@ -440,11 +442,11 @@ export async function editDayEntryAction(formData: FormData): Promise<void> {
   const outAt = combine(parsed.data.clockOut);
   if (Number.isNaN(inAt.getTime()) || Number.isNaN(outAt.getTime())) {
     console.warn("[editDayEntryAction] bad date/time");
-    return;
+    return { ok: false, error: "Enter a valid start and finish time." };
   }
   if (outAt.getTime() <= inAt.getTime()) {
     console.warn("[editDayEntryAction] finish must be after start");
-    return;
+    return { ok: false, error: "Finish time must be after the start time." };
   }
 
   // Same 0..N break parsing + validation as addTimesheetEntryAction.
@@ -458,19 +460,28 @@ export async function editDayEntryAction(formData: FormData): Promise<void> {
     if (!bs && !be) continue;
     if (!bs || !be) {
       console.warn("[editDayEntryAction] break row needs both start and end");
-      return;
+      return {
+        ok: false,
+        error: "Each break needs both a start and an end time.",
+      };
     }
     const bsAt = combine(bs);
     const beAt = combine(be);
-    if (
-      Number.isNaN(bsAt.getTime()) ||
-      Number.isNaN(beAt.getTime()) ||
-      bsAt.getTime() <= inAt.getTime() ||
-      beAt.getTime() <= bsAt.getTime() ||
-      beAt.getTime() >= outAt.getTime()
-    ) {
+    if (Number.isNaN(bsAt.getTime()) || Number.isNaN(beAt.getTime())) {
+      console.warn("[editDayEntryAction] bad break time");
+      return { ok: false, error: "Enter a valid break start and end time." };
+    }
+    if (beAt.getTime() <= bsAt.getTime()) {
+      console.warn("[editDayEntryAction] break end before start");
+      return { ok: false, error: "A break's end must be after its start." };
+    }
+    if (bsAt.getTime() <= inAt.getTime() || beAt.getTime() >= outAt.getTime()) {
       console.warn("[editDayEntryAction] break must sit inside the shift");
-      return;
+      return {
+        ok: false,
+        error:
+          "Breaks must fall inside the shift — after the start and before the finish.",
+      };
     }
     breaks.push({ bsAt, beAt });
   }
@@ -478,14 +489,14 @@ export async function editDayEntryAction(formData: FormData): Promise<void> {
   for (let i = 1; i < breaks.length; i++) {
     if (breaks[i]!.bsAt.getTime() < breaks[i - 1]!.beAt.getTime()) {
       console.warn("[editDayEntryAction] breaks overlap");
-      return;
+      return { ok: false, error: "Breaks can't overlap each other." };
     }
   }
 
   const lockErr = await assertWeekUnlocked(g.tenantId, parsed.data.appUserId, inAt);
   if (lockErr) {
     console.warn("[editDayEntryAction] locked:", lockErr);
-    return;
+    return { ok: false, error: lockErr };
   }
 
   const punches: Array<{ eventType: ScClockEventType; occurredAt: Date }> = [
@@ -550,6 +561,7 @@ export async function editDayEntryAction(formData: FormData): Promise<void> {
   });
 
   revalidatePath("/app/timesheets");
+  return { ok: true };
 }
 
 // Inline break edit (item 5): adjust a break's start AND end times in one go

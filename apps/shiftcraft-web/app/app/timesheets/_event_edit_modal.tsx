@@ -325,6 +325,7 @@ function DayEntryForm({
 }) {
   const isEditing = !!ctx.clockIn;
   const nextBreakId = useRef(1);
+  const [error, setError] = useState<string | null>(null);
   const [breakRows, setBreakRows] = useState<BreakRow[]>(
     (ctx.breaks ?? []).map((b) => ({
       id: nextBreakId.current++,
@@ -347,7 +348,13 @@ function DayEntryForm({
   return (
     <form
       action={async (formData) => {
-        await editDayEntryAction(formData);
+        const res = await editDayEntryAction(formData);
+        if (!res.ok) {
+          // Surface the reason and keep the modal open with the entered values
+          // (e.g. a break that runs past the finish) — was a silent no-op.
+          setError(res.error);
+          return;
+        }
         onClose();
       }}
       className="space-y-4"
@@ -450,6 +457,14 @@ function DayEntryForm({
         />
       </Field>
 
+      {error ? (
+        <p
+          role="alert"
+          className="rounded-md border border-[color-mix(in_srgb,var(--destructive)_40%,transparent)] bg-[color-mix(in_srgb,var(--destructive)_10%,transparent)] px-3 py-2 text-[11px] text-[color:var(--destructive)]"
+        >
+          {error}
+        </p>
+      ) : null}
       <div className="grid grid-cols-2 gap-2">
         <button
           type="button"
