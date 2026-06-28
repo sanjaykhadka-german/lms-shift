@@ -1594,7 +1594,7 @@ export default async function TimesheetsPage({
                             {d}
                           </div>
                           <div className="font-mono text-[10px] text-ink-3">
-                            {fmtIsoDate(addDays(weekStart, i))}
+                            {fmtDayHeader(addDays(weekStart, i))}
                           </div>
                         </th>
                       ))}
@@ -2037,6 +2037,15 @@ function StatCard({
       ) : null}
     </div>
   );
+}
+
+// Display-only DD-MM-YY for the weekday column headers. Uses the same local
+// date getters as fmtIsoDate so it never drifts by a day; do NOT swap this for
+// fmtIsoDate, which is the canonical ISO key used for URLs and lookups.
+function fmtDayHeader(d: Date): string {
+  return `${String(d.getDate()).padStart(2, "0")}-${String(
+    d.getMonth() + 1,
+  ).padStart(2, "0")}-${String(d.getFullYear() % 100).padStart(2, "0")}`;
 }
 
 function formatWeekLabel(start: Date, end: Date): string {
