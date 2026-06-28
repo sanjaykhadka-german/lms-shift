@@ -49,7 +49,6 @@ import {
   type XeroLeaveApplicationInput,
   type XeroTimesheetInput,
 } from "~/lib/payroll/xero";
-import { deriveXeroIdempotencyKey } from "~/lib/payroll/idempotency";
 
 export type FormState =
   | { status: "idle" }
@@ -338,24 +337,38 @@ export async function exportToXeroAction(
     };
   }
 
-  // Idempotency: derive the key from (tenant, week, payload) so re-clicking
-  // the button with unchanged data reuses the same key — Xero dedupes and we
-  // don't create duplicate timesheets / double-pay. Re-exporting after
-  // correcting hours changes the payload hash, yielding a fresh key. See
-  // lib/payroll/idempotency.ts (kept pure so it's unit-testable).
-  const idempotencyKey = deriveXeroIdempotencyKey(
-    tenantId,
-    weekStartIso,
-    timesheets,
-  );
-
+  // pushTimesheets reconciles against what already exists in Xero for the week
+  // (update-in-place, create only the missing) so a re-export is safe and
+  // repeatable. It throws only on a missing connection; per-employee failures
+  // come back in the result rows. The content-derived idempotency key now
+  // lives inside pushTimesheets purely as a double-submit race guard.
   let pushError: string | null = null;
   let pushed: Awaited<ReturnType<typeof pushTimesheets>> = [];
   try {
-    pushed = await pushTimesheets(tenantId, timesheets, idempotencyKey);
+    pushed = await pushTimesheets(tenantId, timesheets);
   } catch (err) {
     pushError = xeroErrorMessage(err);
   }
+
+  // Roll the per-item results up into created / updated / failed buckets.
+  const created = pushed.filter(
+    (r) => r.action === "created" && r.timesheetId && !r.error,
+  );
+  const updated = pushed.filter(
+    (r) => r.action === "updated" && r.timesheetId && !r.error,
+  );
+  const failed = pushed.filter((r) => r.error || !r.timesheetId);
+  const failReasons = [
+    ...new Set(failed.map((r) => r.error ?? "unknown error")),
+  ];
+
+  // "failed" only when nothing at all went through; a partial success still
+  // counts as submitted (and the failures are preserved in lastError).
+  const nothingSucceeded = created.length + updated.length === 0;
+  const status: "submitted" | "failed" =
+    pushError || (pushed.length > 0 && nothingSucceeded) ? "failed" : "submitted";
+  const lastError =
+    pushError ?? (failReasons.length > 0 ? failReasons.join("; ") : null);
 
   await forTenant(tenantId).run((tx) =>
     tx
@@ -363,58 +376,64 @@ export async function exportToXeroAction(
       .values({
         traceyTenantId: tenantId,
         weekStart: weekStartIso,
-        status: pushError ? "failed" : "submitted",
+        status,
         submittedByUserId: user.id,
-        lastError: pushError,
-        summary: {
-          timesheets: pushed,
-          skipped,
-          idempotencyKey,
-        },
+        lastError,
+        summary: { timesheets: pushed, skipped },
       })
       .onConflictDoUpdate({
         target: [scXeroPayRuns.traceyTenantId, scXeroPayRuns.weekStart],
         set: {
-          status: pushError ? "failed" : "submitted",
+          status,
           submittedByUserId: user.id,
           submittedAt: new Date(),
-          lastError: pushError,
-          summary: {
-            timesheets: pushed,
-            skipped,
-            idempotencyKey,
-          },
+          lastError,
+          summary: { timesheets: pushed, skipped },
           updatedAt: new Date(),
         },
       }),
   );
 
   await logAuditEvent({
-    action: pushError
-      ? "shiftcraft.xero.export_failed"
-      : "shiftcraft.xero.export_submitted",
+    action:
+      status === "failed"
+        ? "shiftcraft.xero.export_failed"
+        : "shiftcraft.xero.export_submitted",
     targetKind: "sc_xero_pay_run",
     details: {
       weekStart: weekStartIso,
       timesheetsAttempted: timesheets.length,
+      created: created.length,
+      updated: updated.length,
+      failed: failed.length,
       skipped: skipped.length,
-      error: pushError,
+      error: lastError,
     },
   });
 
   revalidatePath("/app/timesheets");
   revalidatePath("/app/admin/payroll");
 
+  // Connection-level failure (push never ran) — surface it as before.
   if (pushError) {
-    return {
-      status: "error",
-      message: `Xero rejected the export: ${pushError}`,
-    };
+    return { status: "error", message: `Xero rejected the export: ${pushError}` };
   }
-  const skippedNote = skipped.length > 0 ? ` Skipped: ${skipped.join(", ")}.` : "";
+
+  const okParts: string[] = [];
+  if (created.length) okParts.push(`created ${created.length}`);
+  if (updated.length) okParts.push(`updated ${updated.length}`);
+  const okNote =
+    okParts.length > 0
+      ? `Pushed to Xero (${okParts.join(", ")}).`
+      : "Nothing pushed to Xero.";
+  const failNote =
+    failed.length > 0 ? ` Failed ${failed.length}: ${failReasons.join("; ")}.` : "";
+  const skippedNote =
+    skipped.length > 0 ? ` Skipped: ${skipped.join(", ")}.` : "";
+
   return {
-    status: "ok",
-    message: `Pushed ${timesheets.length} timesheet${timesheets.length === 1 ? "" : "s"} to Xero.${skippedNote}`,
+    status: failed.length > 0 ? "error" : "ok",
+    message: `${okNote}${failNote}${skippedNote}`,
   };
 }
 

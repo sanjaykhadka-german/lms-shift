@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { XeroClient } from "xero-node";
 import {
   forTenant,
@@ -7,6 +7,8 @@ import {
   type ScXeroConnection,
 } from "@tracey/db";
 import { decryptPii, encryptPii } from "@tracey/db/pii";
+import { deriveXeroIdempotencyKey } from "./idempotency";
+import { partitionForReconcile } from "./reconcile";
 
 // ─── Xero adapter (AUDIT.md #5) ─────────────────────────────────────
 //
@@ -53,10 +55,12 @@ export function getXeroScopes(): readonly string[] {
   return SCOPES;
 }
 
-// Re-exported so existing callers can keep importing from "~/lib/payroll/xero".
+// Imported for use below (the reconcile push decodes per-item SDK errors) and
+// re-exported so existing callers can keep importing from "~/lib/payroll/xero".
 // The implementation lives in the SDK-free xero-errors module so it stays
 // unit-testable without pulling in server-only / the xero-node SDK.
-export { xeroErrorMessage } from "./xero-errors";
+import { xeroErrorMessage } from "./xero-errors";
+export { xeroErrorMessage };
 
 function requireConfigured(): { clientId: string; clientSecret: string; redirectUri: string } {
   if (!CLIENT_ID || !CLIENT_SECRET || !REDIRECT_URI) {
@@ -514,15 +518,81 @@ export async function fetchAnnualLeaveBalances(
   return out;
 }
 
-// ─── Timesheet push ─────────────────────────────────────────────────
+// ─── Read existing timesheets (for reconcile-before-push) ───────────
 //
-// Pushes one Xero Timesheet per (employee, week) at status APPROVED.
-// timesheetLines carry the per-category hours split into a 7-element
-// numberOfUnits array (Monday through Sunday) so the Xero admin sees
-// the day-of-week distribution.
+// Lists the org's timesheets whose period START falls in [startIso, endIso].
+// Payroll-AU has NO delete-timesheet endpoint, so the only way to avoid
+// duplicate / blocked re-exports is to find what already exists for the week
+// and UPDATE it in place rather than blindly creating again. Dates come back
+// in either ISO or .NET "/Date(…)/" form depending on the org, so we
+// normalise via isoDateOf.
+
+export interface XeroExistingTimesheet {
+  timesheetID: string;
+  employeeID: string;
+  startDate: string | null;
+  endDate: string | null;
+  status: string | null;
+}
+
+function dateTimeClause(iso: string): string {
+  const [y, m, d] = iso.split("-").map((n) => Number(n));
+  return `DateTime(${y}, ${m}, ${d})`;
+}
+
+export async function listTimesheetsForPeriod(
+  tenantId: string,
+  startIso: string,
+  endIso: string,
+): Promise<XeroExistingTimesheet[]> {
+  const ctx = await getClientForTenant(tenantId);
+  if (!ctx) return [];
+  // Bound the query to this week's window so the result set stays tiny as
+  // timesheet history grows. Page through in case an org has many employees.
+  const where = `StartDate >= ${dateTimeClause(startIso)} && StartDate <= ${dateTimeClause(endIso)}`;
+  const out: XeroExistingTimesheet[] = [];
+  for (let page = 1; page <= 10; page++) {
+    const response = await ctx.client.payrollAUApi.getTimesheets(
+      ctx.xeroTenantId,
+      undefined,
+      where,
+      undefined,
+      page,
+    );
+    const rows = response.body.timesheets ?? [];
+    for (const r of rows) {
+      if (!r.timesheetID || !r.employeeID) continue;
+      out.push({
+        timesheetID: String(r.timesheetID),
+        employeeID: String(r.employeeID),
+        startDate: isoDateOf(r.startDate),
+        endDate: isoDateOf(r.endDate),
+        status: r.status != null ? String(r.status) : null,
+      });
+    }
+    if (rows.length < 100) break;
+  }
+  return out;
+}
+
+// ─── Timesheet push (reconcile-before-push) ─────────────────────────
 //
-// Returns the array of created Xero timesheet IDs so the caller can
-// persist them in sc_xero_pay_runs.summary for later read-back.
+// Pushes one Xero Timesheet per (employee, week) at status APPROVED. Each
+// timesheetLine carries the per-category hours split into a 7-element
+// numberOfUnits array (Monday through Sunday).
+//
+// Reconcile step: Payroll-AU has no delete endpoint and createTimesheet only
+// ever CREATES, so a second export of a week would either duplicate (changed
+// hours → fresh idempotency key) or be blocked ("Idempotency Key … used with
+// a different request"). Instead we first read what already exists for the
+// week and UPDATE those in place, only CREATING the genuinely-missing ones
+// (e.g. one that was deleted in Xero). That makes re-export safe and
+// repeatable, and is the natural duplicate guard — the idempotency key on the
+// create batch is now content-derived purely as a double-submit race guard.
+//
+// Per-item failures (e.g. a locked/posted pay period rejecting an update) are
+// captured in the result row rather than thrown, so one bad employee doesn't
+// sink the whole run. Only a missing connection throws.
 
 export interface XeroTimesheetLineInput {
   earningsRateId: string;
@@ -537,16 +607,35 @@ export interface XeroTimesheetInput {
   lines: XeroTimesheetLineInput[];
 }
 
+export interface XeroTimesheetPushResult {
+  employeeId: string;
+  timesheetId: string | null;
+  action: "created" | "updated";
+  error?: string;
+}
+
 export async function pushTimesheets(
   tenantId: string,
   timesheets: XeroTimesheetInput[],
-  idempotencyKey?: string,
-): Promise<Array<{ employeeId: string; timesheetId: string | null; error?: string }>> {
+): Promise<XeroTimesheetPushResult[]> {
   const ctx = await getClientForTenant(tenantId);
   if (!ctx) throw new Error("Xero is not connected for this tenant.");
   if (timesheets.length === 0) return [];
 
-  const payload = timesheets.map((t) => ({
+  // All rows in a single export share the same Mon..Sun window.
+  const weekStart = timesheets[0]!.startDate;
+  const weekEnd = timesheets[0]!.endDate;
+
+  // Reconcile against what already exists in Xero for this week: update those
+  // in place, create only the genuinely-missing (see partitionForReconcile).
+  const existing = await listTimesheetsForPeriod(tenantId, weekStart, weekEnd);
+  const { toUpdate, toCreate } = partitionForReconcile(
+    timesheets,
+    existing,
+    weekStart,
+  );
+
+  const buildBody = (t: XeroTimesheetInput) => ({
     employeeID: t.xeroEmployeeId,
     startDate: t.startDate,
     endDate: t.endDate,
@@ -555,28 +644,82 @@ export async function pushTimesheets(
       earningsRateID: l.earningsRateId,
       numberOfUnits: l.unitsByDay,
     })),
-  })) as unknown as Parameters<
-    typeof ctx.client.payrollAUApi.createTimesheet
-  >[1];
-
-  const response = await ctx.client.payrollAUApi.createTimesheet(
-    ctx.xeroTenantId,
-    payload,
-    idempotencyKey,
-  );
-
-  const created = response.body.timesheets ?? [];
-  return timesheets.map((t, i) => {
-    const made = created[i];
-    return {
-      employeeId: t.xeroEmployeeId,
-      timesheetId: made?.timesheetID ? String(made.timesheetID) : null,
-      error:
-        made?.validationErrors && made.validationErrors.length > 0
-          ? made.validationErrors.map((e) => e.message).join("; ")
-          : undefined,
-    };
   });
+  const validationMsg = (ts: { validationErrors?: Array<{ message?: string }> }) =>
+    ts.validationErrors && ts.validationErrors.length > 0
+      ? ts.validationErrors.map((e) => e.message).join("; ")
+      : undefined;
+
+  const results: XeroTimesheetPushResult[] = [];
+
+  // 1. Update in place every employee that already has a timesheet this week.
+  //    updateTimesheet is per-id, so one call each.
+  for (const { input: t, timesheetID } of toUpdate) {
+    try {
+      const payload = [buildBody(t)] as unknown as Parameters<
+        typeof ctx.client.payrollAUApi.updateTimesheet
+      >[2];
+      const response = await ctx.client.payrollAUApi.updateTimesheet(
+        ctx.xeroTenantId,
+        timesheetID,
+        payload,
+      );
+      const made = response.body.timesheets?.[0];
+      results.push({
+        employeeId: t.xeroEmployeeId,
+        timesheetId: made?.timesheetID ? String(made.timesheetID) : timesheetID,
+        action: "updated",
+        error: made ? validationMsg(made) : undefined,
+      });
+    } catch (err) {
+      results.push({
+        employeeId: t.xeroEmployeeId,
+        timesheetId: null,
+        action: "updated",
+        error: xeroErrorMessage(err),
+      });
+    }
+  }
+
+  // 2. Create the genuinely-missing ones in a single batch. The idempotency
+  //    key is derived from this to-create payload — content-derived, so the
+  //    same body always yields the same key (Xero replays, never 400s on a
+  //    "different request"), while a changed body yields a fresh key.
+  if (toCreate.length > 0) {
+    const key = deriveXeroIdempotencyKey(tenantId, weekStart, toCreate);
+    try {
+      const payload = toCreate.map(buildBody) as unknown as Parameters<
+        typeof ctx.client.payrollAUApi.createTimesheet
+      >[1];
+      const response = await ctx.client.payrollAUApi.createTimesheet(
+        ctx.xeroTenantId,
+        payload,
+        key,
+      );
+      const created = response.body.timesheets ?? [];
+      toCreate.forEach((t, i) => {
+        const made = created[i];
+        results.push({
+          employeeId: t.xeroEmployeeId,
+          timesheetId: made?.timesheetID ? String(made.timesheetID) : null,
+          action: "created",
+          error: made ? validationMsg(made) : undefined,
+        });
+      });
+    } catch (err) {
+      const msg = xeroErrorMessage(err);
+      for (const t of toCreate) {
+        results.push({
+          employeeId: t.xeroEmployeeId,
+          timesheetId: null,
+          action: "created",
+          error: msg,
+        });
+      }
+    }
+  }
+
+  return results;
 }
 
 // ─── Leave-application push (Slice 2) ───────────────────────────────
