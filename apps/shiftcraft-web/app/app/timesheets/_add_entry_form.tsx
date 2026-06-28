@@ -66,7 +66,7 @@ export function AddEntryForm({ employees, locations, defaultDate }: Props) {
           Date
           <input type="date" name="date" required defaultValue={defaultDate} className={fieldCls} />
         </label>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid gap-2">
           <label className="flex flex-col gap-1 text-xs text-ink-2">
             Start
             <TimeField12h name="clockIn" required />
@@ -94,23 +94,31 @@ export function AddEntryForm({ employees, locations, defaultDate }: Props) {
             </p>
           ) : (
             breakRows.map((id, idx) => (
-              <div key={id} className="flex items-end gap-2">
-                <label className="flex flex-1 flex-col gap-1 text-[11px] text-ink-2">
-                  {idx === 0 ? "Break start" : `Break ${idx + 1} start`}
+              <div
+                key={id}
+                className="grid gap-1.5 rounded-[var(--r-sm)] border border-border/70 p-2"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-medium text-ink-2">
+                    {idx === 0 ? "Break" : `Break ${idx + 1}`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeBreak(id)}
+                    aria-label="Remove break"
+                    className="px-1 text-xs text-muted-foreground hover:text-[color:var(--destructive)]"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <label className="flex flex-col gap-1 text-[11px] text-ink-2">
+                  Start
                   <TimeField12h name="breakStart" required />
                 </label>
-                <label className="flex flex-1 flex-col gap-1 text-[11px] text-ink-2">
+                <label className="flex flex-col gap-1 text-[11px] text-ink-2">
                   End
                   <TimeField12h name="breakEnd" required />
                 </label>
-                <button
-                  type="button"
-                  onClick={() => removeBreak(id)}
-                  aria-label="Remove break"
-                  className="mb-1 px-1 text-xs text-muted-foreground hover:text-[color:var(--destructive)]"
-                >
-                  ✕
-                </button>
               </div>
             ))
           )}
