@@ -45,6 +45,7 @@ import {
   loadConnection,
   pushLeaveApplications,
   pushTimesheets,
+  xeroErrorMessage,
   type XeroLeaveApplicationInput,
   type XeroTimesheetInput,
 } from "~/lib/payroll/xero";
@@ -125,7 +126,7 @@ export async function exportToXeroAction(
   } catch (err) {
     return {
       status: "error",
-      message: `Couldn't read Xero pay calendars: ${err instanceof Error ? err.message : "unknown error"}.`,
+      message: `Couldn't read Xero pay calendars: ${xeroErrorMessage(err)}.`,
     };
   }
   if (payCalendars.length === 0) {
@@ -203,7 +204,7 @@ export async function exportToXeroAction(
   } catch (err) {
     return {
       status: "error",
-      message: `Couldn't read Xero employees: ${err instanceof Error ? err.message : "unknown error"}.`,
+      message: `Couldn't read Xero employees: ${xeroErrorMessage(err)}.`,
     };
   }
   const calendarByXeroEmp = new Map<string, string | null>(
@@ -353,7 +354,7 @@ export async function exportToXeroAction(
   try {
     pushed = await pushTimesheets(tenantId, timesheets, idempotencyKey);
   } catch (err) {
-    pushError = err instanceof Error ? err.message : "Xero push failed";
+    pushError = xeroErrorMessage(err);
   }
 
   await forTenant(tenantId).run((tx) =>
@@ -710,7 +711,7 @@ export async function pushApprovedLeaveAction(
   } catch (err) {
     return {
       status: "error",
-      message: `Xero rejected the leave push: ${err instanceof Error ? err.message : "unknown error"}.`,
+      message: `Xero rejected the leave push: ${xeroErrorMessage(err)}.`,
     };
   }
 
@@ -786,7 +787,7 @@ export async function readbackPayRunAction(
   } catch (err) {
     return {
       status: "error",
-      message: `Xero read failed: ${err instanceof Error ? err.message : "unknown"}`,
+      message: `Xero read failed: ${xeroErrorMessage(err)}`,
     };
   }
   if (!summary) {

@@ -53,6 +53,11 @@ export function getXeroScopes(): readonly string[] {
   return SCOPES;
 }
 
+// Re-exported so existing callers can keep importing from "~/lib/payroll/xero".
+// The implementation lives in the SDK-free xero-errors module so it stays
+// unit-testable without pulling in server-only / the xero-node SDK.
+export { xeroErrorMessage } from "./xero-errors";
+
 function requireConfigured(): { clientId: string; clientSecret: string; redirectUri: string } {
   if (!CLIENT_ID || !CLIENT_SECRET || !REDIRECT_URI) {
     throw new Error(
