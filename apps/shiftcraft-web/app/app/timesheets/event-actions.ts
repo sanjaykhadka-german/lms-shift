@@ -798,12 +798,14 @@ export async function editClockEventAction(formData: FormData): Promise<void> {
   revalidatePath("/app/timesheets");
 }
 
-// Auto clock-out for forgotten punches. For every employee still clocked in
-// whose SCHEDULED shift started more than 24h ago, insert a closing `out`
-// event at that shift's scheduled end (the payroll-sane finish), source
-// 'admin_edit'. Only touches people who were actually scheduled — an open
-// punch with no matching accepted shift, or one whose shift started <24h ago,
-// is left alone. Locked (approved) weeks and invalid transitions are skipped.
+// Auto clock-out for forgotten punches. For every employee still clocked in,
+// insert a closing `out` event, source 'admin_edit'. Two cases:
+//   - SCHEDULED: if a matching accepted shift started >24h ago, close at that
+//     shift's scheduled end (the payroll-sane finish).
+//   - UNSCHEDULED: an open punch with no matching accepted shift is closed at
+//     clock-in + 24h once 24h have elapsed since the clock-in.
+// A punch whose relevant 24h window hasn't elapsed yet is left alone. Locked
+// (approved) weeks and invalid transitions are skipped.
 //
 // Two entry points: the manual "Close stale clock-ins" button
 // (closeStaleClockInsAction, manager-gated) and an automatic throttled sweep
@@ -900,19 +902,29 @@ async function sweepStaleClockIns(
           ),
         ),
     );
-    if (candidates.length === 0) continue; // not scheduled → leave alone
+    const shift =
+      candidates.length === 0
+        ? null
+        : candidates.reduce((best, c) =>
+            Math.abs(c.startsAt.getTime() - u.inAt.getTime()) <
+            Math.abs(best.startsAt.getTime() - u.inAt.getTime())
+              ? c
+              : best,
+          );
 
-    const shift = candidates.reduce((best, c) =>
-      Math.abs(c.startsAt.getTime() - u.inAt.getTime()) <
-      Math.abs(best.startsAt.getTime() - u.inAt.getTime())
-        ? c
-        : best,
-    );
-
-    // 3. Only auto-close once 24h have elapsed since the scheduled start.
-    if (now.getTime() - shift.startsAt.getTime() <= STALE_CUTOFF_MS) continue;
-
-    const outAt = shift.endsAt;
+    // 3. Decide the closing time:
+    //    - Scheduled: close at the shift's scheduled end, once 24h have elapsed
+    //      since the scheduled start.
+    //    - Unscheduled: close at clock-in + 24h, once 24h have elapsed since the
+    //      clock-in (mirrors the visitor sweep's signedInAt + 12h).
+    let outAt: Date;
+    if (shift === null) {
+      if (now.getTime() - u.inAt.getTime() <= STALE_CUTOFF_MS) continue;
+      outAt = new Date(u.inAt.getTime() + STALE_CUTOFF_MS);
+    } else {
+      if (now.getTime() - shift.startsAt.getTime() <= STALE_CUTOFF_MS) continue;
+      outAt = shift.endsAt;
+    }
     // The closing punch must land after the last existing event, else the
     // stream/transition would be invalid. (Edge: events after scheduled end.)
     if (outAt.getTime() <= u.lastEventAt.getTime()) {
@@ -941,7 +953,10 @@ async function sweepStaleClockIns(
           eventType: "out",
           occurredAt: outAt,
           source: "admin_edit",
-          notes: "Auto clock-out: still clocked in 24h+ after scheduled start.",
+          notes:
+            shift === null
+              ? "Auto clock-out: still clocked in 24h+ after clock-in."
+              : "Auto clock-out: still clocked in 24h+ after scheduled start.",
         })
         .returning({ id: scClockEvents.id });
       newEventId = inserted!.id;
@@ -954,7 +969,7 @@ async function sweepStaleClockIns(
       details: {
         appUserId: u.appUserId,
         clockInAt: u.inAt.toISOString(),
-        scheduledStart: shift.startsAt.toISOString(),
+        scheduledStart: shift?.startsAt.toISOString() ?? null,
         clockedOutAt: outAt.toISOString(),
       },
     });
