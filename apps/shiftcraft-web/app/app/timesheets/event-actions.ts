@@ -238,13 +238,18 @@ const fullEntrySchema = z.object({
   reason: z.string().trim().min(1, "Add a note.").max(200),
 });
 
+// Result contract so the form can surface a reason instead of silently
+// no-op'ing. Every rejection path returns { ok: false, error } with a
+// human-readable message; the happy path returns { ok: true }.
+export type EntryResult = { ok: true } | { ok: false; error: string };
+
 export async function addTimesheetEntryAction(
   formData: FormData,
-): Promise<void> {
+): Promise<EntryResult> {
   const g = await gate();
   if (!g.ok) {
     console.warn("[addTimesheetEntryAction] refused:", g.message);
-    return;
+    return { ok: false, error: g.message };
   }
   const parsed = fullEntrySchema.safeParse({
     appUserId: formData.get("appUserId"),
@@ -259,7 +264,10 @@ export async function addTimesheetEntryAction(
       "[addTimesheetEntryAction] invalid:",
       parsed.error.flatten().fieldErrors,
     );
-    return;
+    return {
+      ok: false,
+      error: "Choose an employee and fill in the date, start, finish and a note.",
+    };
   }
 
   const combine = (time: string): Date => new Date(`${parsed.data.date}T${time}`);
@@ -267,11 +275,11 @@ export async function addTimesheetEntryAction(
   const outAt = combine(parsed.data.clockOut);
   if (Number.isNaN(inAt.getTime()) || Number.isNaN(outAt.getTime())) {
     console.warn("[addTimesheetEntryAction] bad date/time");
-    return;
+    return { ok: false, error: "Enter a valid date, start and finish time." };
   }
   if (outAt.getTime() <= inAt.getTime()) {
     console.warn("[addTimesheetEntryAction] finish must be after start");
-    return;
+    return { ok: false, error: "Finish time must be after the start time." };
   }
 
   // Collect 0..N break segments from the parallel breakStart[]/breakEnd[]
@@ -287,19 +295,28 @@ export async function addTimesheetEntryAction(
     if (!bs && !be) continue; // a blank row — ignore
     if (!bs || !be) {
       console.warn("[addTimesheetEntryAction] break row needs both start and end");
-      return;
+      return {
+        ok: false,
+        error: "Each break needs both a start and an end time.",
+      };
     }
     const bsAt = combine(bs);
     const beAt = combine(be);
-    if (
-      Number.isNaN(bsAt.getTime()) ||
-      Number.isNaN(beAt.getTime()) ||
-      bsAt.getTime() <= inAt.getTime() ||
-      beAt.getTime() <= bsAt.getTime() ||
-      beAt.getTime() >= outAt.getTime()
-    ) {
+    if (Number.isNaN(bsAt.getTime()) || Number.isNaN(beAt.getTime())) {
+      console.warn("[addTimesheetEntryAction] bad break time");
+      return { ok: false, error: "Enter a valid break start and end time." };
+    }
+    if (beAt.getTime() <= bsAt.getTime()) {
+      console.warn("[addTimesheetEntryAction] break end before start");
+      return { ok: false, error: "A break's end must be after its start." };
+    }
+    if (bsAt.getTime() <= inAt.getTime() || beAt.getTime() >= outAt.getTime()) {
       console.warn("[addTimesheetEntryAction] break must sit inside the shift");
-      return;
+      return {
+        ok: false,
+        error:
+          "Breaks must fall inside the shift — after the start and before the finish.",
+      };
     }
     breaks.push({ bsAt, beAt });
   }
@@ -308,7 +325,7 @@ export async function addTimesheetEntryAction(
   for (let i = 1; i < breaks.length; i++) {
     if (breaks[i]!.bsAt.getTime() < breaks[i - 1]!.beAt.getTime()) {
       console.warn("[addTimesheetEntryAction] breaks overlap");
-      return;
+      return { ok: false, error: "Breaks can't overlap each other." };
     }
   }
 
@@ -326,7 +343,7 @@ export async function addTimesheetEntryAction(
   const lockErr = await assertWeekUnlocked(g.tenantId, parsed.data.appUserId, inAt);
   if (lockErr) {
     console.warn("[addTimesheetEntryAction] locked:", lockErr);
-    return;
+    return { ok: false, error: lockErr };
   }
 
   const locationId = emptyToNull(parsed.data.locationId);
@@ -340,7 +357,11 @@ export async function addTimesheetEntryAction(
     );
     if (stateErr) {
       console.warn("[addTimesheetEntryAction] state-machine reject:", stateErr);
-      return;
+      return {
+        ok: false,
+        error:
+          "This entry clashes with punches already recorded for that day. Edit or remove them first.",
+      };
     }
     await forTenant(g.tenantId).run(async (tx) => {
       const [inserted] = await tx
@@ -375,6 +396,7 @@ export async function addTimesheetEntryAction(
   });
 
   revalidatePath("/app/timesheets");
+  return { ok: true };
 }
 
 // Edit a whole day's entry in one go (clock in + 0..N breaks + clock out),

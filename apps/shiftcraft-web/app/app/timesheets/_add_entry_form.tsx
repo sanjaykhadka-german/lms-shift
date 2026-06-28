@@ -25,6 +25,7 @@ export function AddEntryForm({ employees, locations, defaultDate }: Props) {
   // inputs named breakStart/breakEnd, read in order on the server via getAll.
   const nextBreakId = useRef(1);
   const [breakRows, setBreakRows] = useState<number[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const addBreak = () =>
@@ -40,9 +41,16 @@ export function AddEntryForm({ employees, locations, defaultDate }: Props) {
       <form
         ref={formRef}
         action={async (fd) => {
-          await addTimesheetEntryAction(fd);
-          // Success (the action revalidates and returns; it never redirects).
-          // Reset the form, drop any break rows, and collapse the dropdown.
+          const res = await addTimesheetEntryAction(fd);
+          if (!res.ok) {
+            // Surface the reason and keep the popover open with the entered
+            // values so the manager can correct them (e.g. a break that ran
+            // past the shift finish) — previously this failed silently.
+            setError(res.error);
+            return;
+          }
+          // Success: reset the form, drop any break rows, collapse the dropdown.
+          setError(null);
           formRef.current?.reset();
           setBreakRows([]);
           detailsRef.current?.removeAttribute("open");
@@ -148,6 +156,14 @@ export function AddEntryForm({ employees, locations, defaultDate }: Props) {
             className={fieldCls}
           />
         </label>
+        {error ? (
+          <p
+            role="alert"
+            className="rounded-[var(--r-sm)] border border-[color-mix(in_srgb,var(--destructive)_40%,transparent)] bg-[color-mix(in_srgb,var(--destructive)_10%,transparent)] px-2.5 py-1.5 text-[11px] text-[color:var(--destructive)]"
+          >
+            {error}
+          </p>
+        ) : null}
         <SubmitButton />
       </form>
     </details>
