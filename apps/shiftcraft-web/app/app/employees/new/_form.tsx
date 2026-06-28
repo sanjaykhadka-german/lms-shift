@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
@@ -111,6 +111,17 @@ export function EmployeeForm({
   const submitLabel = mode === "edit" ? "Save changes" : "Add employee";
   const pendingLabel = mode === "edit" ? "Saving…" : "Adding…";
   const v = defaultValues;
+
+  // Controlled state for the dropdowns. React 19 auto-resets the form after a
+  // server action, and an uncontrolled <select> falls back to its mount-time
+  // defaultValue (the pre-edit value) — so a saved change visibly reverts even
+  // though the DB persisted it. Controlling them holds the user's choice.
+  const [locationId, setLocationId] = useState(v?.locationId ?? "");
+  const [employmentType, setEmploymentType] = useState(
+    v?.employmentType ?? "full_time",
+  );
+  const [payType, setPayType] = useState(v?.payType ?? "hourly");
+  const [gender, setGender] = useState(v?.gender ?? "");
 
   return (
     <form action={formAction} className="space-y-6">
@@ -246,7 +257,8 @@ export function EmployeeForm({
           <select
             id="locationId"
             name="locationId"
-            defaultValue={v?.locationId ?? ""}
+            value={locationId}
+            onChange={(e) => setLocationId(e.target.value)}
             className="flex h-9 w-full rounded-md border border-[color:var(--input)] bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
             aria-invalid={!!fieldError(state, "locationId")}
           >
@@ -274,7 +286,8 @@ export function EmployeeForm({
           <select
             id="employmentType"
             name="employmentType"
-            defaultValue={v?.employmentType ?? "full_time"}
+            value={employmentType}
+            onChange={(e) => setEmploymentType(e.target.value)}
             required
             className="flex h-9 w-full rounded-md border border-[color:var(--input)] bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
           >
@@ -296,7 +309,8 @@ export function EmployeeForm({
           <select
             id="payType"
             name="payType"
-            defaultValue={v?.payType ?? "hourly"}
+            value={payType}
+            onChange={(e) => setPayType(e.target.value)}
             required
             className="flex h-9 w-full rounded-md border border-[color:var(--input)] bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
           >
@@ -394,7 +408,8 @@ export function EmployeeForm({
             <select
               id="gender"
               name="gender"
-              defaultValue={v?.gender ?? ""}
+              value={gender}
+              onChange={(e) => setGender(e.target.value)}
               className="flex h-9 w-full rounded-md border border-[color:var(--input)] bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
             >
               {GENDER_OPTIONS.map((g) => (
