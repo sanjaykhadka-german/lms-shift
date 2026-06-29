@@ -15,6 +15,7 @@ import {
 import { verifyPassword } from "~/lib/auth/passwords";
 import { validateTransition } from "~/lib/clock";
 import { maybeSweepStaleClockIns } from "~/app/app/timesheets/event-actions";
+import { closeStaleClockInForUser } from "~/lib/clock-sweep";
 import {
   KIOSK_ACTOR_COOKIE,
   KIOSK_COOKIE_OPTS,
@@ -234,6 +235,12 @@ export async function kioskPunchAction(
 
   const tenantId = deviceClaim.tenantId;
   const appUserId = actorClaim.appUserId;
+
+  // Self-heal: auto-close this user's forgotten punch if it's 24h+ stale BEFORE
+  // the transition check, so an employee returning after a long gap (e.g. clocked
+  // in Friday, back Monday) can clock in cleanly instead of hitting "already
+  // clocked in". Best-effort; no-op when nothing is stale.
+  await closeStaleClockInForUser(tenantId, appUserId);
 
   // Reuse the same transition guard as /app/clock. If the user's state is
   // wrong (e.g. they're already clocked in), redirect with an error rather

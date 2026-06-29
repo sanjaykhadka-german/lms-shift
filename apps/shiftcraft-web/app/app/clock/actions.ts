@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { maybeSweepStaleClockIns } from "~/app/app/timesheets/event-actions";
+import { closeStaleClockInForUser } from "~/lib/clock-sweep";
 import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import {
   forTenant,
@@ -141,6 +142,13 @@ async function recordPunch(
         "You must be at a work location to clock in. Turn on location and try again.",
     };
   }
+
+  // Self-heal: if this user has a forgotten punch that's already 24h+ stale,
+  // auto-close it now (at shift end / clock-in + 24h) BEFORE the transition
+  // check — so someone who clocked in Friday and returns Monday can clock in
+  // cleanly instead of hitting "you're already clocked in". Best-effort; no-op
+  // when nothing is stale.
+  await closeStaleClockInForUser(tenantId, user.id);
 
   // Enforce a valid state transition based on the most recent event. The DB
   // can't enforce this with a CHECK (it's stream-state, not row-state) so
