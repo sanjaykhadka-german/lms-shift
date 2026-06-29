@@ -1,52 +1,21 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, asc, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lt } from "drizzle-orm";
 import { z } from "zod";
 import {
   forTenant,
   scClockEvents,
-  scShiftAssignments,
-  scShifts,
-  scTimesheetApprovals,
   type ScClockEventType,
 } from "@tracey/db";
 import { currentMembership, currentUser } from "~/lib/auth/current";
 import { isAtLeastManager } from "~/lib/roles";
-import { fmtIsoDate, startOfWeek, validateTransition } from "~/lib/clock";
 import { logAuditEvent } from "~/lib/audit";
-
-// AUDIT.md #4 — lock clock-event mutations on weeks whose timesheet
-// has been approved. Returns null when the week is unlocked, otherwise
-// a human-readable refusal reason. Caller is responsible for emitting
-// the warning + early return; we deliberately don't throw so the form
-// action's Promise<void> contract stays intact.
-//
-// Pure check — no audit event, no side effects.
-async function assertWeekUnlocked(
-  tenantId: string,
-  appUserId: string,
-  occurredAt: Date,
-): Promise<string | null> {
-  const weekStartIso = fmtIsoDate(startOfWeek(occurredAt));
-  const [row] = await forTenant(tenantId).run((tx) =>
-    tx
-      .select({ status: scTimesheetApprovals.status })
-      .from(scTimesheetApprovals)
-      .where(
-        and(
-          eq(scTimesheetApprovals.traceyTenantId, tenantId),
-          eq(scTimesheetApprovals.employeeUserId, appUserId),
-          sql`${scTimesheetApprovals.weekStart} = ${weekStartIso}::date`,
-        ),
-      )
-      .limit(1),
-  );
-  if (row?.status === "approved") {
-    return "Timesheet for this week is approved — reopen it first to edit clock events.";
-  }
-  return null;
-}
+import {
+  assertWeekUnlocked,
+  sweepStaleClockIns,
+  validateInsertion,
+} from "~/lib/clock-sweep";
 
 // Three admin-only actions for in-app correction of clock events. All
 // preserve audit semantics: edits void the original row + insert a new
@@ -101,44 +70,6 @@ function emptyToNull(s: string | undefined): string | null {
   if (!s) return null;
   const trimmed = s.trim();
   return trimmed.length === 0 ? null : trimmed;
-}
-
-// Validates a new event in the context of the user's existing stream by
-// walking the active events around its occurredAt and asking
-// validateTransition() if it fits. Returns null on OK or an error string.
-async function validateInsertion(
-  tenantId: string,
-  appUserId: string,
-  eventType: ScClockEventType,
-  occurredAt: Date,
-  excludeEventId?: string,
-): Promise<string | null> {
-  const stream = await forTenant(tenantId).run((tx) =>
-    tx
-      .select({
-        id: scClockEvents.id,
-        eventType: scClockEvents.eventType,
-        occurredAt: scClockEvents.occurredAt,
-      })
-      .from(scClockEvents)
-      .where(
-        and(
-          eq(scClockEvents.appUserId, appUserId),
-          isNull(scClockEvents.voidedAt),
-        ),
-      )
-      .orderBy(asc(scClockEvents.occurredAt)),
-  );
-  // Find the latest active event strictly before occurredAt — excluding
-  // the to-be-voided row when this is part of an edit. That's the
-  // "prev" state validateTransition() needs.
-  let prev: ScClockEventType | undefined = undefined;
-  for (const e of stream) {
-    if (excludeEventId && e.id === excludeEventId) continue;
-    if (e.occurredAt.getTime() >= occurredAt.getTime()) break;
-    prev = e.eventType as ScClockEventType;
-  }
-  return validateTransition(prev, eventType);
 }
 
 export async function addClockEventAction(formData: FormData): Promise<void> {
@@ -798,186 +729,17 @@ export async function editClockEventAction(formData: FormData): Promise<void> {
   revalidatePath("/app/timesheets");
 }
 
-// Auto clock-out for forgotten punches. For every employee still clocked in,
-// insert a closing `out` event, source 'admin_edit'. Two cases:
-//   - SCHEDULED: if a matching accepted shift started >24h ago, close at that
-//     shift's scheduled end (the payroll-sane finish).
-//   - UNSCHEDULED: an open punch with no matching accepted shift is closed at
-//     clock-in + 24h once 24h have elapsed since the clock-in.
-// A punch whose relevant 24h window hasn't elapsed yet is left alone. Locked
-// (approved) weeks and invalid transitions are skipped.
+// Auto clock-out lives in ~/lib/clock-sweep so it can also run from the hourly
+// cron (scripts/sweep-stale-clock-outs.ts) without pulling Next-only imports.
+// Two in-app entry points wrap it here: the manual "Close stale clock-ins"
+// button (closeStaleClockInsAction, manager-gated) and the throttled page-load
+// sweep (maybeSweepStaleClockIns). A third entry point is the cron.
 //
-// Two entry points: the manual "Close stale clock-ins" button
-// (closeStaleClockInsAction, manager-gated) and an automatic throttled sweep
-// (maybeSweepStaleClockIns) fired on page loads. Both share sweepStaleClockIns.
-const STALE_CUTOFF_MS = 24 * 60 * 60 * 1000;
-const SHIFT_MATCH_WINDOW_MS = 12 * 60 * 60 * 1000;
 // Auto-sweep at most once per hour per tenant per server instance. In-memory
 // (no migration); resets on deploy/restart, which is harmless because the
 // sweep is idempotent.
 const SWEEP_THROTTLE_MS = 60 * 60 * 1000;
 const lastSweepByTenant = new Map<string, number>();
-
-// Core sweep — tenant-scoped, NO auth gate and NO revalidate. Shared by the
-// manual action and the throttled auto-trigger; callers add what they need.
-async function sweepStaleClockIns(
-  tenantId: string,
-): Promise<{ closed: number; skipped: number }> {
-  const now = new Date();
-
-  // 1. Pull every active (non-voided) event, ordered by user then time, and
-  //    derive each user's current open clock-in (the `in` that started the
-  //    still-open work period) plus their latest event.
-  const events = await forTenant(tenantId).run((tx) =>
-    tx
-      .select({
-        appUserId: scClockEvents.appUserId,
-        eventType: scClockEvents.eventType,
-        occurredAt: scClockEvents.occurredAt,
-      })
-      .from(scClockEvents)
-      .where(isNull(scClockEvents.voidedAt))
-      .orderBy(asc(scClockEvents.appUserId), asc(scClockEvents.occurredAt)),
-  );
-
-  interface OpenUser {
-    appUserId: string;
-    inAt: Date;
-    lastEventAt: Date;
-  }
-  const open = new Map<string, { status: ClockStatusLite; inAt: Date | null; lastEventAt: Date }>();
-  type ClockStatusLite = "clocked_out" | "working" | "on_break";
-  for (const e of events) {
-    let s = open.get(e.appUserId);
-    if (!s) {
-      s = { status: "clocked_out", inAt: null, lastEventAt: e.occurredAt };
-      open.set(e.appUserId, s);
-    }
-    s.lastEventAt = e.occurredAt;
-    switch (e.eventType) {
-      case "in":
-        if (s.status === "clocked_out") {
-          s.status = "working";
-          s.inAt = e.occurredAt;
-        }
-        break;
-      case "break_start":
-        if (s.status === "working") s.status = "on_break";
-        break;
-      case "break_end":
-        if (s.status === "on_break") s.status = "working";
-        break;
-      case "out":
-        if (s.status !== "clocked_out") {
-          s.status = "clocked_out";
-          s.inAt = null;
-        }
-        break;
-      default:
-        break;
-    }
-  }
-  const openUsers: OpenUser[] = [...open.entries()]
-    .filter(([, s]) => s.status !== "clocked_out" && s.inAt !== null)
-    .map(([appUserId, s]) => ({ appUserId, inAt: s.inAt!, lastEventAt: s.lastEventAt }));
-
-  let closed = 0;
-  let skipped = 0;
-
-  for (const u of openUsers) {
-    // 2. Find the accepted scheduled shift this clock-in belongs to — the one
-    //    whose start sits within ±12h of the punch (nearest wins).
-    const candidates = await forTenant(tenantId).run((tx) =>
-      tx
-        .select({ startsAt: scShifts.startsAt, endsAt: scShifts.endsAt })
-        .from(scShiftAssignments)
-        .innerJoin(scShifts, eq(scShifts.id, scShiftAssignments.shiftId))
-        .where(
-          and(
-            eq(scShiftAssignments.status, "accepted"),
-            eq(scShiftAssignments.userId, u.appUserId),
-            eq(scShifts.traceyTenantId, tenantId),
-            gte(scShifts.startsAt, new Date(u.inAt.getTime() - SHIFT_MATCH_WINDOW_MS)),
-            lt(scShifts.startsAt, new Date(u.inAt.getTime() + SHIFT_MATCH_WINDOW_MS)),
-          ),
-        ),
-    );
-    const shift =
-      candidates.length === 0
-        ? null
-        : candidates.reduce((best, c) =>
-            Math.abs(c.startsAt.getTime() - u.inAt.getTime()) <
-            Math.abs(best.startsAt.getTime() - u.inAt.getTime())
-              ? c
-              : best,
-          );
-
-    // 3. Decide the closing time:
-    //    - Scheduled: close at the shift's scheduled end, once 24h have elapsed
-    //      since the scheduled start.
-    //    - Unscheduled: close at clock-in + 24h, once 24h have elapsed since the
-    //      clock-in (mirrors the visitor sweep's signedInAt + 12h).
-    let outAt: Date;
-    if (shift === null) {
-      if (now.getTime() - u.inAt.getTime() <= STALE_CUTOFF_MS) continue;
-      outAt = new Date(u.inAt.getTime() + STALE_CUTOFF_MS);
-    } else {
-      if (now.getTime() - shift.startsAt.getTime() <= STALE_CUTOFF_MS) continue;
-      outAt = shift.endsAt;
-    }
-    // The closing punch must land after the last existing event, else the
-    // stream/transition would be invalid. (Edge: events after scheduled end.)
-    if (outAt.getTime() <= u.lastEventAt.getTime()) {
-      skipped++;
-      continue;
-    }
-
-    const lockErr = await assertWeekUnlocked(tenantId, u.appUserId, outAt);
-    if (lockErr) {
-      skipped++;
-      continue;
-    }
-    const stateErr = await validateInsertion(tenantId, u.appUserId, "out", outAt);
-    if (stateErr) {
-      skipped++;
-      continue;
-    }
-
-    let newEventId = "";
-    await forTenant(tenantId).run(async (tx) => {
-      const [inserted] = await tx
-        .insert(scClockEvents)
-        .values({
-          traceyTenantId: tenantId,
-          appUserId: u.appUserId,
-          eventType: "out",
-          occurredAt: outAt,
-          source: "admin_edit",
-          notes:
-            shift === null
-              ? "Auto clock-out: still clocked in 24h+ after clock-in."
-              : "Auto clock-out: still clocked in 24h+ after scheduled start.",
-        })
-        .returning({ id: scClockEvents.id });
-      newEventId = inserted!.id;
-    });
-
-    await logAuditEvent({
-      action: "shiftcraft.clock.auto_closed",
-      targetKind: "sc_clock_event",
-      targetId: newEventId,
-      details: {
-        appUserId: u.appUserId,
-        clockInAt: u.inAt.toISOString(),
-        scheduledStart: shift?.startsAt.toISOString() ?? null,
-        clockedOutAt: outAt.toISOString(),
-      },
-    });
-    closed++;
-  }
-
-  return { closed, skipped };
-}
 
 // Manual trigger — the "Close stale clock-ins" button on the timesheets page.
 // Manager-gated; revalidates so the closed punches show immediately.

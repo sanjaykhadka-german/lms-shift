@@ -260,6 +260,37 @@ services:
       - key: MAIL_FROM_NAME
         value: Tracey
 
+  # ─── ShiftCraft hourly auto clock-out (added 2026-06-29) ───
+  # Closes forgotten clock-ins across EVERY tenant in the background, so a
+  # forgotten punch is auto-closed at the 24h mark even when nobody opens
+  # timesheets/clock-now (the in-app throttled sweep only fires on those page
+  # loads). Logic lives in apps/shiftcraft-web/lib/clock-sweep.ts; the cron
+  # entry point is scripts/sweep-stale-clock-outs.ts.
+  #
+  # branch + corepack warming mirror the shiftcraft-web service: this cron must
+  # build from the shiftcraft branch (that's where the script lives), and the
+  # corepack prepare + COREPACK_INTEGRITY_KEYS=0 avoid the Node 22.13.0 signature
+  # failure / boot-time pnpm re-download that broke earlier shiftcraft deploys.
+  - type: cron
+    name: shiftcraft-stale-clock-outs
+    runtime: node
+    plan: free
+    branch: shiftcraft/session-2026-05-13
+    schedule: "0 * * * *"  # hourly, on the hour (UTC)
+    buildCommand: corepack enable && corepack prepare pnpm@9.15.0 --activate && pnpm install --frozen-lockfile
+    startCommand: pnpm --filter shiftcraft-web run cron:sweep-clock-ins
+    envVars:
+      - key: TZ
+        value: Australia/Sydney
+      - key: NODE_VERSION
+        value: "22.13.0"
+      - key: COREPACK_INTEGRITY_KEYS
+        value: "0"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lms-db
+          property: connectionString
+
 databases:
   - name: lms-db
     plan: free
