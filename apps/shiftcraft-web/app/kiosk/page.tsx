@@ -163,6 +163,8 @@ function errorMessage(reason: string | undefined): string | null {
       return "Pairing code was wrong, expired, or already used. Ask a manager to generate a new one.";
     case "transition":
       return null; // handled separately, uses ?detail=
+    case "selfie":
+      return "A photo is required to clock in or out. Allow the camera and try again.";
     default:
       return "Pairing didn't work. Ask a manager for a new code.";
   }

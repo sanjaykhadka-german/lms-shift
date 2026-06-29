@@ -305,6 +305,15 @@ export async function kioskPunchAction(
     }
   }
 
+  // Hard-block in/out when this device requires a selfie but none was captured
+  // (camera denied/skipped, or the blob failed validation). `denied` is only
+  // ever set above when require_selfie is on for an in/out punch, so breaks and
+  // selfie-off devices fall straight through. Mirrors /app/clock's guard.
+  if (selfieStatus === "denied") {
+    cookieStore.delete(KIOSK_ACTOR_COOKIE);
+    redirect("/kiosk?error=selfie");
+  }
+
   // Write the clock event + the photo row in a single tenant tx so a partial
   // failure can't leave a photo orphaned (FK on photos.clock_event_id would
   // refuse it anyway, but this is more explicit).
