@@ -9,6 +9,7 @@ import {
   getTodayEventsForUser,
   stateFor,
 } from "~/lib/clock";
+import { closeStaleClockInForUser } from "~/lib/clock-sweep";
 import { ClockPanel } from "./_panel";
 import { getClockPolicy } from "~/lib/clock-policy";
 import { Badge } from "~/components/ui/badge";
@@ -30,6 +31,12 @@ export default async function ClockPage() {
   if (!membership) redirect("/app");
 
   const tenantId = membership.tenant.id;
+
+  // Self-heal BEFORE reading the latest event: if this user has a forgotten
+  // punch that's already 24h+ stale, auto-close it now so the page shows the
+  // correct "Clock in" prompt rather than a stale "clocked in since …" state.
+  // Best-effort; no-op when nothing is stale.
+  await closeStaleClockInForUser(tenantId, user.id);
 
   const [events, latestEvent, locations, clockPolicy] = await Promise.all([
     getTodayEventsForUser(tenantId, user.id),

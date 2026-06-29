@@ -21,6 +21,7 @@ import {
   verifyDeviceCookie,
 } from "~/lib/kiosk/cookies";
 import { aggregateClockTotals, stateFor } from "~/lib/clock";
+import { closeStaleClockInForUser } from "~/lib/clock-sweep";
 import { PunchScreen } from "./_punch";
 
 export const metadata = { title: "Kiosk · Punch" };
@@ -59,6 +60,13 @@ export default async function KioskMePage() {
   const appUserId = actorClaim.appUserId;
   const today = startOfToday();
   const tomorrow = endOfToday();
+
+  // Self-heal BEFORE reading the latest event below: if this employee has a
+  // forgotten punch that's already 24h+ stale, auto-close it now so the screen
+  // shows the correct "Clock in" prompt instead of "Clocked in since Friday".
+  // Without this they'd see the stale state and the punch action would only
+  // heal it on the next tap. Best-effort; no-op when nothing is stale.
+  await closeStaleClockInForUser(tenantId, appUserId);
 
   // User profile from the shared app schema. Always present (FK guarantees
   // it exists because the PIN row references app.users on delete cascade).
