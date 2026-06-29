@@ -83,7 +83,19 @@ export function SignaturePad({
     fit();
     const onResize = () => fit();
     window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    // Also re-fit when the canvas's own box changes size — e.g. when a wizard
+    // step that was display:none becomes visible. Mounting hidden leaves the
+    // backing store at 1×1; without this the revealed pad can't be drawn on.
+    const canvas = canvasRef.current;
+    let ro: ResizeObserver | undefined;
+    if (canvas && typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(() => fit());
+      ro.observe(canvas);
+    }
+    return () => {
+      window.removeEventListener("resize", onResize);
+      ro?.disconnect();
+    };
   }, [fit]);
 
   function pointFrom(e: React.PointerEvent<HTMLCanvasElement>): Point {
