@@ -23,6 +23,8 @@ describe("award presets", () => {
       dailyOrdinaryMinutes: 480,
       dailyOvertimeMinutes: 600,
       weeklyOrdinaryMinutes: 2280,
+      overtimeBasis: "weekly",
+      weeklyOvertimeFirstTierMinutes: 180,
     });
     expect(profile.overtimeMultiplier).toBe(1.5);
     expect(profile.doubleOvertimeMultiplier).toBe(2.0);
@@ -35,15 +37,23 @@ describe("award presets", () => {
     expect(profile.costPolicy).toBe("max");
   });
 
-  it("the preset's thresholds drive classifyWeek (11h day -> 8 ord + 2 OT + 1 dbl)", () => {
+  it("the preset's thresholds drive classifyWeek on a weekly basis (45h week -> 38 ord + 3 OT1.5 + 4 OT2)", () => {
     const { thresholds } = AWARD_PRESETS.MA000059!.profile;
-    const wk = classifyWeek([{ date: "2026-06-15", workedMinutes: 11 * 60 }], {
-      thresholds,
-    });
-    const day = wk.days[0]!;
-    expect(day.ordinaryMinutes).toBe(8 * 60);
-    expect(day.overtimeMinutes).toBe(2 * 60);
-    expect(day.doubleOvertimeMinutes).toBe(1 * 60);
+    // 5 x 9h = 45h. On the weekly basis the daily length is irrelevant:
+    // 38h ordinary, the first 3h above at OT 1.5x, the remaining 4h at 2x.
+    const wk = classifyWeek(
+      [
+        { date: "2026-06-15", workedMinutes: 9 * 60 },
+        { date: "2026-06-16", workedMinutes: 9 * 60 },
+        { date: "2026-06-17", workedMinutes: 9 * 60 },
+        { date: "2026-06-18", workedMinutes: 9 * 60 },
+        { date: "2026-06-19", workedMinutes: 9 * 60 },
+      ],
+      { thresholds },
+    );
+    expect(wk.totals.ordinaryMinutes).toBe(38 * 60);
+    expect(wk.totals.overtimeMinutes).toBe(3 * 60);
+    expect(wk.totals.doubleOvertimeMinutes).toBe(4 * 60);
   });
 
   it("listAwardPresets returns code + name pairs", () => {

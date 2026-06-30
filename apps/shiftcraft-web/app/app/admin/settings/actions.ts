@@ -112,6 +112,8 @@ const awardProfileSchema = z.object({
   dailyOrdinaryMinutes: z.number().positive().optional(),
   dailyOvertimeMinutes: z.number().positive().optional(),
   weeklyOrdinaryMinutes: z.number().positive().optional(),
+  overtimeBasis: z.enum(["daily", "weekly"]).optional(),
+  weeklyOvertimeFirstTierMinutes: z.number().positive().optional(),
   overtimeMultiplier: z.number().positive().optional(),
   doubleOvertimeMultiplier: z.number().positive().optional(),
   penaltyWeekday: z.number().positive().optional(),
@@ -209,6 +211,14 @@ export async function setAwardProfileAction(
     dailyOrdinaryMinutes: asPositiveNumber(formData.get("dailyOrdinaryMinutes")),
     dailyOvertimeMinutes: asPositiveNumber(formData.get("dailyOvertimeMinutes")),
     weeklyOrdinaryMinutes: asPositiveNumber(formData.get("weeklyOrdinaryMinutes")),
+    overtimeBasis:
+      formData.get("overtimeBasis") === "daily" ||
+      formData.get("overtimeBasis") === "weekly"
+        ? (formData.get("overtimeBasis") as "daily" | "weekly")
+        : undefined,
+    weeklyOvertimeFirstTierMinutes: asPositiveNumber(
+      formData.get("weeklyOvertimeFirstTierMinutes"),
+    ),
     overtimeMultiplier: asPositiveNumber(formData.get("overtimeMultiplier")),
     doubleOvertimeMultiplier: asPositiveNumber(
       formData.get("doubleOvertimeMultiplier"),
@@ -258,7 +268,7 @@ export async function setAwardProfileAction(
 
   // Re-shape into the AwardProfileOverrides JSON the helper expects.
   const profile: Record<string, unknown> = {};
-  const thresholds: Record<string, number> = {};
+  const thresholds: Record<string, number | string> = {};
   if (parsed.data.dailyOrdinaryMinutes != null) {
     thresholds.dailyOrdinaryMinutes = parsed.data.dailyOrdinaryMinutes;
   }
@@ -267,6 +277,13 @@ export async function setAwardProfileAction(
   }
   if (parsed.data.weeklyOrdinaryMinutes != null) {
     thresholds.weeklyOrdinaryMinutes = parsed.data.weeklyOrdinaryMinutes;
+  }
+  if (parsed.data.overtimeBasis != null) {
+    thresholds.overtimeBasis = parsed.data.overtimeBasis;
+  }
+  if (parsed.data.weeklyOvertimeFirstTierMinutes != null) {
+    thresholds.weeklyOvertimeFirstTierMinutes =
+      parsed.data.weeklyOvertimeFirstTierMinutes;
   }
   if (Object.keys(thresholds).length > 0) profile.thresholds = thresholds;
   if (parsed.data.overtimeMultiplier != null) {

@@ -54,6 +54,7 @@ describe("PAYROLL_CATEGORIES contract", () => {
     expect(PAYROLL_CATEGORIES).toEqual([
       "ordinary",
       "overtime",
+      "overtime_double",
       "penalty_sat",
       "penalty_sat_ot",
       "penalty_sun",
@@ -105,6 +106,45 @@ describe("buildCategoryUnitsFromBreakdown", () => {
     expect(result.get("ordinary")).toEqual([8, 0, 0, 0, 0, 0, 0]);
     expect(result.get("overtime")).toEqual([2, 0, 0, 0, 0, 0, 0]);
     expect(result.has("penalty_sat")).toBe(false);
+  });
+
+  it("folds weekday OT 2x into 'overtime' when overtime_double is unmapped", () => {
+    // 3h OT 1.5x + 2h OT 2x and no overtime_double mapping → both bands
+    // land in the single 'overtime' bucket (the legacy/no-regression path).
+    const result = buildCategoryUnitsFromBreakdown(
+      makeBreakdown([
+        {
+          date: "2026-06-01",
+          worked: 13 * 60,
+          ordinary: 8 * 60,
+          overtime: 3 * 60,
+          doubleOvertime: 2 * 60,
+          penalty: "weekday",
+        },
+      ]),
+    );
+    expect(result.get("ordinary")).toEqual([8, 0, 0, 0, 0, 0, 0]);
+    expect(result.get("overtime")).toEqual([5, 0, 0, 0, 0, 0, 0]);
+    expect(result.has("overtime_double")).toBe(false);
+  });
+
+  it("splits weekday OT 2x onto 'overtime_double' when that category is mapped", () => {
+    const result = buildCategoryUnitsFromBreakdown(
+      makeBreakdown([
+        {
+          date: "2026-06-01",
+          worked: 13 * 60,
+          ordinary: 8 * 60,
+          overtime: 3 * 60,
+          doubleOvertime: 2 * 60,
+          penalty: "weekday",
+        },
+      ]),
+      new Set<ScPayrollCategory>(["overtime_double"]),
+    );
+    expect(result.get("ordinary")).toEqual([8, 0, 0, 0, 0, 0, 0]);
+    expect(result.get("overtime")).toEqual([3, 0, 0, 0, 0, 0, 0]);
+    expect(result.get("overtime_double")).toEqual([2, 0, 0, 0, 0, 0, 0]);
   });
 
   it("rolls all Saturday minutes into penalty_sat (incl. OT)", () => {

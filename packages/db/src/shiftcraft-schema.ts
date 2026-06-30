@@ -1771,7 +1771,7 @@ export const scXeroEarningsMapping = pgTable(
     ),
     check(
       "sc_xero_earnings_mapping_category_chk",
-      sql`${t.category} in ('ordinary','overtime','penalty_sat','penalty_sun','penalty_ph','penalty_sat_ot','penalty_sun_ot','penalty_ph_ot','penalty_night','allowance')`,
+      sql`${t.category} in ('ordinary','overtime','overtime_double','penalty_sat','penalty_sun','penalty_ph','penalty_sat_ot','penalty_sun_ot','penalty_ph_ot','penalty_night','allowance')`,
     ),
   ],
 );
@@ -2342,6 +2342,9 @@ export type ScXeroPayRunStatus = "draft" | "submitted" | "finalised" | "failed";
 export type ScPayrollCategory =
   | "ordinary"
   | "overtime"
+  // Weekday OT 2x ("thereafter") band, split onto its own Xero earnings
+  // rate when the tenant maps it; otherwise it folds into "overtime".
+  | "overtime_double"
   | "penalty_sat"
   | "penalty_sun"
   | "penalty_ph"

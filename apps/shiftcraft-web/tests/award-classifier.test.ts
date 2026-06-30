@@ -218,8 +218,7 @@ describe("classifyWeek — ordering + overrides", () => {
       thresholds: { weeklyOrdinaryMinutes: 40 * 60 },
     });
     expect(out.thresholds).toEqual({
-      dailyOrdinaryMinutes: DEFAULT_THRESHOLDS.dailyOrdinaryMinutes,
-      dailyOvertimeMinutes: DEFAULT_THRESHOLDS.dailyOvertimeMinutes,
+      ...DEFAULT_THRESHOLDS,
       weeklyOrdinaryMinutes: 40 * 60,
     });
   });
@@ -358,6 +357,81 @@ describe("classifyWeek — penaltyCategory tagging", () => {
     // Sanity: Saturday's ordinary got pushed to OT 1.5x by the weekly cap.
     expect(sat.ordinaryMinutes).toBe(0);
     expect(sat.overtimeMinutes).toBe(4 * 60);
+  });
+});
+
+describe("classifyWeek — weekly overtime basis (38-hour week)", () => {
+  // German Butchery runs MA000059 on a pure weekly basis: ordinary up to
+  // 38h, the first 3h above that at OT 1.5x, the rest at OT 2x. Daily
+  // length is irrelevant. These mirror the real test timesheets.
+  const weekly = { overtimeBasis: "weekly" as const };
+
+  it("Nasima: 43.04h week -> 38h ord + 3h OT1.5 + 2.04h OT2", () => {
+    // Mon..Fri (9.40, 9.47, 10.32, 8.23, 5.62)h = 43.04h total.
+    const out = classifyWeek(
+      [
+        day("2026-03-23", 9.4),
+        day("2026-03-24", 9.47),
+        day("2026-03-25", 10.32),
+        day("2026-03-26", 8.23),
+        day("2026-03-27", 5.62),
+      ],
+      { thresholds: weekly },
+    );
+    expect(out.totals.ordinaryMinutes).toBe(38 * 60);
+    expect(out.totals.overtimeMinutes).toBe(3 * 60);
+    // 43.04h - 41h = 2.04h = 122.4min -> rounds with the per-day inputs.
+    expect(out.totals.doubleOvertimeMinutes).toBe(
+      Math.round(43.04 * 60) - 41 * 60,
+    );
+    // No single day exceeds 10h-of-OT triggers — daily thresholds ignored.
+  });
+
+  it("Sandhya: 33.32h worked week -> all ordinary, no OT", () => {
+    // Mon..Thu worked (8.73, 8.77, 7.62, 8.20); Fri is unpaid leave so it
+    // never reaches the classifier (0 worked minutes here).
+    const out = classifyWeek(
+      [
+        day("2026-03-16", 8.73),
+        day("2026-03-17", 8.77),
+        day("2026-03-18", 7.62),
+        day("2026-03-19", 8.2),
+        day("2026-03-20", 0),
+      ],
+      { thresholds: weekly },
+    );
+    expect(out.totals.ordinaryMinutes).toBe(Math.round(33.32 * 60));
+    expect(out.totals.overtimeMinutes).toBe(0);
+    expect(out.totals.doubleOvertimeMinutes).toBe(0);
+  });
+
+  it("a single 11h day stays all-ordinary when the week is under 38h", () => {
+    // The daily basis would carve 8 ord + 2 OT1.5 + 1 OT2 from this day;
+    // the weekly basis does not, because the week total is below 38h.
+    const out = classifyWeek([day("2026-06-15", 11)], { thresholds: weekly });
+    const d = out.days[0]!;
+    expect(d.ordinaryMinutes).toBe(11 * 60);
+    expect(d.overtimeMinutes).toBe(0);
+    expect(d.doubleOvertimeMinutes).toBe(0);
+  });
+
+  it("honours a custom first-OT-tier width", () => {
+    // 45h week, first-tier 2h: 38 ord + 2 OT1.5 + 5 OT2.
+    const out = classifyWeek(
+      [
+        day("2026-06-15", 9),
+        day("2026-06-16", 9),
+        day("2026-06-17", 9),
+        day("2026-06-18", 9),
+        day("2026-06-19", 9),
+      ],
+      {
+        thresholds: { overtimeBasis: "weekly", weeklyOvertimeFirstTierMinutes: 2 * 60 },
+      },
+    );
+    expect(out.totals.ordinaryMinutes).toBe(38 * 60);
+    expect(out.totals.overtimeMinutes).toBe(2 * 60);
+    expect(out.totals.doubleOvertimeMinutes).toBe(5 * 60);
   });
 });
 

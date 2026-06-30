@@ -16,6 +16,7 @@ const DEFAULTS = {
   dailyOrdinaryMinutes: 480,
   dailyOvertimeMinutes: 600,
   weeklyOrdinaryMinutes: 2280,
+  weeklyOvertimeFirstTierMinutes: 180,
   overtimeMultiplier: 1.5,
   doubleOvertimeMultiplier: 2.0,
   penaltyWeekday: 1.0,
@@ -41,6 +42,8 @@ function pms(profile: AwardProfileOverrides, key: keyof typeof DEFAULTS): string
       return profile.thresholds?.dailyOvertimeMinutes?.toString() ?? "";
     case "weeklyOrdinaryMinutes":
       return profile.thresholds?.weeklyOrdinaryMinutes?.toString() ?? "";
+    case "weeklyOvertimeFirstTierMinutes":
+      return profile.thresholds?.weeklyOvertimeFirstTierMinutes?.toString() ?? "";
     case "overtimeMultiplier":
       return profile.overtimeMultiplier?.toString() ?? "";
     case "doubleOvertimeMultiplier":
@@ -144,7 +147,40 @@ export function AwardProfileForm({
           step={1}
           state={state}
         />
+        <NumberField
+          name="weeklyOvertimeFirstTierMinutes"
+          label="Weekly OT first tier"
+          defaultValue={pms(currentProfile, "weeklyOvertimeFirstTierMinutes")}
+          placeholder={`${DEFAULTS.weeklyOvertimeFirstTierMinutes} (3h)`}
+          step={1}
+          state={state}
+        />
       </FieldGroup>
+
+      <fieldset className="space-y-2">
+        <legend className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Overtime basis
+        </legend>
+        <p className="text-xs text-muted-foreground">
+          <strong>Daily</strong>: overtime when a single day runs long (past
+          the daily ordinary, then the daily OT ceiling), with any weekly
+          surplus cascading to OT 1.5×.{" "}
+          <strong>Weekly</strong>: overtime is purely a function of the 38-hour
+          week — ordinary up to the weekly cap, then the first tier above at
+          1.5×, the rest at 2× (daily length ignored).
+        </p>
+        <label className="flex max-w-xs flex-col gap-1 text-xs">
+          <span className="font-medium text-muted-foreground">Basis</span>
+          <select
+            name="overtimeBasis"
+            defaultValue={currentProfile.thresholds?.overtimeBasis ?? "daily"}
+            className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            <option value="daily">Daily (then weekly cascade)</option>
+            <option value="weekly">Weekly (38-hour week)</option>
+          </select>
+        </label>
+      </fieldset>
 
       <FieldGroup title="Overtime multipliers (×)">
         <NumberField

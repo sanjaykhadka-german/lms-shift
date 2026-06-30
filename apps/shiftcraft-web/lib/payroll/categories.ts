@@ -8,6 +8,7 @@ import type { ScPayrollCategory } from "@tracey/db";
 export const PAYROLL_CATEGORIES: ScPayrollCategory[] = [
   "ordinary",
   "overtime",
+  "overtime_double",
   "penalty_sat",
   "penalty_sat_ot",
   "penalty_sun",
@@ -26,6 +27,7 @@ export const PAYROLL_CATEGORIES: ScPayrollCategory[] = [
 export const PAYROLL_CATEGORY_LABEL: Record<ScPayrollCategory, string> = {
   ordinary: "Ordinary hours",
   overtime: "Overtime hours",
+  overtime_double: "Overtime (double time)",
   penalty_sat: "Saturday penalty",
   penalty_sat_ot: "Saturday overtime",
   penalty_sun: "Sunday penalty",
@@ -92,9 +94,23 @@ export function buildCategoryUnitsFromBreakdown(
 
     if (day.penaltyCategory === "weekday") {
       const ord = minutesToHours(day.ordinaryMinutes);
-      const ot = minutesToHours(otMinutes);
       if (ord > 0) ensure("ordinary")[dayIdx] = ord;
-      if (ot > 0) ensure("overtime")[dayIdx] = ot;
+      // Split the 2x band onto its own "overtime_double" line ONLY when the
+      // tenant has mapped it to a distinct Xero rate (e.g. "OT thereafter").
+      // Otherwise both OT bands fold into "overtime" — the pre-existing
+      // behaviour, so adding this category never changes an unmapped export.
+      const splitDouble =
+        day.doubleOvertimeMinutes > 0 &&
+        (mappedCategories?.has("overtime_double") ?? false);
+      if (splitDouble) {
+        const ot = minutesToHours(day.overtimeMinutes);
+        const otd = minutesToHours(day.doubleOvertimeMinutes);
+        if (ot > 0) ensure("overtime")[dayIdx] = ot;
+        if (otd > 0) ensure("overtime_double")[dayIdx] = otd;
+      } else {
+        const ot = minutesToHours(otMinutes);
+        if (ot > 0) ensure("overtime")[dayIdx] = ot;
+      }
     } else {
       const bucket = mapPenaltyCategory(day.penaltyCategory);
       if (!bucket) continue;

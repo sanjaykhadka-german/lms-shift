@@ -484,6 +484,8 @@ describe("resolveThresholds — merge override with package defaults", () => {
       dailyOrdinaryMinutes: 480,
       dailyOvertimeMinutes: 600,
       weeklyOrdinaryMinutes: 2280,
+      overtimeBasis: "daily",
+      weeklyOvertimeFirstTierMinutes: 180,
     });
   });
 
@@ -492,6 +494,8 @@ describe("resolveThresholds — merge override with package defaults", () => {
       dailyOrdinaryMinutes: 480,
       dailyOvertimeMinutes: 600,
       weeklyOrdinaryMinutes: 2400,
+      overtimeBasis: "daily",
+      weeklyOvertimeFirstTierMinutes: 180,
     });
   });
 
@@ -501,11 +505,15 @@ describe("resolveThresholds — merge override with package defaults", () => {
         dailyOrdinaryMinutes: 456,
         dailyOvertimeMinutes: 576,
         weeklyOrdinaryMinutes: 2400,
+        overtimeBasis: "weekly",
+        weeklyOvertimeFirstTierMinutes: 120,
       }),
     ).toEqual({
       dailyOrdinaryMinutes: 456,
       dailyOvertimeMinutes: 576,
       weeklyOrdinaryMinutes: 2400,
+      overtimeBasis: "weekly",
+      weeklyOvertimeFirstTierMinutes: 120,
     });
   });
 });

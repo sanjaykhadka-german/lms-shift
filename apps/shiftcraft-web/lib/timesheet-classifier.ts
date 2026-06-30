@@ -224,6 +224,8 @@ const DEFAULT_THRESHOLDS_LOCAL: AwardThresholds = {
   dailyOrdinaryMinutes: 8 * 60,
   dailyOvertimeMinutes: 10 * 60,
   weeklyOrdinaryMinutes: 38 * 60,
+  overtimeBasis: "daily",
+  weeklyOvertimeFirstTierMinutes: 3 * 60,
 };
 
 function isFinitePositive(n: unknown): n is number {
@@ -248,6 +250,14 @@ function parseAwardProfile(raw: unknown): AwardProfileOverrides {
     }
     if (isFinitePositive(t.weeklyOrdinaryMinutes)) {
       thresholds.weeklyOrdinaryMinutes = Math.round(t.weeklyOrdinaryMinutes);
+    }
+    if (t.overtimeBasis === "daily" || t.overtimeBasis === "weekly") {
+      thresholds.overtimeBasis = t.overtimeBasis;
+    }
+    if (isFinitePositive(t.weeklyOvertimeFirstTierMinutes)) {
+      thresholds.weeklyOvertimeFirstTierMinutes = Math.round(
+        t.weeklyOvertimeFirstTierMinutes,
+      );
     }
     if (Object.keys(thresholds).length > 0) out.thresholds = thresholds;
   }

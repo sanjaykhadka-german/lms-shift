@@ -30,6 +30,10 @@ export const DEFAULT_THRESHOLDS: AwardThresholds = {
   // 38h ordinary per week. Anything beyond cascades to OT 1.5x even if
   // a single day didn't itself trigger a daily OT band.
   weeklyOrdinaryMinutes: 38 * 60,
+  // Default basis preserves the daily-then-weekly behaviour (below).
+  overtimeBasis: "daily",
+  // Weekly-basis only: first 3h of weekly OT at 1.5x before 2x begins.
+  weeklyOvertimeFirstTierMinutes: 3 * 60,
 };
 
 // General-rule penalty multipliers. Specific awards vary widely; these
@@ -49,8 +53,28 @@ export interface AwardThresholds {
   /** Minutes of total time per day at which the OT 2.0x band begins.
    *  Must be ≥ dailyOrdinaryMinutes. The OT 1.5x band fills the gap. */
   dailyOvertimeMinutes: number;
-  /** Cap on cumulative weekly ordinary minutes. Excess cascades to OT 1.5x. */
+  /** Cap on cumulative weekly ordinary minutes. Excess cascades to OT. */
   weeklyOrdinaryMinutes: number;
+  /**
+   * How overtime is derived. Defaults to "daily" when omitted.
+   *   - "daily":  partition each day by the daily thresholds, THEN cascade
+   *               any weekly-ordinary surplus into the OT 1.5x band. (The
+   *               original behaviour.)
+   *   - "weekly": ignore the daily thresholds entirely. Band the week's
+   *               worked minutes chronologically — the first
+   *               `weeklyOrdinaryMinutes` are ordinary, the next
+   *               `weeklyOvertimeFirstTierMinutes` are OT 1.5x, the rest
+   *               OT 2x. Matches awards (e.g. the Meat Industry Award as
+   *               run at German Butchery) where OT is purely a function of
+   *               the 38-hour week, not the length of any single day.
+   */
+  overtimeBasis?: "daily" | "weekly";
+  /**
+   * Weekly basis only: minutes of weekly overtime paid at 1.5x before the
+   * 2x band begins (the award's "first N hours" overtime tier). Ignored
+   * under the daily basis. Defaults to 3h.
+   */
+  weeklyOvertimeFirstTierMinutes?: number;
 }
 
 export type PenaltyCategory =
@@ -130,20 +154,97 @@ export function getPenaltyCategory(
   return "weekday";
 }
 
+interface TaggedDay {
+  date: string;
+  workedMinutes: number;
+  penaltyCategory: PenaltyCategory;
+}
+
+// "daily" basis (original behaviour): partition each day by the daily
+// thresholds, then cascade any weekly-ordinary surplus into OT 1.5x.
+// `tagged` is already chronological so the cascade lands on the latest
+// days ("the last day pushed me into OT").
+function classifyDailyBasis(
+  tagged: TaggedDay[],
+  thresholds: AwardThresholds,
+): DayBreakdown[] {
+  const ot15Cap =
+    thresholds.dailyOvertimeMinutes - thresholds.dailyOrdinaryMinutes;
+  const dayBreakdowns: DayBreakdown[] = tagged.map((d) => ({
+    date: d.date,
+    workedMinutes: d.workedMinutes,
+    ordinaryMinutes: Math.min(d.workedMinutes, thresholds.dailyOrdinaryMinutes),
+    overtimeMinutes: Math.min(
+      Math.max(0, d.workedMinutes - thresholds.dailyOrdinaryMinutes),
+      ot15Cap,
+    ),
+    doubleOvertimeMinutes: Math.max(
+      0,
+      d.workedMinutes - thresholds.dailyOvertimeMinutes,
+    ),
+    penaltyCategory: d.penaltyCategory,
+  }));
+
+  let cumulativeOrdinary = 0;
+  for (const d of dayBreakdowns) {
+    cumulativeOrdinary += d.ordinaryMinutes;
+    if (cumulativeOrdinary > thresholds.weeklyOrdinaryMinutes) {
+      const excess = cumulativeOrdinary - thresholds.weeklyOrdinaryMinutes;
+      d.ordinaryMinutes -= excess;
+      d.overtimeMinutes += excess;
+      cumulativeOrdinary = thresholds.weeklyOrdinaryMinutes;
+    }
+  }
+  return dayBreakdowns;
+}
+
+// "weekly" basis: ignore the daily thresholds. Walk the week's worked
+// minutes chronologically and band them by weekly boundaries — ordinary
+// up to `weeklyOrdinaryMinutes`, then OT 1.5x for the next
+// `weeklyOvertimeFirstTierMinutes`, then OT 2x. Each day's slice of those
+// bands is the overlap of its [cumStart, cumEnd) window with each band.
+function classifyWeeklyBasis(
+  tagged: TaggedDay[],
+  thresholds: AwardThresholds,
+): DayBreakdown[] {
+  const ordCap = thresholds.weeklyOrdinaryMinutes;
+  const firstTier =
+    thresholds.weeklyOvertimeFirstTierMinutes ??
+    DEFAULT_THRESHOLDS.weeklyOvertimeFirstTierMinutes ??
+    3 * 60;
+  const ot15End = ordCap + firstTier;
+  // Overlap of [s, e) with the band [lo, hi).
+  const span = (s: number, e: number, lo: number, hi: number): number =>
+    Math.max(0, Math.min(e, hi) - Math.max(s, lo));
+
+  let cum = 0;
+  return tagged.map((d) => {
+    const start = cum;
+    const end = cum + d.workedMinutes;
+    cum = end;
+    return {
+      date: d.date,
+      workedMinutes: d.workedMinutes,
+      ordinaryMinutes: span(start, end, 0, ordCap),
+      overtimeMinutes: span(start, end, ordCap, ot15End),
+      doubleOvertimeMinutes: span(start, end, ot15End, Infinity),
+      penaltyCategory: d.penaltyCategory,
+    };
+  });
+}
+
 /**
  * Classify a week of per-day worked totals into ordinary / OT 1.5x /
  * OT 2x, and tag each day with its penalty category.
  *
- * Algorithm:
- *   1. Day-pass: each day's `workedMinutes` is partitioned by the daily
- *      thresholds into three bands.
- *   2. Week-pass: walk days chronologically, accumulating ordinary
- *      minutes. The moment cumulative ordinary exceeds the weekly cap,
- *      pull the surplus from THIS day's ordinary and push it into OT
- *      1.5x. The double-OT band is untouched by the weekly cap (it
- *      represents work already past the daily 10h boundary).
- *   3. Penalty-tag pass: each day gets `penaltyCategory`. Public
- *      holiday wins over weekend.
+ * Two algorithms, selected by `thresholds.overtimeBasis`:
+ *   - "daily" (default): partition each day by the daily thresholds, then
+ *     cascade any weekly-ordinary surplus into OT 1.5x. The double-OT band
+ *     is untouched by the weekly cap (it's work already past the daily 10h
+ *     boundary).
+ *   - "weekly": band the week's worked minutes chronologically by the
+ *     weekly cap + first-OT-tier — daily length is irrelevant.
+ * Public-holiday penalty tagging wins over weekend in both.
  *
  * The function is pure: same inputs → same outputs. No DB, no clock.
  */
@@ -161,46 +262,20 @@ export function classifyWeek(
     );
   }
 
-  // Day-pass.
-  const dayBreakdowns: DayBreakdown[] = days.map((d) => {
-    const worked = Math.max(0, d.workedMinutes);
-    const ordinary = Math.min(worked, thresholds.dailyOrdinaryMinutes);
-    const ot15Cap =
-      thresholds.dailyOvertimeMinutes - thresholds.dailyOrdinaryMinutes;
-    const overtime = Math.min(
-      Math.max(0, worked - thresholds.dailyOrdinaryMinutes),
-      ot15Cap,
-    );
-    const doubleOvertime = Math.max(
-      0,
-      worked - thresholds.dailyOvertimeMinutes,
-    );
-    return {
+  // Tag + clamp, in chronological order (date ASC, regardless of input
+  // order). Both bases consume this ordered list.
+  const tagged: TaggedDay[] = days
+    .map((d) => ({
       date: d.date,
-      workedMinutes: worked,
-      ordinaryMinutes: ordinary,
-      overtimeMinutes: overtime,
-      doubleOvertimeMinutes: doubleOvertime,
+      workedMinutes: Math.max(0, d.workedMinutes),
       penaltyCategory: getPenaltyCategory(d.date, options.holidayDates),
-    };
-  });
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
 
-  // Sort chronologically so the week-pass cascades onto the *latest*
-  // days when ordinary spills over — that matches how managers normally
-  // think about it ("the last day pushed me into OT").
-  dayBreakdowns.sort((a, b) => a.date.localeCompare(b.date));
-
-  // Week-pass.
-  let cumulativeOrdinary = 0;
-  for (const d of dayBreakdowns) {
-    cumulativeOrdinary += d.ordinaryMinutes;
-    if (cumulativeOrdinary > thresholds.weeklyOrdinaryMinutes) {
-      const excess = cumulativeOrdinary - thresholds.weeklyOrdinaryMinutes;
-      d.ordinaryMinutes -= excess;
-      d.overtimeMinutes += excess;
-      cumulativeOrdinary = thresholds.weeklyOrdinaryMinutes;
-    }
-  }
+  const dayBreakdowns: DayBreakdown[] =
+    thresholds.overtimeBasis === "weekly"
+      ? classifyWeeklyBasis(tagged, thresholds)
+      : classifyDailyBasis(tagged, thresholds);
 
   const totals = dayBreakdowns.reduce<WeekTotals>(
     (acc, d) => ({
