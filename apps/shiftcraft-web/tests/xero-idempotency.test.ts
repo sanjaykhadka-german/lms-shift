@@ -50,6 +50,25 @@ describe("deriveXeroIdempotencyKey", () => {
     expect(key).toMatch(/^sc2-add6df90-2026-06-15-[0-9a-f]{12}$/);
   });
 
+  it("attempt 0 reproduces the un-salted content key (default unchanged)", () => {
+    const payload = ts([8, 8, 8, 8, 8, 0, 0]);
+    expect(deriveXeroIdempotencyKey(TENANT, WEEK, payload, 0)).toBe(
+      deriveXeroIdempotencyKey(TENANT, WEEK, payload),
+    );
+  });
+
+  it("a salted attempt mints a fresh key to escape a stale Xero cache entry", () => {
+    const payload = ts([8, 8, 8, 8, 8, 0, 0]);
+    const base = deriveXeroIdempotencyKey(TENANT, WEEK, payload, 0);
+    const salt1 = deriveXeroIdempotencyKey(TENANT, WEEK, payload, 1);
+    const salt2 = deriveXeroIdempotencyKey(TENANT, WEEK, payload, 2);
+    expect(salt1).not.toBe(base);
+    expect(salt2).not.toBe(base);
+    expect(salt2).not.toBe(salt1);
+    // Still the same recognisable shape so logs/telemetry stay parseable.
+    expect(salt1).toMatch(/^sc2-add6df90-2026-06-15-[0-9a-f]{12}$/);
+  });
+
   it("is independent of employee order (no flapping on unordered DB rows)", () => {
     const a = {
       xeroEmployeeId: "aaa",

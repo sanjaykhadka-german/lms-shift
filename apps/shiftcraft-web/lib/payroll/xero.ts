@@ -617,6 +617,11 @@ export interface XeroTimesheetPushResult {
   error?: string;
 }
 
+// Max salted-key retries when recovering a create from a stale Xero
+// idempotency key. Each salt mints a fresh key, so one retry almost always
+// clears it; the cap is a safety stop, not an expected loop count.
+const MAX_CREATE_SALT_ATTEMPTS = 5;
+
 export async function pushTimesheets(
   tenantId: string,
   timesheets: XeroTimesheetInput[],
@@ -636,6 +641,7 @@ export async function pushTimesheets(
     timesheets,
     existing,
     weekStart,
+    weekEnd,
   );
 
   const buildBody = (t: XeroTimesheetInput) => ({
@@ -655,9 +661,12 @@ export async function pushTimesheets(
 
   const results: XeroTimesheetPushResult[] = [];
 
-  // 1. Update in place every employee that already has a timesheet this week.
-  //    updateTimesheet is per-id, so one call each.
-  for (const { input: t, timesheetID } of toUpdate) {
+  // updateTimesheet is per-id (one call each). Shared by the normal update
+  // pass and the create-recovery path below.
+  const updateOne = async (
+    t: XeroTimesheetInput,
+    timesheetID: string,
+  ): Promise<XeroTimesheetPushResult> => {
     try {
       const payload = [buildBody(t)] as unknown as Parameters<
         typeof ctx.client.payrollAUApi.updateTimesheet
@@ -668,36 +677,97 @@ export async function pushTimesheets(
         payload,
       );
       const made = response.body.timesheets?.[0];
-      results.push({
+      return {
         employeeId: t.xeroEmployeeId,
         timesheetId: made?.timesheetID ? String(made.timesheetID) : timesheetID,
         action: "updated",
         error: made ? validationMsg(made) : undefined,
-      });
+      };
     } catch (err) {
-      results.push({
+      return {
         employeeId: t.xeroEmployeeId,
         timesheetId: null,
         action: "updated",
         error: xeroErrorMessage(err),
-      });
+      };
     }
+  };
+
+  // Create a single timesheet, retrying with a salted idempotency key when
+  // Xero rejects the key as "used with a different request" — a stale key
+  // lingering in Xero's ~24h cache (typically after the timesheet was deleted
+  // in Xero and re-created). Each salt mints a fresh key. If Xero says the
+  // timesheet "already exists", salting can't help (it's truly there but we
+  // couldn't match its id) — stop and surface an actionable message instead of
+  // hammering. Safe against duplicates: Xero enforces one timesheet per
+  // employee+period, so a salted retry only ever succeeds when nothing's there.
+  const createOneSalted = async (
+    t: XeroTimesheetInput,
+  ): Promise<XeroTimesheetPushResult> => {
+    let lastMsg = "Xero create failed.";
+    for (let attempt = 1; attempt <= MAX_CREATE_SALT_ATTEMPTS; attempt++) {
+      try {
+        const payload = [buildBody(t)] as unknown as Parameters<
+          typeof ctx.client.payrollAUApi.createTimesheet
+        >[1];
+        const key = deriveXeroIdempotencyKey(tenantId, weekStart, [t], attempt);
+        const response = await ctx.client.payrollAUApi.createTimesheet(
+          ctx.xeroTenantId,
+          payload,
+          key,
+        );
+        const made = response.body.timesheets?.[0];
+        return {
+          employeeId: t.xeroEmployeeId,
+          timesheetId: made?.timesheetID ? String(made.timesheetID) : null,
+          action: "created",
+          error: made ? validationMsg(made) : undefined,
+        };
+      } catch (err) {
+        lastMsg = xeroErrorMessage(err);
+        if (/already exists/i.test(lastMsg)) {
+          return {
+            employeeId: t.xeroEmployeeId,
+            timesheetId: null,
+            action: "created",
+            error:
+              "A timesheet already exists in Xero for this employee/week but couldn't be matched to update — delete it in Xero and re-export.",
+          };
+        }
+        if (/idempotency key/i.test(lastMsg)) continue; // stale key → next salt
+        break; // anything else: don't keep hammering
+      }
+    }
+    return {
+      employeeId: t.xeroEmployeeId,
+      timesheetId: null,
+      action: "created",
+      error: lastMsg,
+    };
+  };
+
+  // 1. Update in place every employee that already has a timesheet this week.
+  for (const { input: t, timesheetID } of toUpdate) {
+    results.push(await updateOne(t, timesheetID));
   }
 
-  // 2. Create the genuinely-missing ones in a single batch. The idempotency
-  //    key is derived from this to-create payload — content-derived, so the
-  //    same body always yields the same key (Xero replays, never 400s on a
-  //    "different request"), while a changed body yields a fresh key.
+  // 2. Create the genuinely-missing ones. Happy path: one batch with a
+  //    content-derived key (an identical re-export replays, never double-pays).
+  //    Two Xero 400s are recoverable, not fatal — both mean this week was
+  //    pushed before:
+  //      - "Idempotency Key … used with a different request" → stale cached key.
+  //      - "this timesheet already exists" → it's still in Xero but the pre-list
+  //        missed it.
+  //    Recovery re-reads Xero, UPDATES whatever is actually there, and
+  //    salt-creates only the genuinely-absent — so we never duplicate and a
+  //    re-export stops needing a manual delete-in-Xero.
   if (toCreate.length > 0) {
-    // Send in the SAME sorted order the key is derived from, so the key and
-    // the request body stay in lockstep (a stable order also means re-clicks
-    // produce an identical request Xero can replay instead of rejecting).
     const ordered = sortTimesheetsForKey(toCreate);
-    const key = deriveXeroIdempotencyKey(tenantId, weekStart, ordered);
     try {
       const payload = ordered.map(buildBody) as unknown as Parameters<
         typeof ctx.client.payrollAUApi.createTimesheet
       >[1];
+      const key = deriveXeroIdempotencyKey(tenantId, weekStart, ordered);
       const response = await ctx.client.payrollAUApi.createTimesheet(
         ctx.xeroTenantId,
         payload,
@@ -715,13 +785,36 @@ export async function pushTimesheets(
       });
     } catch (err) {
       const msg = xeroErrorMessage(err);
-      for (const t of ordered) {
-        results.push({
-          employeeId: t.xeroEmployeeId,
-          timesheetId: null,
-          action: "created",
-          error: msg,
-        });
+      const recoverable =
+        /idempotency key/i.test(msg) || /already exists/i.test(msg);
+      if (!recoverable) {
+        for (const t of ordered) {
+          results.push({
+            employeeId: t.xeroEmployeeId,
+            timesheetId: null,
+            action: "created",
+            error: msg,
+          });
+        }
+      } else {
+        let fresh: XeroExistingTimesheet[] = [];
+        try {
+          fresh = await listTimesheetsForPeriod(tenantId, weekStart, weekEnd);
+        } catch {
+          fresh = [];
+        }
+        const { toUpdate: u2, toCreate: c2 } = partitionForReconcile(
+          ordered,
+          fresh,
+          weekStart,
+          weekEnd,
+        );
+        for (const { input: t, timesheetID } of u2) {
+          results.push(await updateOne(t, timesheetID));
+        }
+        for (const t of c2) {
+          results.push(await createOneSalted(t));
+        }
       }
     }
   }

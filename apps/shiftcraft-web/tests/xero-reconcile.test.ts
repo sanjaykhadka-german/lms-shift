@@ -72,4 +72,38 @@ describe("partitionForReconcile", () => {
     expect(plan.toUpdate).toHaveLength(0);
     expect(plan.toCreate).toHaveLength(1);
   });
+
+  it("matches an existing timesheet anywhere inside the week window (robust to date drift)", () => {
+    // With weekEnd supplied, a start that lands mid-window (e.g. Xero returned
+    // a normalised date a day off) still updates rather than wrongly creating.
+    const plan = partitionForReconcile(
+      [input("A")],
+      [existing("A", "2026-06-24")], // inside [22, 28]
+      WEEK,
+      END,
+    );
+    expect(plan.toUpdate.map((u) => u.input.xeroEmployeeId)).toEqual(["A"]);
+    expect(plan.toCreate).toHaveLength(0);
+  });
+
+  it("still never matches a neighbouring week's timesheet (window is exclusive of other periods)", () => {
+    const plan = partitionForReconcile(
+      [input("A")],
+      [existing("A", "2026-06-21")], // Sunday of the PRIOR week — outside [22, 28]
+      WEEK,
+      END,
+    );
+    expect(plan.toUpdate).toHaveLength(0);
+    expect(plan.toCreate.map((t) => t.xeroEmployeeId)).toEqual(["A"]);
+  });
+
+  it("defaults to an exact-Monday match when weekEnd is omitted (back-compat)", () => {
+    const plan = partitionForReconcile(
+      [input("A")],
+      [existing("A", "2026-06-24")], // mid-week, but no window given
+      WEEK,
+    );
+    expect(plan.toUpdate).toHaveLength(0);
+    expect(plan.toCreate).toHaveLength(1);
+  });
 });

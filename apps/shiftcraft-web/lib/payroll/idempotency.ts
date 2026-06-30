@@ -31,13 +31,26 @@ export function sortTimesheetsForKey(
   );
 }
 
+// `attempt` salts the hash. It defaults to 0, which reproduces the original
+// content-only key — so a normal re-export of identical hours still yields the
+// same key and Xero dedupes it (no double pay). A non-zero attempt is used
+// ONLY by the create-recovery path: when Xero 400s with "Idempotency Key … is
+// used with a different request" (a key lingering in Xero's ~24h cache from an
+// earlier push of the same week — e.g. after the timesheet was deleted in Xero
+// and re-created), we retry with attempt+1 to mint a fresh key. This is safe
+// against duplicates because Xero independently rejects a second timesheet for
+// the same employee+period with "already exists" — so a salted retry can only
+// succeed when nothing is actually there to duplicate.
 export function deriveXeroIdempotencyKey(
   tenantId: string,
   weekStartIso: string,
   timesheets: XeroTimesheetInput[],
+  attempt = 0,
 ): string {
+  const sorted = sortTimesheetsForKey(timesheets);
+  const basis = attempt > 0 ? { attempt, sorted } : sorted;
   const payloadHash = createHash("sha256")
-    .update(JSON.stringify(sortTimesheetsForKey(timesheets)))
+    .update(JSON.stringify(basis))
     .digest("hex")
     .slice(0, 12);
   return `sc2-${tenantId.slice(0, 8)}-${weekStartIso}-${payloadHash}`;

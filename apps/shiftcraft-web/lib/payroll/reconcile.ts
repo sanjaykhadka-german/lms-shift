@@ -6,10 +6,16 @@ import type { XeroExistingTimesheet, XeroTimesheetInput } from "./xero";
 // which to CREATE — the core duplicate / double-pay guard, kept SDK-free so
 // it's unit-testable.
 //
-// An existing Xero timesheet only matches when it's for the same employee AND
-// its period starts on exactly our week's Monday, so we never touch an
-// unrelated period. Anything without a match (including one that was deleted
-// in Xero) is created fresh.
+// An existing Xero timesheet matches when it's for the same employee AND its
+// period start falls inside our week's window [weekStart, weekEnd]. Matching
+// the window rather than string-equality on the exact Monday makes detection
+// robust to the date normalisation drift that can come back from Xero's API
+// (e.g. a UTC-parsed start landing a few hours off) — a miss there is what
+// pushes the export down the create path and yields "this timesheet already
+// exists". Weekly periods don't overlap, so the window can only ever contain
+// this week's own timesheet. `weekEnd` defaults to `weekStart` (exact match)
+// for callers that don't supply it. Anything without a match (including one
+// deleted in Xero) is created fresh.
 
 export interface ReconcilePlan {
   toUpdate: Array<{ input: XeroTimesheetInput; timesheetID: string }>;
@@ -20,10 +26,14 @@ export function partitionForReconcile(
   timesheets: XeroTimesheetInput[],
   existing: XeroExistingTimesheet[],
   weekStart: string,
+  weekEnd: string = weekStart,
 ): ReconcilePlan {
   const existingByEmp = new Map<string, XeroExistingTimesheet>();
   for (const e of existing) {
-    if (e.startDate === weekStart) existingByEmp.set(e.employeeID, e);
+    // ISO YYYY-MM-DD compares correctly as a string.
+    if (e.startDate && e.startDate >= weekStart && e.startDate <= weekEnd) {
+      existingByEmp.set(e.employeeID, e);
+    }
   }
 
   const toUpdate: ReconcilePlan["toUpdate"] = [];
